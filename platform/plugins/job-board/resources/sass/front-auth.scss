@@ -1,0 +1,339 @@
+form.auth-form {
+    svg {
+        stroke-width: 1.25;
+        width: 24px;
+        height: 24px;
+    }
+
+    .auth-input-icon {
+        position: absolute;
+        top: 3px;
+        left: 1px;
+        z-index: 10;
+        background: transparent;
+        border: 0;
+    }
+
+    .form-control {
+        background-color: #fff;
+    }
+
+    .text-end {
+        text-align: right !important;
+    }
+
+    .text-decoration-underline {
+        text-decoration: underline !important;
+    }
+
+    .gap-3 {
+        gap: 1rem !important;
+    }
+
+    .pb-0 {
+        padding-bottom: 0 !important;
+    }
+
+    .ps-5 {
+        padding-left: 3rem !important;
+    }
+
+    .form-check {
+        display: block;
+        min-height: 1.5rem;
+        padding-left: 1.5em;
+        margin-bottom: 0.125rem;
+
+        &.form-check-inline {
+            display: inline-block;
+            margin-right: 1rem;
+        }
+
+        .form-check-input {
+            margin-left: -1.5em;
+
+            &:checked {
+                background-color: var(--primary-color);
+                border-color: var(--primary-color);
+            }
+        }
+    }
+
+    .text-primary {
+        color: var(--primary-color) !important;
+    }
+}
+
+body[dir="rtl"] {
+    .auth-card form .auth-input-icon {
+        left: auto;
+        right: 1px;
+    }
+
+    svg.icon.svg-icon-ti-ti-arrow-narrow-right {
+        transform: rotate(180deg);
+    }
+}
+
+.account-type-selection {
+    .account-type-option {
+        margin-bottom: 15px;
+        position: relative;
+
+        input[type="radio"] {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+    }
+
+    .account-type-label {
+        cursor: pointer;
+        margin-bottom: 0;
+        width: 100%;
+        display: block;
+    }
+
+    .account-type-card {
+        border: 2px solid #e9ecef;
+        border-radius: 12px;
+        padding: 24px 20px;
+        text-align: center;
+        transition: all 0.3s ease;
+        background: #fff;
+        position: relative;
+        min-height: 160px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+
+        &:hover {
+            border-color: var(--primary-color);
+            box-shadow: 0 4px 12px rgba(var(--primary-color-rgb), 0.1);
+            transform: translateY(-2px);
+        }
+    }
+
+    .account-type-option input[type="radio"]:checked + .account-type-label .account-type-card {
+        border-color: var(--primary-color);
+        box-shadow: 0 4px 16px rgba(var(--primary-color-rgb), 0.15);
+        transform: translateY(-2px);
+
+        .account-type-check {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        .account-type-icon svg {
+            color: var(--primary-color);
+        }
+    }
+
+    .account-type-check {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        width: 24px;
+        height: 24px;
+        background: var(--primary-color);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transform: scale(0.8);
+        transition: all 0.3s ease;
+
+        svg {
+            width: 14px;
+            height: 14px;
+            color: white;
+        }
+    }
+
+    .account-type-icon {
+        margin-bottom: 16px;
+
+        svg {
+            width: 40px;
+            height: 40px;
+            color: #6c757d;
+            transition: color 0.3s ease;
+        }
+    }
+
+    .account-type-content {
+        h6 {
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        p {
+            margin-bottom: 0;
+            color: #6c757d;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+    }
+}
+
+// Account Type Modal Styles
+.account-type-modal {
+    .modal-content {
+        border: none;
+        border-radius: 16px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+    }
+
+    .modal-header {
+        border-bottom: 1px solid #f1f3f4;
+        padding: 24px 32px 20px;
+
+        .modal-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1a1a1a;
+        }
+    }
+
+    .modal-body {
+        padding: 20px 32px 32px;
+    }
+
+    .modal-footer {
+        border-top: 1px solid #f1f3f4;
+        padding: 20px 32px 24px;
+        gap: 12px;
+
+        .btn {
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-weight: 500;
+        }
+
+        .btn-secondary {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            color: #6c757d;
+
+            &:hover {
+                background: #e9ecef;
+                border-color: #dee2e6;
+            }
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            border: 1px solid var(--primary-color);
+
+            &:hover {
+                background: rgba(var(--primary-color-rgb), 0.9);
+                border-color: rgba(var(--primary-color-rgb), 0.9);
+            }
+        }
+    }
+}
+
+.account-type-confirmation {
+    margin: 24px 0;
+
+    .confirmation-card {
+        background: rgba(var(--primary-color-rgb), 0.05);
+        border: 2px solid var(--primary-color);
+        border-radius: 12px;
+        padding: 20px;
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 200px;
+
+        .account-type-icon-confirm svg {
+            width: 24px;
+            height: 24px;
+            color: var(--primary-color);
+        }
+
+        .account-type-text-confirm {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--primary-color);
+        }
+    }
+}
+
+.modal-icon {
+    width: 64px;
+    height: 64px;
+    background: rgba(var(--primary-color-rgb), 0.1);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+
+    svg {
+        width: 32px;
+        height: 32px;
+        color: var(--primary-color);
+    }
+}
+
+@media (max-width: 768px) {
+    .account-type-selection {
+        .account-type-card {
+            min-height: 140px;
+            padding: 20px 16px;
+        }
+
+        .account-type-icon svg {
+            width: 32px;
+            height: 32px;
+        }
+
+        .account-type-content {
+            h6 {
+                font-size: 1rem;
+            }
+
+            p {
+                font-size: 0.85rem;
+            }
+        }
+    }
+}
+
+@keyframes checkmarkAppear {
+    0% {
+        opacity: 0;
+        transform: scale(0.5);
+    }
+    50% {
+        transform: scale(1.1);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.account-type-option input[type="radio"]:checked + .account-type-label .account-type-check {
+    animation: checkmarkAppear 0.3s ease-out;
+}
+
+.account-type-option input[type="radio"]:focus + .account-type-label .account-type-card {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+@media (prefers-contrast: high) {
+    .account-type-card {
+        border-width: 3px;
+    }
+
+    .account-type-option input[type="radio"]:checked + .account-type-label .account-type-card {
+        border-width: 3px;
+        background-color: #fff;
+    }
+}
