@@ -48,6 +48,8 @@ resources/docs
 !/lang/en
 
 /log
+/access.log
+/error.log
 
 storage/framework/laravel-excel/
 /.scribe
