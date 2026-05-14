@@ -87,6 +87,9 @@
             "@php artisan migrate --force",
             "npm install",
             "npm run prod"
+        ],
+        "deploy:production": [
+            "bash scripts/deploy-production.sh"
         ]
     },
     "extra": {
