@@ -26,7 +26,7 @@
                                         @elseif($icon = $category->getMetaData('icon', true))
                                             <i class="{{ $icon }}"></i>
                                         @endif
-                                        {{ $category->name }}
+                                        {{ $category->name }} ({{ $category->jobs_count }})
                                     </a>
                                 </div>
                             @endforeach
@@ -78,7 +78,7 @@
                                             data-url="{{ route('public.ajax.jobs-by-category', $category->getKey()) }}?limit={{ (int)$shortcode->limit ?: 8 }}"
                                         >
                                             <img src="{{ RvMedia::getImageUrl($category->getMetadata('icon_image', true)) }}" alt="{{ $category->name }}">
-                                            {{ $category->name }}
+                                            {{ $category->name }} ({{ $category->jobs_count }})
                                         </a>
                                     </div>
                                 @endforeach
@@ -135,7 +135,7 @@
                                             @elseif($icon = $category->getMetaData('icon', true))
                                                 <i class="{{ $icon }}"></i>
                                             @endif
-                                            {{ $category->name }}
+                                            {{ $category->name }} ({{ $category->jobs_count }})
                                         </a>
                                     </div>
                                 @endforeach

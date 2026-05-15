@@ -63,10 +63,10 @@ class JobTable extends TableAbstract
         return [
             IdColumn::make(),
             NameColumn::make()->route('public.account.jobs.edit'),
-            CreatedAtColumn::make(),
+            CreatedAtColumn::make()->dateFormat(BaseHelper::getDateTimeFormat())->width(170),
             FormattedColumn::make('expire_date')
                 ->title(trans('plugins/job-board::messages.expire_date'))
-                ->width(150)
+                ->width(170)
                 ->getValueUsing(function (FormattedColumn $column) {
                     $item = $column->getItem();
 
@@ -74,15 +74,21 @@ class JobTable extends TableAbstract
                         return BaseHelper::renderIcon('ti ti-infinity');
                     }
 
+                    if (! $item->expire_date) {
+                        return null;
+                    }
+
+                    $expireDate = BaseHelper::formatDateTime($item->expire_date);
+
                     if ($item->expire_date->isPast()) {
-                        return Html::tag('span', $item->expire_date->toDateString(), ['class' => 'text-danger'])->toHtml();
+                        return Html::tag('span', $expireDate, ['class' => 'text-danger'])->toHtml();
                     }
 
                     if (Carbon::now()->diffInDays($item->expire_date) < 3) {
-                        return Html::tag('span', $item->expire_date->toDateString(), ['class' => 'text-warning'])->toHtml();
+                        return Html::tag('span', $expireDate, ['class' => 'text-warning'])->toHtml();
                     }
 
-                    return $item->expire_date->toDateString();
+                    return $expireDate;
                 }),
             StatusColumn::make(),
             EnumColumn::make('moderation_status')

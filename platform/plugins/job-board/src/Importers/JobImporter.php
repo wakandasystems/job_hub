@@ -284,7 +284,7 @@ class JobImporter extends Importer
         }
 
         try {
-            return Carbon::parse($date)->format('Y-m-d');
+            return Carbon::parse($date)->format('Y-m-d H:i:s');
         } catch (Exception) {
             return null;
         }

@@ -256,6 +256,7 @@ class JobBoardServiceProvider extends ServiceProvider
                 \Botble\JobBoard\Console\Commands\CrawlRunCommand::class,
                 \Botble\JobBoard\Console\Commands\CrawlRefreshExistingCommand::class,
                 \Botble\JobBoard\Console\Commands\FixCrawledJobCategoriesCommand::class,
+                \Botble\JobBoard\Console\Commands\SocialPublishJobCommand::class,
             ]);
         }
 
@@ -422,8 +423,17 @@ class JobBoardServiceProvider extends ServiceProvider
                     'permissions' => ['companies.index'],
                 ])
                 ->registerItem([
-                    'id' => 'cms-plugins-job-board-agents',
+                    'id' => 'cms-plugins-job-board-automations',
                     'priority' => 6,
+                    'parent_id' => 'cms-plugins-job-board-main',
+                    'name' => 'Automations',
+                    'icon' => 'ti ti-share',
+                    'url' => route('job-board.automations.index'),
+                    'permissions' => ['job-board.automations.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-agents',
+                    'priority' => 7,
                     'parent_id' => 'cms-plugins-job-board-main',
                     'name' => 'Agents',
                     'icon' => 'ti ti-robot',

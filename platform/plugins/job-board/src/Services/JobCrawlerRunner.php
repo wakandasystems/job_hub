@@ -18,6 +18,7 @@ use Botble\Media\Facades\RvMedia;
 use Botble\Slug\Facades\SlugHelper;
 use Carbon\Carbon;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Symfony\Component\DomCrawler\Crawler as DomCrawler;
@@ -463,12 +464,19 @@ class JobCrawlerRunner
 
     protected function importGoZambiaJobs(JobCrawler $crawler, array $items): array
     {
+        $deletedDuplicates = $this->deleteDuplicateCrawledJobs($crawler);
+
         $stats = [
             'jobs_found' => count($items),
             'jobs_created' => 0,
             'jobs_updated' => 0,
             'jobs_skipped' => 0,
         ];
+
+        if ($deletedDuplicates > 0) {
+            $stats['jobs_deleted'] = $deletedDuplicates;
+            $this->saveMeta(['jobs_deleted' => $deletedDuplicates]);
+        }
 
         // Reuse the IDs already loaded during the fetch phase — no extra DB query needed.
         $existingSourceIds = $this->goZambiaExistingIds;
@@ -528,12 +536,24 @@ class JobCrawlerRunner
 
             $item['external_source_url'] = $detailUrl ?: '';
 
-            $newJob = Job::query()->create($this->buildGoZambiaJobAttributes($crawler, $item, $company));
-            SlugHelper::createSlug($newJob);
-            $this->assignGoZambiaCategory($newJob, $item);
-            $newJob->jobTypes()->syncWithoutDetaching([3]); // Full Time
-            $this->dispatchNewJobEvents($newJob);
-            $stats['jobs_created']++;
+            $job = Job::query()
+                ->where('crawler_id', $crawler->getKey())
+                ->where('external_source_id', $sourceId)
+                ->first();
+
+            if ($job) {
+                $job->forceFill($this->buildGoZambiaListAttributes($item))->save();
+                $this->assignGoZambiaCategory($job, $item);
+                $stats['jobs_updated']++;
+            } else {
+                $newJob = new Job();
+                $newJob->forceFill($this->buildGoZambiaJobAttributes($crawler, $item, $company))->save();
+                SlugHelper::createSlug($newJob);
+                $this->assignGoZambiaCategory($newJob, $item);
+                $newJob->jobTypes()->syncWithoutDetaching([3]); // Full Time
+                $this->dispatchNewJobEvents($newJob);
+                $stats['jobs_created']++;
+            }
 
             $this->saveNewImportProgress($index + 1, $newTotal, $stats);
         }
@@ -554,7 +574,7 @@ class JobCrawlerRunner
                     ->first();
 
                 if ($job) {
-                    $job->fill($this->buildGoZambiaListAttributes($item))->save();
+                    $job->forceFill($this->buildGoZambiaListAttributes($item))->save();
                     $this->assignGoZambiaCategory($job, $item);
                     $stats['jobs_updated']++;
                 } else {
@@ -608,10 +628,44 @@ class JobCrawlerRunner
         return $stats;
     }
 
+    protected function deleteDuplicateCrawledJobs(JobCrawler $crawler): int
+    {
+        $duplicates = DB::table('jb_jobs')
+            ->select('external_source_id')
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->groupBy('external_source_id')
+            ->havingRaw('COUNT(*) > 1')
+            ->pluck('external_source_id');
+
+        $deleted = 0;
+
+        foreach ($duplicates as $sourceId) {
+            $jobs = Job::query()
+                ->where('crawler_id', $crawler->getKey())
+                ->where('external_source_id', $sourceId)
+                ->orderByRaw('CASE WHEN status = ? THEN 0 ELSE 1 END', [(string) JobStatusEnum::PUBLISHED])
+                ->latest('updated_at')
+                ->latest('id')
+                ->get();
+
+            $jobs->shift();
+
+            foreach ($jobs as $job) {
+                $job->delete();
+                $deleted++;
+            }
+        }
+
+        return $deleted;
+    }
+
     protected function buildGoZambiaJobAttributes(JobCrawler $crawler, array $item, Company $company): array
     {
         $postedAt = data_get($item, 'posted_at');
-        $postedAtDate = $postedAt ? Carbon::parse($postedAt) : null;
+        // GoZambia sends UTC timestamps (Z suffix). Convert to the app's runtime timezone
+        // so MySQL stores local time and diffForHumans() is accurate.
+        $postedAtDate = $postedAt ? Carbon::parse($postedAt)->setTimezone(date_default_timezone_get()) : null;
         $expiresAt = data_get($item, 'validThrough')
             ?: ($postedAtDate ? $postedAtDate->copy()->addDays((int) data_get($item, 'job_expires_in_days', 30)) : null);
 
@@ -658,7 +712,7 @@ class JobCrawlerRunner
     protected function buildGoZambiaListAttributes(array $item): array
     {
         $postedAt = data_get($item, 'posted_at');
-        $postedAtDate = $postedAt ? Carbon::parse($postedAt) : null;
+        $postedAtDate = $postedAt ? Carbon::parse($postedAt)->setTimezone(date_default_timezone_get()) : null;
         $expiresAt = data_get($item, 'validThrough')
             ?: ($postedAtDate ? $postedAtDate->copy()->addDays((int) data_get($item, 'job_expires_in_days', 30)) : null);
         $address = data_get($item, 'job_location.name')
@@ -679,7 +733,7 @@ class JobCrawlerRunner
             'longitude' => data_get($item, 'job_location.longitude'),
             'expire_date' => $expiresAt ? Carbon::parse($expiresAt) : Carbon::now()->addDays(30),
             'application_closing_date' => $expiresAt ? Carbon::parse($expiresAt) : null,
-        ];
+        ] + ($postedAtDate ? ['created_at' => $postedAtDate] : []);
     }
 
     protected function spawnBackgroundCommand(string $command, int $id): void
@@ -854,6 +908,7 @@ class JobCrawlerRunner
         $parts = parse_url($sourceUrl);
         parse_str($parts['query'] ?? '', $query);
         $query['page'] = $page;
+        $query['order'] = 'posted_at';
 
         $scheme = $parts['scheme'] ?? 'https';
         $host = $parts['host'] ?? 'gozambiajobs.com';

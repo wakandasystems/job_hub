@@ -13,7 +13,7 @@ use Botble\Base\Forms\FieldOptions\SelectFieldOption;
 use Botble\Base\Forms\FieldOptions\StatusFieldOption;
 use Botble\Base\Forms\FieldOptions\TextFieldOption;
 use Botble\Base\Forms\FieldOptions\TreeCategoryFieldOption;
-use Botble\Base\Forms\Fields\DatePickerField;
+use Botble\Base\Forms\Fields\DatetimeField;
 use Botble\Base\Forms\Fields\EditorField;
 use Botble\Base\Forms\Fields\MultiCheckListField;
 use Botble\Base\Forms\Fields\OnOffField;
@@ -287,9 +287,9 @@ class JobForm extends FormAbstract
                 'label' => trans('plugins/job-board::forms.hide_salary'),
                 'default_value' => false,
             ])
-            ->add('application_closing_date', DatePickerField::class, [
+            ->add('application_closing_date', DatetimeField::class, [
                 'label' => trans('plugins/job-board::forms.application_closing_date'),
-                'value' => $model ? BaseHelper::formatDate($model->application_closing_date) : '',
+                'value' => $model?->application_closing_date?->format('Y-m-d\TH:i') ?: '',
                 'colspan' => 6,
             ])
             ->add('apply_url', 'text', [

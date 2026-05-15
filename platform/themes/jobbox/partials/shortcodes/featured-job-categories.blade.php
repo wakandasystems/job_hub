@@ -1,3 +1,5 @@
+@php($categories = $categories->where('active_jobs_count', '>', 0)->values())
+
 @switch($shortcode->style)
     @case('style-2')
         <section class="section-box mt-110 bg-cat" @if($shortcode->background_image) style="background-image: url({{ RvMedia::getImageUrl($shortcode->background_image) }});" @endif>

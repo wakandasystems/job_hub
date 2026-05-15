@@ -89,6 +89,38 @@ AdminHelper::registerRoutes(function (): void {
             ])->wherePrimaryKey();
         });
 
+        Route::group(['prefix' => 'automations', 'as' => 'job-board.automations.'], function (): void {
+            Route::get('', [
+                'as'         => 'index',
+                'uses'       => 'SocialAutomationController@index',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('', [
+                'as'         => 'store',
+                'uses'       => 'SocialAutomationController@store',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::put('{automation}', [
+                'as'         => 'update',
+                'uses'       => 'SocialAutomationController@update',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::delete('{automation}', [
+                'as'         => 'destroy',
+                'uses'       => 'SocialAutomationController@destroy',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::post('{automation}/toggle', [
+                'as'         => 'toggle',
+                'uses'       => 'SocialAutomationController@toggle',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+        });
+
         Route::group(['prefix' => 'agents', 'as' => 'job-board.crawlers.'], function (): void {
             Route::get('active-runs', [
                 'as' => 'active-runs',

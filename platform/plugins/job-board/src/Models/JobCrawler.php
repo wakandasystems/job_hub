@@ -4,11 +4,18 @@ namespace Botble\JobBoard\Models;
 
 use Botble\Base\Casts\SafeContent;
 use Botble\Base\Models\BaseModel;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class JobCrawler extends BaseModel
 {
+    public const SCHEDULE_HOURLY = 'hourly';
+
+    public const SCHEDULE_EVERY_30_MINUTES = 'every_30_minutes';
+
+    public const SCHEDULE_EVERY_15_MINUTES = 'every_15_minutes';
+
     protected $table = 'jb_job_crawlers';
 
     protected $fillable = [
@@ -52,5 +59,40 @@ class JobCrawler extends BaseModel
     public function runs(): HasMany
     {
         return $this->hasMany(JobCrawlerRun::class, 'crawler_id');
+    }
+
+    public function runningRun(int $staleAfterMinutes = 120): ?JobCrawlerRun
+    {
+        return $this->runs()
+            ->where('status', 'running')
+            ->where('started_at', '>=', Carbon::now()->subMinutes($staleAfterMinutes))
+            ->latest('id')
+            ->first();
+    }
+
+    public static function scheduleOptions(): array
+    {
+        return [
+            self::SCHEDULE_HOURLY => 'Hourly',
+            self::SCHEDULE_EVERY_30_MINUTES => 'Every 30 minutes',
+            self::SCHEDULE_EVERY_15_MINUTES => 'Every 15 minutes',
+        ];
+    }
+
+    public function scheduleIntervalMinutes(): int
+    {
+        $schedule = strtolower(trim((string) $this->schedule));
+
+        return match ($schedule) {
+            self::SCHEDULE_EVERY_15_MINUTES => 15,
+            self::SCHEDULE_EVERY_30_MINUTES => 30,
+            self::SCHEDULE_HOURLY => 60,
+            default => match (true) {
+                str_contains($schedule, '15') && str_contains($schedule, 'minute') => 15,
+                str_contains($schedule, '30') && str_contains($schedule, 'minute') => 30,
+                str_contains($schedule, 'hour') => 60,
+                default => 60,
+            },
+        };
     }
 }

@@ -74,7 +74,7 @@
                     <div class="box-swiper mt-50">
                         <div class="swiper-container swiper-group-5 swiper">
                             <div class="swiper-wrapper pb-25 pt-5">
-                                @foreach($categories as $category)
+                                @foreach($categories->where('jobs_count', '>', 0) as $category)
                                     <div class="swiper-slide hover-up">
                                         <a href="{{ $category->url }}">
                                             <div class="item-logo">

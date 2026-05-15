@@ -2,6 +2,7 @@
 
 namespace Botble\JobBoard\Http\Requests;
 
+use Botble\JobBoard\Models\JobCrawler;
 use Botble\Support\Http\Requests\Request;
 use Illuminate\Validation\Rule;
 
@@ -13,7 +14,7 @@ class JobCrawlerRequest extends Request
             'name' => ['required', 'string', 'max:255'],
             'source_url' => ['required', 'url', 'max:1000'],
             'parser_type' => ['required', Rule::in(['html', 'json', 'gozambiajobs'])],
-            'schedule' => ['nullable', 'string', 'max:120'],
+            'schedule' => ['required', 'string', Rule::in(array_keys(JobCrawler::scheduleOptions()))],
             'is_active' => ['nullable', 'bool'],
             'default_company_id' => ['nullable', 'exists:jb_companies,id'],
             'item_selector' => ['nullable', 'string'],

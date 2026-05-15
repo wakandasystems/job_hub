@@ -18,7 +18,6 @@ use Botble\Table\BulkChanges\NameBulkChange;
 use Botble\Table\BulkChanges\SelectBulkChange;
 use Botble\Table\BulkChanges\StatusBulkChange;
 use Botble\Table\BulkChanges\TextBulkChange;
-use Botble\Table\Columns\CreatedAtColumn;
 use Botble\Table\Columns\EnumColumn;
 use Botble\Table\Columns\FormattedColumn;
 use Botble\Table\Columns\IdColumn;
@@ -65,10 +64,10 @@ class JobTable extends TableAbstract
                 'moderation_status',
                 'expire_date',
                 'never_expired',
-                'application_closing_date',
                 'unique_id',
                 'company_id',
             ])
+            ->with(['company:id,name,logo'])
             ->latest('created_at');
 
         return $this->applyScopes($query);
@@ -92,11 +91,21 @@ class JobTable extends TableAbstract
                         return null;
                     }
 
-                    return Html::link(route('companies.edit', $item->company_id), $item->company->name)->toHtml();
+                    $logo = Html::image($item->company->logo_thumb, $item->company->name, [
+                        'style' => 'width:28px;height:28px;object-fit:contain;border-radius:4px;margin-right:6px;vertical-align:middle;',
+                    ])->toHtml();
+
+                    return Html::link(
+                        route('companies.edit', $item->company_id),
+                        $logo . e($item->company->name),
+                        [],
+                        null,
+                        false
+                    )->toHtml();
                 }),
             FormattedColumn::make('expire_date')
                 ->title(trans('plugins/job-board::messages.expire_date'))
-                ->width(150)
+                ->width(170)
                 ->getValueUsing(function (FormattedColumn $column) {
                     $item = $column->getItem();
 
@@ -104,17 +113,29 @@ class JobTable extends TableAbstract
                         return BaseHelper::renderIcon('ti ti-infinity');
                     }
 
+                    if (! $item->expire_date) {
+                        return null;
+                    }
+
+                    $expireDate = BaseHelper::formatDate($item->expire_date);
+
                     if ($item->expire_date->isPast()) {
-                        return Html::tag('span', $item->expire_date->toDateString(), ['class' => 'text-danger'])->toHtml();
+                        return Html::tag('span', $expireDate, ['class' => 'text-danger'])->toHtml();
                     }
 
                     if (Carbon::now()->diffInDays($item->expire_date) < 3) {
-                        return Html::tag('span', $item->expire_date->toDateString(), ['class' => 'text-warning'])->toHtml();
+                        return Html::tag('span', $expireDate, ['class' => 'text-warning'])->toHtml();
                     }
 
-                    return $item->expire_date->toDateString();
+                    return $expireDate;
                 }),
-            CreatedAtColumn::make(),
+            FormattedColumn::make('created_at')
+                ->title('Age')
+                ->width(120)
+                ->getValueUsing(fn (FormattedColumn $column) => Carbon::parse($column->getItem()->created_at)->diffForHumans([
+                    'parts' => 2,
+                    'short' => true,
+                ])),
             StatusColumn::make(),
             EnumColumn::make('moderation_status')
                 ->title(trans('plugins/job-board::job.moderation_status'))

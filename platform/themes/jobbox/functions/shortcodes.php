@@ -62,6 +62,7 @@ app()->booted(function (): void {
                     ->with(['slugable', 'metadata'])
                     ->withCount(['activeJobs as jobs_count'])
                     ->wherePublished()
+                    ->having('jobs_count', '>', 0)
                     ->get();
 
                 return Theme::partial('shortcodes.search-box', compact('shortcode', 'categories'));
@@ -79,17 +80,30 @@ app()->booted(function (): void {
             __('Featured job categories'),
             __('Featured job categories'),
             function (Shortcode $shortcode) {
-                $categories = Category::query()
+                $limit = (int) $shortcode->limit_category ?: Arr::first(JobBoardHelper::getPerPageParams());
+
+                $categoriesQuery = Category::query()
                     ->wherePublished()
-                    ->where('is_featured', true)
-                    ->oldest('order')->latest()
                     ->withCount(['activeJobs'])
                     ->with([
                         'slugable',
                         'metadata',
-                    ])
-                    ->limit((int) $shortcode->limit_category ?: Arr::first(JobBoardHelper::getPerPageParams()))
+                    ]);
+
+                $categories = (clone $categoriesQuery)
+                    ->where('is_featured', true)
+                    ->whereHas('activeJobs')
+                    ->oldest('order')->latest()
+                    ->limit($limit)
                     ->get();
+
+                if ($categories->isEmpty()) {
+                    $categories = $categoriesQuery
+                        ->whereHas('activeJobs')
+                        ->oldest('order')->latest()
+                        ->limit($limit)
+                        ->get();
+                }
 
                 return Theme::partial('shortcodes.featured-job-categories', compact('shortcode', 'categories'));
             }
@@ -140,17 +154,31 @@ app()->booted(function (): void {
             $categoryIds = [];
 
             if ($shortcode->job_categories) {
-                $categoryIds = explode(',', $shortcode->job_categories);
+                $categoryIds = array_filter(array_map('intval', explode(',', $shortcode->job_categories)));
             }
 
-            if (empty($categoryIds)) {
-                return null;
-            }
-
-            $categories = Category::query()
+            $categoriesQuery = Category::query()
                 ->wherePublished()
-                ->whereIn('id', $categoryIds)
-                ->get();
+                ->with(['slugable', 'metadata'])
+                ->withCount(['activeJobs as jobs_count'])
+                ->having('jobs_count', '>', 0);
+
+            if ($categoryIds) {
+                $categories = (clone $categoriesQuery)
+                    ->whereIn('id', $categoryIds)
+                    ->oldest('order')
+                    ->get();
+            } else {
+                $categories = collect();
+            }
+
+            if ($categories->isEmpty()) {
+                $categories = $categoriesQuery
+                    ->oldest('order')
+                    ->latest()
+                    ->limit(6)
+                    ->get();
+            }
 
             $with = [
                 'slugable',
@@ -173,7 +201,7 @@ app()->booted(function (): void {
             $jobs = app(JobInterface::class)
                 ->getJobs(
                     [
-                        'job_categories' => $categories->pluck('id')->all(),
+                        'job_categories' => $categories->first() ? [$categories->first()->getKey()] : [],
                     ],
                     [
                         'with' => $with,

@@ -16,6 +16,7 @@ use Botble\JobBoard\Listeners\NewApplicationNotification;
 use Botble\JobBoard\Listeners\RenderingSiteMapListener;
 use Botble\JobBoard\Listeners\SaveFavoriteTagAndSkillsListener;
 use Botble\JobBoard\Listeners\SendJobAlertListener;
+use Botble\JobBoard\Listeners\SocialPublishListener;
 use Botble\JobBoard\Listeners\SubscribedPackageListener;
 use Botble\JobBoard\Listeners\UpdatedContentListener;
 use Botble\Payment\Events\PaymentWebhookReceived;
@@ -34,6 +35,7 @@ class EventServiceProvider extends ServiceProvider
         ],
         JobPublishedEvent::class => [
             SendJobAlertListener::class,
+            SocialPublishListener::class,
         ],
         EmployerPostedJobEvent::class => [
             EmployerPostedJobListener::class,

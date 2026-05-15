@@ -49,9 +49,10 @@ class JobCrawlerForm extends FormAbstract
                 ],
                 'colspan' => 6,
             ])
-            ->add('schedule', TextField::class, [
+            ->add('schedule', SelectField::class, [
                 'label' => 'Schedule',
-                'attr' => ['placeholder' => 'Every 30 minutes, hourly, daily, or cron: */30 * * * *'],
+                'choices' => JobCrawler::scheduleOptions(),
+                'default_value' => JobCrawler::SCHEDULE_HOURLY,
                 'colspan' => 6,
             ])
             ->add('default_company_id', SelectField::class, [
