@@ -31,6 +31,9 @@ class Job extends BaseModel
 
     protected $fillable = [
         'name',
+        'crawler_id',
+        'external_source_id',
+        'external_source_url',
         'description',
         'content',
         'company_id',
@@ -70,6 +73,8 @@ class Job extends BaseModel
         'application_closing_date',
         'zip_code',
         'unique_id',
+        'moderation_status',
+        'never_expired',
     ];
 
     protected $casts = [
