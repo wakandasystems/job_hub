@@ -643,7 +643,7 @@ class JobCrawlerRunner
                 : SalaryTypeEnum::HIDDEN,
             'currency_id' => $this->currencyIdForCode((string) data_get($item, 'compensation_currency')),
             'career_level_id' => 3, // Experienced Professional
-            'is_featured' => (bool) data_get($item, 'featured'),
+            'is_featured' => false,
             'latitude' => data_get($item, 'job_location.latitude'),
             'longitude' => data_get($item, 'job_location.longitude'),
             'expire_date' => $expiresAt ? Carbon::parse($expiresAt) : Carbon::now()->addDays(30),
@@ -674,7 +674,7 @@ class JobCrawlerRunner
             'salary_type' => (data_get($item, 'min_compensation') || data_get($item, 'max_compensation'))
                 ? SalaryTypeEnum::FIXED
                 : SalaryTypeEnum::HIDDEN,
-            'is_featured' => (bool) data_get($item, 'featured'),
+            'is_featured' => false,
             'latitude' => data_get($item, 'job_location.latitude'),
             'longitude' => data_get($item, 'job_location.longitude'),
             'expire_date' => $expiresAt ? Carbon::parse($expiresAt) : Carbon::now()->addDays(30),

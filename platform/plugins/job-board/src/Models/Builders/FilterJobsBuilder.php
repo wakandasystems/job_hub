@@ -202,10 +202,10 @@ class FilterJobsBuilder extends BaseQueryBuilder
 
         if ($filters['date_posted'] && $date = Arr::get(JobBoardHelper::postedDateRanges(), $filters['date_posted'])) {
             if ($start = Arr::get($date, 'start')) {
-                $this->whereDate('jb_jobs.created_at', '<=', $start);
+                $this->where('jb_jobs.created_at', '<=', $start);
             }
             if ($end = Arr::get($date, 'end')) {
-                $this->whereDate('jb_jobs.created_at', '>=', $end);
+                $this->where('jb_jobs.created_at', '>=', $end);
             }
         }
 
