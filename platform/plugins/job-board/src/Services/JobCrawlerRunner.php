@@ -2,11 +2,13 @@
 
 namespace Botble\JobBoard\Services;
 
+use Botble\Base\Events\CreatedContentEvent;
 use Botble\JobBoard\Enums\JobStatusEnum;
 use Botble\JobBoard\Enums\ModerationStatusEnum;
 use Botble\JobBoard\Enums\SalaryRangeEnum;
 use Botble\JobBoard\Enums\SalaryTypeEnum;
 use Botble\Base\Enums\BaseStatusEnum;
+use Botble\JobBoard\Events\JobPublishedEvent;
 use Botble\JobBoard\Models\Company;
 use Botble\JobBoard\Models\Currency;
 use Botble\JobBoard\Models\Job;
@@ -234,6 +236,7 @@ class JobCrawlerRunner
                 SlugHelper::createSlug($newJob);
                 $this->syncJobCategories($newJob);
                 $newJob->jobTypes()->syncWithoutDetaching([3]); // Full Time
+                $this->dispatchNewJobEvents($newJob);
                 $stats['jobs_created']++;
             }
         }
@@ -434,11 +437,18 @@ class JobCrawlerRunner
                 SlugHelper::createSlug($newJob);
                 $this->syncJobCategories($newJob);
                 $newJob->jobTypes()->syncWithoutDetaching([3]); // Full Time
+                $this->dispatchNewJobEvents($newJob);
                 $stats['jobs_created']++;
             }
         }
 
         return $stats;
+    }
+
+    protected function dispatchNewJobEvents(Job $job): void
+    {
+        event(new CreatedContentEvent(JOB_MODULE_SCREEN_NAME, request(), $job));
+        event(new JobPublishedEvent($job));
     }
 
     protected function firstOrCreateGoZambiaCompany(array $employer): ?Company
