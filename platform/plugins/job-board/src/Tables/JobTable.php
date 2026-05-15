@@ -33,6 +33,10 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 
 class JobTable extends TableAbstract
 {
+    protected bool $bStateSave = false;
+
+    protected ?string $defaultSortColumnName = 'created_at';
+
     public function setup(): void
     {
         $this
@@ -64,7 +68,8 @@ class JobTable extends TableAbstract
                 'application_closing_date',
                 'unique_id',
                 'company_id',
-            ]);
+            ])
+            ->latest('created_at');
 
         return $this->applyScopes($query);
     }

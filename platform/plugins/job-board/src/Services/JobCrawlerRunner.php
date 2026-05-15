@@ -459,17 +459,7 @@ class JobCrawlerRunner
         }
 
         $website = $this->normalizeGoZambiaCompanyWebsite((string) data_get($employer, 'website'));
-        // SafeContent cast encodes HTML entities on write, so match against the stored form
-        $storedName = htmlspecialchars($name, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $company = Company::query()
-            ->where(function ($q) use ($website, $name, $storedName) {
-                if ($website) {
-                    $q->where('website', $website);
-                }
-                $q->orWhere('name', $name)
-                  ->orWhere('name', $storedName);
-            })
-            ->first();
+        $company = $this->findGoZambiaCompany($name, $website);
 
         $attributes = [
             'name' => $this->limitGoZambiaField($name, 110),
@@ -501,6 +491,37 @@ class JobCrawlerRunner
         }
 
         return $company;
+    }
+
+    protected function findGoZambiaCompany(string $name, ?string $website): ?Company
+    {
+        $normalizedName = $this->normalizeGoZambiaCompanyName($name);
+
+        return Company::query()
+            ->where(function ($query) use ($website, $name): void {
+                if ($website) {
+                    $query->where('website', $website);
+                }
+
+                $query->orWhereIn('name', array_values(array_unique([
+                    $name,
+                    html_entity_decode($name, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+                    htmlspecialchars($name, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                ])));
+            })
+            ->get()
+            ->first(fn (Company $company) => $this->normalizeGoZambiaCompanyName((string) $company->name) === $normalizedName);
+    }
+
+    protected function normalizeGoZambiaCompanyName(string $name): string
+    {
+        $name = html_entity_decode(str_replace('&amp;', '&', $name), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        return Str::of($name)
+            ->replaceMatches('/\s+/', ' ')
+            ->trim()
+            ->lower()
+            ->toString();
     }
 
     protected function limitGoZambiaField(string $value, int $limit): string

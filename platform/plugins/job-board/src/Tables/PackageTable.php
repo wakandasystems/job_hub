@@ -11,6 +11,7 @@ use Botble\Table\BulkChanges\CreatedAtBulkChange;
 use Botble\Table\BulkChanges\NameBulkChange;
 use Botble\Table\BulkChanges\StatusBulkChange;
 use Botble\Table\Columns\CreatedAtColumn;
+use Botble\Table\Columns\FormattedColumn;
 use Botble\Table\Columns\IdColumn;
 use Botble\Table\Columns\NameColumn;
 use Botble\Table\Columns\StatusColumn;
@@ -35,9 +36,13 @@ class PackageTable extends TableAbstract
         $query = $this
             ->getModel()
             ->query()
+            ->with('currency')
             ->select([
                 'id',
                 'name',
+                'price',
+                'currency_id',
+                'number_of_listings',
                 'created_at',
                 'status',
             ]);
@@ -50,6 +55,11 @@ class PackageTable extends TableAbstract
         return [
             IdColumn::make(),
             NameColumn::make()->route('packages.edit'),
+            FormattedColumn::make('price')
+                ->title(trans('plugins/job-board::invoice.table.amount'))
+                ->getValueUsing(fn (FormattedColumn $column) => $column->getItem()->price_text),
+            FormattedColumn::make('number_of_listings')
+                ->title(trans('plugins/job-board::package.number_of_listings')),
             StatusColumn::make(),
             CreatedAtColumn::make(),
         ];
