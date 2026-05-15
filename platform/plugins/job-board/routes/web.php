@@ -108,7 +108,7 @@ AdminHelper::registerRoutes(function (): void {
         });
 
         Route::group(['prefix' => 'agent-runs', 'as' => 'job-board.crawler-runs.'], function (): void {
-            Route::get('', [
+            Route::match(['GET', 'POST'], '', [
                 'as' => 'index',
                 'uses' => 'JobCrawlerRunController@index',
                 'permission' => 'job-board.crawler-runs.index',
