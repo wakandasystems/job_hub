@@ -90,6 +90,12 @@ AdminHelper::registerRoutes(function (): void {
         });
 
         Route::group(['prefix' => 'agents', 'as' => 'job-board.crawlers.'], function (): void {
+            Route::get('active-runs', [
+                'as' => 'active-runs',
+                'uses' => 'JobCrawlerController@activeRuns',
+                'permission' => 'job-board.crawlers.run',
+            ]);
+
             Route::post('{crawler}/run', [
                 'as' => 'run',
                 'uses' => 'JobCrawlerController@run',

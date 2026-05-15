@@ -16,6 +16,7 @@ use Botble\JobBoard\Models\JobCrawlerRun;
 use Botble\JobBoard\Tables\JobCrawlerTable;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use JsonException;
 
 class JobCrawlerController extends BaseController
@@ -67,7 +68,14 @@ class JobCrawlerController extends BaseController
 
     public function update(JobCrawler $crawler, JobCrawlerRequest $request)
     {
-        $crawler->fill($this->prepareInput($request))->save();
+        $input = $this->prepareInput($request);
+        $scheduleChanged = $crawler->schedule !== $input['schedule'];
+
+        if ($scheduleChanged) {
+            $input['next_run_at'] = null;
+        }
+
+        $crawler->fill($input)->save();
 
         event(new UpdatedContentEvent('job-crawler', $request, $crawler));
 
@@ -77,14 +85,58 @@ class JobCrawlerController extends BaseController
             ->withUpdatedSuccessMessage();
     }
 
+    public function activeRuns()
+    {
+        $runs = JobCrawlerRun::query()
+            ->where('status', 'running')
+            ->where('started_at', '>=', Carbon::now()->subMinutes(120))
+            ->get(['id', 'crawler_id']);
+
+        return $this->httpResponse()->setData(
+            $runs->map(fn (JobCrawlerRun $run) => [
+                'crawler_id' => $run->crawler_id,
+                'status_url' => route('job-board.crawlers.run-status', [
+                    'crawler' => $run->crawler_id,
+                    'run' => $run->id,
+                ]),
+                'run_url' => route('job-board.crawler-runs.show', $run->id),
+            ])
+        );
+    }
+
     public function run(JobCrawler $crawler)
     {
-        $run = JobCrawlerRun::query()->create([
-            'crawler_id' => $crawler->getKey(),
-            'status' => 'running',
-            'started_at' => Carbon::now(),
-            'meta' => ['current_page' => 0, 'total_pages' => 20, 'jobs_found_so_far' => 0],
-        ]);
+        $usingExistingRun = false;
+
+        $run = DB::transaction(function () use ($crawler, &$usingExistingRun) {
+            $crawler = JobCrawler::query()
+                ->whereKey($crawler->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($runningRun = $crawler->runningRun()) {
+                $usingExistingRun = true;
+
+                return $runningRun;
+            }
+
+            return JobCrawlerRun::query()->create([
+                'crawler_id' => $crawler->getKey(),
+                'status' => 'running',
+                'started_at' => Carbon::now(),
+                'meta' => ['stage' => 'scanning', 'current_page' => 0, 'total_pages' => 20, 'jobs_found_so_far' => 0],
+            ]);
+        });
+
+        if ($usingExistingRun) {
+            return $this->httpResponse()
+                ->setData([
+                    'run_id' => $run->id,
+                    'status_url' => route('job-board.crawlers.run-status', ['crawler' => $crawler->id, 'run' => $run->id]),
+                    'run_url' => route('job-board.crawler-runs.show', $run->id),
+                ])
+                ->setMessage('This agent is already running — monitoring the existing run.');
+        }
 
         $php = PHP_BINARY;
         if (str_contains($php, 'fpm') || ! is_executable($php)) {
@@ -109,12 +161,28 @@ class JobCrawlerController extends BaseController
 
         return $this->httpResponse()->setData([
             'status' => $run->status,
+            'stage' => $meta['stage'] ?? 'scanning',
             'current_page' => $meta['current_page'] ?? 0,
             'total_pages' => $meta['total_pages'] ?? 20,
             'jobs_found_so_far' => $meta['jobs_found_so_far'] ?? 0,
-            'jobs_created' => $run->jobs_created,
-            'jobs_updated' => $run->jobs_updated,
-            'jobs_skipped' => $run->jobs_skipped,
+            'new_found_so_far' => $meta['new_found_so_far'] ?? 0,
+            // new jobs phase
+            'new_current' => $meta['new_current'] ?? 0,
+            'new_total' => $meta['new_total'] ?? 0,
+            // existing jobs phase
+            'existing_current' => $meta['existing_current'] ?? 0,
+            'existing_total' => $meta['existing_total'] ?? 0,
+            // background refresh
+            'bg_queued' => $meta['bg_queued'] ?? 0,
+            'bg_status' => $meta['bg_status'] ?? null,
+            'bg_checked' => $meta['bg_checked'] ?? 0,
+            'bg_updated' => $meta['bg_updated'] ?? 0,
+            // stats
+            'jobs_unpublished' => $meta['jobs_unpublished'] ?? 0,
+            'jobs_found' => $run->jobs_found ?: ($meta['jobs_found'] ?? 0),
+            'jobs_created' => $run->jobs_created ?: ($meta['jobs_created'] ?? 0),
+            'jobs_updated' => $run->jobs_updated ?: ($meta['jobs_updated'] ?? 0),
+            'jobs_skipped' => $run->jobs_skipped ?: ($meta['jobs_skipped'] ?? 0),
             'error_message' => $run->error_message,
             'run_url' => route('job-board.crawler-runs.show', $run->id),
         ]);
@@ -129,6 +197,7 @@ class JobCrawlerController extends BaseController
     {
         $input = $request->input();
         $input['is_active'] = $request->boolean('is_active');
+        $input['schedule'] = $request->input('schedule', JobCrawler::SCHEDULE_HOURLY);
         $input['field_mappings'] = null;
 
         $mappings = trim((string) $request->input('field_mappings'));

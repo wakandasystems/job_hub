@@ -252,7 +252,11 @@ class JobBoardServiceProvider extends ServiceProvider
             ->loadJsonTranslationsFrom($this->getPath() . '/resources/lang');
 
         if ($this->app->runningInConsole()) {
-            $this->commands([\Botble\JobBoard\Console\Commands\CrawlRunCommand::class]);
+            $this->commands([
+                \Botble\JobBoard\Console\Commands\CrawlRunCommand::class,
+                \Botble\JobBoard\Console\Commands\CrawlRefreshExistingCommand::class,
+                \Botble\JobBoard\Console\Commands\FixCrawledJobCategoriesCommand::class,
+            ]);
         }
 
         PanelSectionManager::beforeRendering(function (): void {

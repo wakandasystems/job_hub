@@ -36,8 +36,20 @@ class RunJobCrawlersCommand extends Command
         }
 
         foreach ($crawlers as $crawler) {
+            if ($runningRun = $crawler->runningRun()) {
+                $this->components->info(sprintf(
+                    'Skipping crawler agent %s because run #%d is still running.',
+                    $crawler->name,
+                    $runningRun->id
+                ));
+
+                continue;
+            }
+
             $this->components->info(sprintf('Running crawler agent: %s', $crawler->name));
 
+            // --all disables the early-stop so we scan every page and can detect removed jobs.
+            $runner->disableEarlyStop = $this->option('all');
             $run = $runner->run($crawler);
             $crawler->next_run_at = $this->nextRunAt($crawler);
             $crawler->save();
@@ -58,15 +70,6 @@ class RunJobCrawlersCommand extends Command
 
     protected function nextRunAt(JobCrawler $crawler): ?Carbon
     {
-        $schedule = strtolower(trim((string) $crawler->schedule));
-
-        return match (true) {
-            str_contains($schedule, '5') && str_contains($schedule, 'minute') => Carbon::now()->addMinutes(5),
-            str_contains($schedule, '15') && str_contains($schedule, 'minute') => Carbon::now()->addMinutes(15),
-            str_contains($schedule, '30') && str_contains($schedule, 'minute') => Carbon::now()->addMinutes(30),
-            str_contains($schedule, 'hour') => Carbon::now()->addHour(),
-            str_contains($schedule, 'day') || str_contains($schedule, 'daily') => Carbon::now()->addDay(),
-            default => Carbon::now()->addHour(),
-        };
+        return Carbon::now()->addMinutes($crawler->scheduleIntervalMinutes());
     }
 }

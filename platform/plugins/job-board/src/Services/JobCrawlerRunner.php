@@ -27,13 +27,25 @@ class JobCrawlerRunner
 {
     protected ?JobCrawlerRun $currentRun = null;
 
+    /** Pre-loaded existing external_source_ids for the current GoZambia crawl (keyed for O(1) lookup). */
+    protected array $goZambiaExistingIds = [];
+
+    /** Per-run cache of resolved Category models keyed by normalised name. */
+    protected array $categoryCache = [];
+
+    /** True when the GoZambia scan reached GoZambia's natural end (not early-stopped). */
+    protected bool $goZambiaFullScan = false;
+
+    /** When true, skip the early-stop optimisation and scan every GoZambia page. */
+    public bool $disableEarlyStop = false;
+
     public function run(JobCrawler $crawler): JobCrawlerRun
     {
         $run = JobCrawlerRun::query()->create([
             'crawler_id' => $crawler->getKey(),
             'status' => 'running',
             'started_at' => Carbon::now(),
-            'meta' => ['current_page' => 0, 'total_pages' => 20, 'jobs_found_so_far' => 0],
+            'meta' => ['stage' => 'scanning', 'current_page' => 0, 'total_pages' => 20, 'jobs_found_so_far' => 0],
         ]);
 
         $this->executeRun($crawler, $run);
@@ -43,7 +55,10 @@ class JobCrawlerRunner
 
     public function executeRun(JobCrawler $crawler, JobCrawlerRun $run): void
     {
-        $this->currentRun = $run;
+        $this->currentRun          = $run;
+        $this->categoryCache       = [];
+        $this->goZambiaExistingIds = [];
+        $this->goZambiaFullScan    = false;
 
         try {
             $items = $this->fetchItems($crawler);
@@ -52,6 +67,7 @@ class JobCrawlerRunner
             $run->fill([
                 'status' => 'success',
                 'finished_at' => Carbon::now(),
+                'meta' => array_merge($run->meta ?? [], ['stage' => 'completed']),
                 ...$stats,
             ])->save();
 
@@ -80,17 +96,45 @@ class JobCrawlerRunner
         }
     }
 
-    protected function saveProgress(int $page, int $jobsFoundSoFar): void
+    protected function saveMeta(array $fields): void
     {
         if (! $this->currentRun) {
             return;
         }
 
-        $this->currentRun->meta = array_merge($this->currentRun->meta ?? [], [
+        $this->currentRun->meta = array_merge($this->currentRun->meta ?? [], $fields);
+        $this->currentRun->saveQuietly();
+    }
+
+    protected function saveProgress(int $page, int $jobsFoundSoFar, int $newFoundSoFar = 0): void
+    {
+        $this->saveMeta([
+            'stage' => 'scanning',
             'current_page' => $page,
             'jobs_found_so_far' => $jobsFoundSoFar,
+            'new_found_so_far' => $newFoundSoFar,
         ]);
-        $this->currentRun->saveQuietly();
+    }
+
+    protected function saveNewImportProgress(int $current, int $total, array $stats = []): void
+    {
+        $this->saveMeta([
+            'stage' => 'importing_new',
+            'new_current' => $current,
+            'new_total' => $total,
+            'jobs_created' => $stats['jobs_created'] ?? 0,
+            'jobs_skipped' => $stats['jobs_skipped'] ?? 0,
+        ]);
+    }
+
+    protected function saveExistingUpdateProgress(int $current, int $total, array $stats = []): void
+    {
+        $this->saveMeta([
+            'stage' => 'updating_existing',
+            'existing_current' => $current,
+            'existing_total' => $total,
+            'jobs_updated' => $stats['jobs_updated'] ?? 0,
+        ]);
     }
 
     protected function fetchItems(JobCrawler $crawler): array
@@ -165,6 +209,45 @@ class JobCrawlerRunner
         }
 
         return $all;
+    }
+
+    /**
+     * Find or create a category matching the GoZambia category name, with deduplication.
+     * Returns null for "Other" or empty names — those jobs won't be force-assigned a category.
+     */
+    public function resolveGoZambiaCategory(string $rawName): ?\Botble\JobBoard\Models\Category
+    {
+        $name = trim(html_entity_decode($rawName, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+
+        if ($name === '' || strtolower($name) === 'other') {
+            return null;
+        }
+
+        $key = mb_strtolower($name);
+
+        if (array_key_exists($key, $this->categoryCache)) {
+            return $this->categoryCache[$key];
+        }
+
+        $category = \Botble\JobBoard\Models\Category::query()
+            ->whereRaw('LOWER(name) = ?', [$key])
+            ->first();
+
+        if (! $category) {
+            $category = \Botble\JobBoard\Models\Category::query()->create([
+                'name'   => $name,
+                'status' => \Botble\Base\Enums\BaseStatusEnum::PUBLISHED,
+            ]);
+            SlugHelper::createSlug($category);
+        }
+
+        return $this->categoryCache[$key] = $category;
+    }
+
+    protected function assignGoZambiaCategory(Job $job, array $item): void
+    {
+        $category = $this->resolveGoZambiaCategory((string) data_get($item, 'category.name'));
+        $job->categories()->sync($category ? [$category->id] : []);
     }
 
     protected function syncJobCategories(Job $job): void
@@ -295,17 +378,37 @@ class JobCrawlerRunner
         return $attribute ? $nodes->first()->attr(trim($attribute)) : $nodes->first()->text('');
     }
 
+    // -------------------------------------------------------------------------
+    // GoZambia — fetch (list pages only, no detail pages)
+    // -------------------------------------------------------------------------
+
     protected function fetchGoZambiaJobs(JobCrawler $crawler): array
     {
-        $jobs = [];
-        $seenIds = [];
+        // Pre-load all known IDs so we can detect "caught up" pages and stop early.
+        $this->goZambiaExistingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->toArray();
+
+        $isFirstRun  = empty($this->goZambiaExistingIds);
+        $jobs        = [];
+        $seenIds     = [];
+        $totalNew    = 0;
 
         for ($page = 1; $page <= 20; $page++) {
-            $this->saveProgress($page, count($jobs));
+            $this->saveProgress($page, count($jobs), $totalNew);
+
+            // Polite throttle between page requests to avoid rate-limiting.
+            if ($page > 1) {
+                usleep(500_000); // 0.5 s
+            }
 
             $response = $this->goZambiaRequest($this->goZambiaPageUrl($crawler->source_url, $page));
 
             if ($response->notFound()) {
+                $this->goZambiaFullScan = true; // reached GoZambia's natural end
                 break;
             }
 
@@ -313,50 +416,50 @@ class JobCrawlerRunner
 
             $html = $response->body();
             if ($this->goZambiaHasNoMatches($html)) {
+                $this->goZambiaFullScan = true;
                 break;
             }
 
             $pageJobs = $this->extractGoZambiaJobsList($html);
             if (empty($pageJobs)) {
+                $this->goZambiaFullScan = true;
                 break;
             }
+
+            $newOnPage = 0;
 
             foreach ($pageJobs as $job) {
                 $id = (string) data_get($job, 'id');
                 if ($id !== '' && isset($seenIds[$id])) {
                     continue;
                 }
-
                 if ($id !== '') {
                     $seenIds[$id] = true;
                 }
-
                 $jobs[] = $job;
-            }
-        }
 
-        return array_map(function (array $job): array {
-            $detailUrl = $this->absoluteGoZambiaUrl((string) data_get($job, 'job_details_path'));
-
-            if ($detailUrl) {
-                try {
-                    $detailResponse = $this->goZambiaRequest($detailUrl);
-                    if ($detailResponse->successful()) {
-                        $detailJob = $this->extractGoZambiaDetailJob($detailResponse->body());
-                        if ($detailJob) {
-                            $job = array_replace_recursive($job, $detailJob);
-                        }
-                    }
-                } catch (Throwable) {
-                    // Keep the list payload if a single detail page fails.
+                if ($id !== '' && ! array_key_exists($id, $this->goZambiaExistingIds)) {
+                    $newOnPage++;
+                    $totalNew++;
                 }
             }
 
-            $job['external_source_url'] = $detailUrl ?: $this->absoluteGoZambiaUrl((string) data_get($job, 'job_details_path'));
+            // After the first page, stop as soon as an entire page contains only
+            // jobs we already have — we've caught up with known history.
+            // Skipped when $disableEarlyStop is set (e.g. --all flag) so we can
+            // detect removed jobs across all pages.
+            if (! $this->disableEarlyStop && ! $isFirstRun && $page > 1 && $newOnPage === 0) {
+                // goZambiaFullScan stays false — we didn't reach GoZambia's end.
+                break;
+            }
+        }
 
-            return $job;
-        }, $jobs);
+        return $jobs;
     }
+
+    // -------------------------------------------------------------------------
+    // GoZambia — import
+    // -------------------------------------------------------------------------
 
     protected function importGoZambiaJobs(JobCrawler $crawler, array $items): array
     {
@@ -367,82 +470,233 @@ class JobCrawlerRunner
             'jobs_skipped' => 0,
         ];
 
+        // Reuse the IDs already loaded during the fetch phase — no extra DB query needed.
+        $existingSourceIds = $this->goZambiaExistingIds;
+
+        $newItems = [];
+        $existingItems = [];
+
         foreach ($items as $item) {
+            $id = (string) data_get($item, 'id');
+            if ($id !== '' && array_key_exists($id, $existingSourceIds)) {
+                $existingItems[] = $item;
+            } else {
+                $newItems[] = $item;
+            }
+        }
+
+        $newTotal = count($newItems);
+        $existingTotal = count($existingItems);
+
+        // --- Phase 1: fetch detail pages + import for new jobs only ---
+        $this->saveNewImportProgress(0, $newTotal, $stats);
+
+        foreach ($newItems as $index => $item) {
             $sourceId = (string) data_get($item, 'id');
             $title = trim((string) data_get($item, 'title'));
 
             if ($sourceId === '' || $title === '') {
                 $stats['jobs_skipped']++;
-
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
                 continue;
             }
 
             $company = $this->firstOrCreateGoZambiaCompany((array) data_get($item, 'employer', []));
             if (! $company) {
                 $stats['jobs_skipped']++;
-
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
                 continue;
             }
 
-            $description = $this->sanitizeGoZambiaHtml((string) data_get($item, 'description'));
-            $sourceUrl = (string) data_get($item, 'external_source_url') ?: $this->absoluteGoZambiaUrl((string) data_get($item, 'job_details_path'));
-            $postedAt = data_get($item, 'posted_at');
-            $postedAtDate = $postedAt ? Carbon::parse($postedAt) : null;
-            $expiresAt = data_get($item, 'validThrough')
-                ?: ($postedAtDate ? $postedAtDate->copy()->addDays((int) data_get($item, 'job_expires_in_days', 30)) : null);
+            // Only new jobs get a detail-page fetch.
+            $detailPath = (string) data_get($item, 'job_details_path');
+            $detailUrl = $this->absoluteGoZambiaUrl($detailPath);
 
-            $address = data_get($item, 'job_location.name')
-                ?: data_get($item, 'location')
-                ?: 'Zambia';
+            if ($detailUrl) {
+                try {
+                    $detailResponse = $this->goZambiaRequest($detailUrl);
+                    if ($detailResponse->successful()) {
+                        $detail = $this->extractGoZambiaDetailJob($detailResponse->body());
+                        if ($detail) {
+                            $item = array_replace_recursive($item, $detail);
+                        }
+                    }
+                } catch (Throwable) {
+                    // Keep list data if detail page fails.
+                }
+            }
 
-            $attributes = [
-                'crawler_id' => $crawler->getKey(),
-                'external_source_id' => $sourceId,
-                'external_source_url' => $sourceUrl,
-                'name' => $this->limitGoZambiaField($title, 110),
-                'description' => Str::limit(trim(strip_tags($description)), 400, ''),
-                'content' => $description ?: Str::limit(trim(strip_tags($description)), 400, ''),
-                'company_id' => $company->getKey(),
-                'address' => $address,
-                'country_id' => 7, // Zambia
-                'apply_url' => $this->normalizeApplyTarget((string) data_get($item, 'apply_to')),
-                'status' => JobStatusEnum::PUBLISHED,
-                'moderation_status' => ModerationStatusEnum::APPROVED,
-                'salary_from' => data_get($item, 'min_compensation'),
-                'salary_to' => data_get($item, 'max_compensation'),
-                'salary_range' => $this->goZambiaSalaryRange((string) data_get($item, 'compensation_time_frame')),
-                'salary_type' => (data_get($item, 'min_compensation') || data_get($item, 'max_compensation')) ? SalaryTypeEnum::FIXED : SalaryTypeEnum::HIDDEN,
-                'currency_id' => $this->currencyIdForCode((string) data_get($item, 'compensation_currency')),
-                'career_level_id' => 3, // Experienced Professional
-                'is_featured' => (bool) data_get($item, 'featured'),
-                'latitude' => data_get($item, 'job_location.latitude'),
-                'longitude' => data_get($item, 'job_location.longitude'),
-                'expire_date' => $expiresAt ? Carbon::parse($expiresAt) : Carbon::now()->addDays(30),
-                'application_closing_date' => $expiresAt ? Carbon::parse($expiresAt) : null,
-                'never_expired' => false,
-                'created_at' => $postedAtDate ?? Carbon::now(),
-                'updated_at' => $postedAtDate ?? Carbon::now(),
-            ];
+            $item['external_source_url'] = $detailUrl ?: '';
 
-            $job = Job::query()
-                ->where('crawler_id', $crawler->getKey())
-                ->where('external_source_id', $sourceId)
-                ->first();
+            $newJob = Job::query()->create($this->buildGoZambiaJobAttributes($crawler, $item, $company));
+            SlugHelper::createSlug($newJob);
+            $this->assignGoZambiaCategory($newJob, $item);
+            $newJob->jobTypes()->syncWithoutDetaching([3]); // Full Time
+            $this->dispatchNewJobEvents($newJob);
+            $stats['jobs_created']++;
 
-            if ($job) {
-                $job->fill($attributes)->save();
-                $stats['jobs_updated']++;
+            $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+        }
+
+        // --- Phase 2: update existing jobs from list data only (no HTTP) ---
+        $this->saveExistingUpdateProgress(0, $existingTotal, $stats);
+
+        foreach ($existingItems as $index => $item) {
+            $sourceId = (string) data_get($item, 'id');
+            $title = trim((string) data_get($item, 'title'));
+
+            if ($sourceId === '' || $title === '') {
+                $stats['jobs_skipped']++;
             } else {
-                $newJob = Job::query()->create($attributes);
-                SlugHelper::createSlug($newJob);
-                $this->syncJobCategories($newJob);
-                $newJob->jobTypes()->syncWithoutDetaching([3]); // Full Time
-                $this->dispatchNewJobEvents($newJob);
-                $stats['jobs_created']++;
+                $job = Job::query()
+                    ->where('crawler_id', $crawler->getKey())
+                    ->where('external_source_id', $sourceId)
+                    ->first();
+
+                if ($job) {
+                    $job->fill($this->buildGoZambiaListAttributes($item))->save();
+                    $this->assignGoZambiaCategory($job, $item);
+                    $stats['jobs_updated']++;
+                } else {
+                    $stats['jobs_skipped']++;
+                }
+            }
+
+            // Save progress every 10 items to reduce DB writes.
+            if ($index % 10 === 9 || $index === $existingTotal - 1) {
+                $this->saveExistingUpdateProgress($index + 1, $existingTotal, $stats);
             }
         }
 
+        // --- Phase 3: unpublish jobs no longer found on GoZambia (full scan only) ---
+        if ($this->goZambiaFullScan) {
+            $scannedIds = array_map(fn ($i) => (string) data_get($i, 'id'), $items);
+            $scannedIds = array_filter($scannedIds); // remove empty strings
+
+            $unpublishedCount = Job::query()
+                ->where('crawler_id', $crawler->getKey())
+                ->where('status', JobStatusEnum::PUBLISHED)
+                ->whereNotNull('external_source_id')
+                ->whereNotIn('external_source_id', $scannedIds)
+                ->update(['status' => JobStatusEnum::DRAFT]);
+
+            if ($unpublishedCount > 0) {
+                $this->saveMeta(['jobs_unpublished' => $unpublishedCount]);
+                $stats['jobs_unpublished'] = $unpublishedCount;
+            }
+        }
+
+        // --- Phase 4: queue existing jobs for background detail refresh ---
+        $existingMap = [];
+        foreach ($existingItems as $item) {
+            $id = (string) data_get($item, 'id');
+            $path = (string) data_get($item, 'job_details_path');
+            if ($id !== '' && $path !== '') {
+                $existingMap[$id] = $path;
+            }
+        }
+
+        if ($this->currentRun && ! empty($existingMap)) {
+            $this->saveMeta([
+                'bg_queued' => count($existingMap),
+                'bg_status' => 'pending',
+                'existing_to_refresh' => $existingMap,
+            ]);
+            $this->spawnBackgroundCommand('job-board:crawl-refresh', $this->currentRun->getKey());
+        }
+
         return $stats;
+    }
+
+    protected function buildGoZambiaJobAttributes(JobCrawler $crawler, array $item, Company $company): array
+    {
+        $postedAt = data_get($item, 'posted_at');
+        $postedAtDate = $postedAt ? Carbon::parse($postedAt) : null;
+        $expiresAt = data_get($item, 'validThrough')
+            ?: ($postedAtDate ? $postedAtDate->copy()->addDays((int) data_get($item, 'job_expires_in_days', 30)) : null);
+
+        $sourceUrl = (string) data_get($item, 'external_source_url')
+            ?: $this->absoluteGoZambiaUrl((string) data_get($item, 'job_details_path'));
+        $description = $this->sanitizeGoZambiaHtml((string) data_get($item, 'description'));
+        $address = data_get($item, 'job_location.name')
+            ?: data_get($item, 'location')
+            ?: 'Zambia';
+
+        return [
+            'crawler_id' => $crawler->getKey(),
+            'external_source_id' => (string) data_get($item, 'id'),
+            'external_source_url' => $sourceUrl,
+            'name' => $this->limitGoZambiaField(trim((string) data_get($item, 'title')), 110),
+            'description' => Str::limit(trim(strip_tags($description)), 400, ''),
+            'content' => $description ?: Str::limit(trim(strip_tags($description)), 400, ''),
+            'company_id' => $company->getKey(),
+            'address' => $address,
+            'country_id' => 7, // Zambia
+            'apply_url' => $this->normalizeApplyTarget((string) data_get($item, 'apply_to')),
+            'status' => JobStatusEnum::PUBLISHED,
+            'moderation_status' => ModerationStatusEnum::APPROVED,
+            'salary_from' => data_get($item, 'min_compensation'),
+            'salary_to' => data_get($item, 'max_compensation'),
+            'salary_range' => $this->goZambiaSalaryRange((string) data_get($item, 'compensation_time_frame')),
+            'salary_type' => (data_get($item, 'min_compensation') || data_get($item, 'max_compensation'))
+                ? SalaryTypeEnum::FIXED
+                : SalaryTypeEnum::HIDDEN,
+            'currency_id' => $this->currencyIdForCode((string) data_get($item, 'compensation_currency')),
+            'career_level_id' => 3, // Experienced Professional
+            'is_featured' => (bool) data_get($item, 'featured'),
+            'latitude' => data_get($item, 'job_location.latitude'),
+            'longitude' => data_get($item, 'job_location.longitude'),
+            'expire_date' => $expiresAt ? Carbon::parse($expiresAt) : Carbon::now()->addDays(30),
+            'application_closing_date' => $expiresAt ? Carbon::parse($expiresAt) : null,
+            'never_expired' => false,
+            'created_at' => $postedAtDate ?? Carbon::now(),
+            'updated_at' => $postedAtDate ?? Carbon::now(),
+        ];
+    }
+
+    // Only fields available from the list page — no detail fetch needed.
+    protected function buildGoZambiaListAttributes(array $item): array
+    {
+        $postedAt = data_get($item, 'posted_at');
+        $postedAtDate = $postedAt ? Carbon::parse($postedAt) : null;
+        $expiresAt = data_get($item, 'validThrough')
+            ?: ($postedAtDate ? $postedAtDate->copy()->addDays((int) data_get($item, 'job_expires_in_days', 30)) : null);
+        $address = data_get($item, 'job_location.name')
+            ?: data_get($item, 'location')
+            ?: 'Zambia';
+
+        return [
+            'name' => $this->limitGoZambiaField(trim((string) data_get($item, 'title')), 110),
+            'address' => $address,
+            'salary_from' => data_get($item, 'min_compensation'),
+            'salary_to' => data_get($item, 'max_compensation'),
+            'salary_range' => $this->goZambiaSalaryRange((string) data_get($item, 'compensation_time_frame')),
+            'salary_type' => (data_get($item, 'min_compensation') || data_get($item, 'max_compensation'))
+                ? SalaryTypeEnum::FIXED
+                : SalaryTypeEnum::HIDDEN,
+            'is_featured' => (bool) data_get($item, 'featured'),
+            'latitude' => data_get($item, 'job_location.latitude'),
+            'longitude' => data_get($item, 'job_location.longitude'),
+            'expire_date' => $expiresAt ? Carbon::parse($expiresAt) : Carbon::now()->addDays(30),
+            'application_closing_date' => $expiresAt ? Carbon::parse($expiresAt) : null,
+        ];
+    }
+
+    protected function spawnBackgroundCommand(string $command, int $id): void
+    {
+        $php = PHP_BINARY;
+        if (str_contains($php, 'fpm') || ! is_executable($php)) {
+            $php = '/usr/bin/php';
+        }
+
+        $artisan = base_path('artisan');
+        \exec(sprintf(
+            '%s %s %s %d > /dev/null 2>&1 &',
+            escapeshellcmd($php),
+            escapeshellarg($artisan),
+            $command,
+            $id
+        ));
     }
 
     protected function dispatchNewJobEvents(Job $job): void
@@ -610,11 +864,10 @@ class JobCrawlerRunner
 
     protected function goZambiaHasNoMatches(string $html): bool
     {
-        return str_contains($html, 'Sorry, we couldn’t find any matches for your search.')
-            || str_contains($html, "Sorry, we couldn't find any matches for your search.");
+        return str_contains($html, "Sorry, we couldn't find any matches for your search.");
     }
 
-    protected function extractGoZambiaJobsList(string $html): array
+    public function extractGoZambiaJobsList(string $html): array
     {
         $jobs = [];
         $offset = 0;
@@ -634,7 +887,7 @@ class JobCrawlerRunner
         return $jobs;
     }
 
-    protected function extractGoZambiaDetailJob(string $html): ?array
+    public function extractGoZambiaDetailJob(string $html): ?array
     {
         $position = strpos($html, 'window.job =');
         if ($position === false) {
