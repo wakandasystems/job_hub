@@ -89,6 +89,38 @@ AdminHelper::registerRoutes(function (): void {
             ])->wherePrimaryKey();
         });
 
+        Route::group(['prefix' => 'agents', 'as' => 'job-board.crawlers.'], function (): void {
+            Route::post('{crawler}/run', [
+                'as' => 'run',
+                'uses' => 'JobCrawlerController@run',
+                'permission' => 'job-board.crawlers.run',
+            ])->wherePrimaryKey();
+
+            Route::get('{crawler}/run-status/{run}', [
+                'as' => 'run-status',
+                'uses' => 'JobCrawlerController@runStatus',
+                'permission' => 'job-board.crawlers.run',
+            ])->where(['crawler' => '[0-9]+', 'run' => '[0-9]+']);
+
+            Route::resource('', 'JobCrawlerController')
+                ->parameters(['' => 'crawler'])
+                ->except('show');
+        });
+
+        Route::group(['prefix' => 'agent-runs', 'as' => 'job-board.crawler-runs.'], function (): void {
+            Route::get('', [
+                'as' => 'index',
+                'uses' => 'JobCrawlerRunController@index',
+                'permission' => 'job-board.crawler-runs.index',
+            ]);
+
+            Route::get('{run}', [
+                'as' => 'show',
+                'uses' => 'JobCrawlerRunController@show',
+                'permission' => 'job-board.crawler-runs.index',
+            ])->wherePrimaryKey();
+        });
+
         Route::group(['prefix' => 'job-types', 'as' => 'job-types.'], function (): void {
             Route::resource('', 'JobTypeController')
                 ->parameters(['' => 'job-type']);

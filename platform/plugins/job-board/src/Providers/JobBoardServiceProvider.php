@@ -251,6 +251,10 @@ class JobBoardServiceProvider extends ServiceProvider
             ->publishAssets()
             ->loadJsonTranslationsFrom($this->getPath() . '/resources/lang');
 
+        if ($this->app->runningInConsole()) {
+            $this->commands([\Botble\JobBoard\Console\Commands\CrawlRunCommand::class]);
+        }
+
         PanelSectionManager::beforeRendering(function (): void {
             PanelSectionManager::default()
                 ->register(SettingJobBoardPanelSection::class);
@@ -413,11 +417,29 @@ class JobBoardServiceProvider extends ServiceProvider
                     'url' => route('companies.index'),
                     'permissions' => ['companies.index'],
                 ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-agents',
+                    'priority' => 6,
+                    'parent_id' => 'cms-plugins-job-board-main',
+                    'name' => 'Agents',
+                    'icon' => 'ti ti-robot',
+                    'url' => route('job-board.crawlers.index'),
+                    'permissions' => ['job-board.crawlers.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-agent-runs',
+                    'priority' => 7,
+                    'parent_id' => 'cms-plugins-job-board-main',
+                    'name' => 'Agent Runs',
+                    'icon' => 'ti ti-history',
+                    'url' => route('job-board.crawler-runs.index'),
+                    'permissions' => ['job-board.crawler-runs.index'],
+                ])
                 ->when(JobBoardHelper::isEnabledCreditsSystem(), static function (DashboardMenuSupport $dashboardMenu): void {
                     $dashboardMenu
                         ->registerItem([
                             'id' => 'cms-plugins-job-board-invoice',
-                            'priority' => 6,
+                            'priority' => 8,
                             'parent_id' => 'cms-plugins-job-board-main',
                             'name' => 'plugins/job-board::invoice.name',
                             'icon' => 'ti ti-file-invoice',

@@ -36,6 +36,36 @@ return [
         'parent_flag' => 'jobs.index',
     ],
     [
+        'name' => 'Agents',
+        'flag' => 'job-board.crawlers.index',
+        'parent_flag' => 'plugins.job-board',
+    ],
+    [
+        'name' => 'Create',
+        'flag' => 'job-board.crawlers.create',
+        'parent_flag' => 'job-board.crawlers.index',
+    ],
+    [
+        'name' => 'Edit',
+        'flag' => 'job-board.crawlers.edit',
+        'parent_flag' => 'job-board.crawlers.index',
+    ],
+    [
+        'name' => 'Run',
+        'flag' => 'job-board.crawlers.run',
+        'parent_flag' => 'job-board.crawlers.index',
+    ],
+    [
+        'name' => 'Delete',
+        'flag' => 'job-board.crawlers.destroy',
+        'parent_flag' => 'job-board.crawlers.index',
+    ],
+    [
+        'name' => 'Agent Runs',
+        'flag' => 'job-board.crawler-runs.index',
+        'parent_flag' => 'plugins.job-board',
+    ],
+    [
         'name' => 'Job Applications',
         'flag' => 'job-applications.index',
         'parent_flag' => 'plugins.job-board',

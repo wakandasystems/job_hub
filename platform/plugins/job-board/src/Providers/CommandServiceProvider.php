@@ -4,6 +4,7 @@ namespace Botble\JobBoard\Providers;
 
 use Botble\JobBoard\Commands\CheckExpiredJobsSoonCommand;
 use Botble\JobBoard\Commands\RenewJobsCommand;
+use Botble\JobBoard\Commands\RunJobCrawlersCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
 
@@ -18,11 +19,13 @@ class CommandServiceProvider extends ServiceProvider
         $this->commands([
             RenewJobsCommand::class,
             CheckExpiredJobsSoonCommand::class,
+            RunJobCrawlersCommand::class,
         ]);
 
         $this->app->afterResolving(Schedule::class, function (Schedule $schedule): void {
             $schedule->command(RenewJobsCommand::class)->dailyAt('23:30');
             $schedule->command(CheckExpiredJobsSoonCommand::class)->dailyAt('23:30');
+            $schedule->command(RunJobCrawlersCommand::class)->everyFifteenMinutes();
         });
     }
 }
