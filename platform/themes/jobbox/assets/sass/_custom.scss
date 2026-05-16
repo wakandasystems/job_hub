@@ -2524,35 +2524,52 @@ form.auth-form {
     border-radius: 999px;
 }
 
-// "X more features" pill button
+// "X more features" chip
 .pricing-see-all {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    background: none;
-    border: 1.5px solid currentColor;
-    border-radius: 999px;
-    padding: 5px 13px;
-    font-size: 12.5px;
+    gap: 7px;
+    background: rgba(60, 101, 245, .07);
+    border: none;
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--primary-color);
     cursor: pointer;
-    transition: background .15s ease, color .15s ease;
+    transition: background .18s ease, color .18s ease, box-shadow .18s ease;
+    width: 100%;
+    justify-content: space-between;
 
-    svg { flex-shrink: 0; }
+    .pricing-see-all__label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .pricing-see-all__arrow {
+        font-size: 16px;
+        line-height: 1;
+        transition: transform .18s ease;
+    }
 
     &:hover {
         background: var(--primary-color);
         color: #fff;
+        box-shadow: 0 4px 12px rgba(60, 101, 245, .25);
+
+        .pricing-see-all__arrow {
+            transform: translateX(3px);
+        }
     }
 
     &--light {
-        color: rgba(255, 255, 255, .9);
-        border-color: rgba(255, 255, 255, .5);
+        background: rgba(255, 255, 255, .15);
+        color: #fff;
 
         &:hover {
-            background: rgba(255, 255, 255, .2);
-            color: #fff;
+            background: rgba(255, 255, 255, .28);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, .15);
         }
     }
 }

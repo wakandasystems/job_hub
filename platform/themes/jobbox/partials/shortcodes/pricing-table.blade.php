@@ -82,8 +82,14 @@
                                                 class="pricing-see-all @if($popular) pricing-see-all--light @endif"
                                                 data-bs-toggle="modal"
                                                 data-bs-target="#{{ $modalId }}">
-                                            <svg width="14" height="14" viewBox="0 0 28 28" fill="none"><circle opacity="0.15" cx="14" cy="14" r="14" fill="currentColor"/><path d="M10 14h8M14 10l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                                            {{ count($hidden) }} more feature{{ count($hidden) > 1 ? 's' : '' }}
+                                            <span class="pricing-see-all__label">
+                                                <svg width="14" height="14" viewBox="0 0 28 28" fill="none">
+                                                    <circle opacity="0.2" cx="14" cy="14" r="14" fill="currentColor"/>
+                                                    <path d="M9 14h10M14 9l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                                </svg>
+                                                View {{ count($hidden) }} more feature{{ count($hidden) > 1 ? 's' : '' }}
+                                            </span>
+                                            <span class="pricing-see-all__arrow">›</span>
                                         </button>
                                     </div>
                                 @endif
