@@ -118,6 +118,38 @@ if (! function_exists('wakanda_detect_country_code')) {
     }
 }
 
+if (! function_exists('wakanda_encode_country_id')) {
+    function wakanda_encode_country_id(int $countryId): string
+    {
+        $encrypted = \Illuminate\Support\Facades\Crypt::encryptString((string) $countryId);
+
+        return rtrim(strtr(base64_encode($encrypted), '+/', '-_'), '=');
+    }
+}
+
+if (! function_exists('wakanda_decode_country_token')) {
+    function wakanda_decode_country_token(?string $token): ?int
+    {
+        if (! $token) {
+            return null;
+        }
+
+        try {
+            $encrypted = base64_decode(strtr($token, '-_', '+/'), true);
+
+            if (! $encrypted) {
+                return null;
+            }
+
+            $countryId = (int) \Illuminate\Support\Facades\Crypt::decryptString($encrypted);
+
+            return $countryId > 0 ? $countryId : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+}
+
 if (! function_exists('wakanda_country_from_host')) {
     function wakanda_country_from_host()
     {
@@ -166,16 +198,16 @@ if (! function_exists('wakanda_selected_country')) {
             return $selectedCountry = false;
         }
 
-        if ($country = wakanda_country_from_host()) {
-            return $selectedCountry = $country;
-        }
-
-        $countryId = (int) request()->query('country_id')
+        $countryId = wakanda_decode_country_token(request()->query('c'))
             ?: (int) session('wakanda_country_id')
             ?: (int) request()->cookie('wakanda_country_id')
             ?: (int) optional(auth('account')->user())->country_id;
 
         if ($countryId && $country = $countries->firstWhere('id', $countryId)) {
+            return $selectedCountry = $country;
+        }
+
+        if ($country = wakanda_country_from_host()) {
             return $selectedCountry = $country;
         }
 

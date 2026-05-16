@@ -12,7 +12,7 @@
     <div class="form-find position-relative mt-40 wow animate__animated animate__fadeIn" data-wow-delay=".2s">
         {!! Form::open(['url' => JobBoardHelper::getJobsPageURL(), 'method' => 'GET', 'data-quick-search-url' => route('public.ajax.quick-search-jobs')]) !!}
             @if ($selectedCountry = wakanda_selected_country())
-                <input type="hidden" name="country_id" value="{{ $selectedCountry->id }}">
+                <input type="hidden" name="c" value="{{ wakanda_encode_country_id($selectedCountry->id) }}">
             @endif
 
             @if (isset($style))

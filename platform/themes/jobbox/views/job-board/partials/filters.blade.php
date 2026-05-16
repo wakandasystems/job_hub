@@ -15,7 +15,7 @@
                 <input type="hidden" name="layout" />
                 <input type="hidden" name="sort_by" value="{{ BaseHelper::stringify(request()->query('sort_by')) }}" />
                 @if ($selectedCountry = wakanda_selected_country())
-                    <input type="hidden" name="country_id" value="{{ $selectedCountry->id }}" />
+                    <input type="hidden" name="c" value="{{ wakanda_encode_country_id($selectedCountry->id) }}" />
                 @endif
 
                 @if(Request::has('job_category') || isset($category))

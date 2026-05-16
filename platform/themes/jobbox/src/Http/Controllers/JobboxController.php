@@ -27,11 +27,15 @@ class JobboxController extends PublicController
     public function setLocalizationCountry(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'country_id' => ['required', 'integer', 'exists:countries,id'],
+            'c' => ['required', 'string'],
             'redirect' => ['nullable', 'string'],
         ]);
 
-        $country = Country::query()->findOrFail($validated['country_id']);
+        $countryId = wakanda_decode_country_token($validated['c']);
+
+        abort_unless($countryId, 404);
+
+        $country = Country::query()->findOrFail($countryId);
 
         session()->put('wakanda_country_id', $country->id);
         Cookie::queue('wakanda_country_id', $country->id, 60 * 24 * 365);
@@ -44,13 +48,14 @@ class JobboxController extends PublicController
 
         $parts = parse_url($redirect);
         parse_str($parts['query'] ?? '', $query);
-        $query['country_id'] = $country->id;
+        unset($query['country_id']);
+        $query['c'] = wakanda_encode_country_id($country->id);
 
         $redirect = ($parts['scheme'] ?? request()->getScheme()) . '://'
             . ($parts['host'] ?? request()->getHost())
             . (isset($parts['port']) ? ':' . $parts['port'] : '')
             . ($parts['path'] ?? '/')
-            . '?' . http_build_query($query);
+            . ($query ? '?' . http_build_query($query) : '');
 
         return redirect()->to($redirect);
     }
@@ -191,6 +196,7 @@ class JobboxController extends PublicController
     {
         $validated = $request->validate([
             'job_categories' => ['nullable', 'string'],
+            'c' => ['nullable', 'string'],
             'country_id' => ['nullable', 'integer'],
             'location' => ['nullable', 'string'],
             'keyword' => ['nullable', 'string'],
