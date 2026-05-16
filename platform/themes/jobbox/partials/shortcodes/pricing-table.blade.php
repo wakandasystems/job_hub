@@ -39,12 +39,12 @@
                                  @if($popular) style="background:{{ $color }};" @endif>
 
                                 {{-- Audience badge --}}
-                                <div class="mb-10">
+                                <div class="pricing-badge-row mb-10">
                                     <span class="pricing-audience-badge @if($popular) pricing-audience-badge--light @endif">
                                         {{ $meta['label'] }}
                                     </span>
                                     @if ($popular)
-                                        <span class="pricing-hot-badge ms-2">⭐ Most Popular</span>
+                                        <span class="pricing-hot-badge">⭐ Most Popular</span>
                                     @endif
                                 </div>
 
@@ -82,7 +82,8 @@
                                                 class="pricing-see-all @if($popular) pricing-see-all--light @endif"
                                                 data-bs-toggle="modal"
                                                 data-bs-target="#{{ $modalId }}">
-                                            + {{ count($hidden) }} more feature{{ count($hidden) > 1 ? 's' : '' }} &rarr;
+                                            <svg width="14" height="14" viewBox="0 0 28 28" fill="none"><circle opacity="0.15" cx="14" cy="14" r="14" fill="currentColor"/><path d="M10 14h8M14 10l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                            {{ count($hidden) }} more feature{{ count($hidden) > 1 ? 's' : '' }}
                                         </button>
                                     </div>
                                 @endif

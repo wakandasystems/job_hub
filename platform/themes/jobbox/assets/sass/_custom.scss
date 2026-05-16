@@ -2456,6 +2456,11 @@ form.auth-form {
     color: #fff;
 }
 
+// White feature text + icon on popular card
+.block-pricing .most-popular .list-package-feature li {
+    color: #fff;
+}
+
 .block-pricing .most-popular .btn.btn-white {
     background: #fff;
     color: var(--primary-color);
@@ -2473,7 +2478,7 @@ form.auth-form {
 .pricing-desc {
     text-align: justify;
     hyphens: auto;
-    min-height: 60px; // keeps all descriptions roughly the same visual weight
+    min-height: 60px;
 }
 
 // Feature list — fills available space so CTA always at bottom
@@ -2481,28 +2486,16 @@ form.auth-form {
     flex: 1;
 }
 
-// "X more features" link
-.pricing-see-all {
-    display: inline-block;
-    background: none;
-    border: none;
-    padding: 0;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--primary-color);
-    cursor: pointer;
-    text-decoration: underline;
-    text-underline-offset: 3px;
-
-    &:hover {
-        opacity: .75;
-    }
-
-    &--light {
-        color: rgba(255, 255, 255, .9);
-    }
+// Badge row — centred
+.pricing-badge-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
+// Audience label pill
 .pricing-audience-badge {
     display: inline-block;
     font-size: 11px;
@@ -2521,10 +2514,47 @@ form.auth-form {
 }
 
 .pricing-hot-badge {
+    display: inline-flex;
+    align-items: center;
     font-size: 11px;
     font-weight: 700;
     color: #fff;
-    opacity: .85;
+    background: rgba(255, 255, 255, .18);
+    padding: 3px 10px;
+    border-radius: 999px;
+}
+
+// "X more features" pill button
+.pricing-see-all {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: 1.5px solid currentColor;
+    border-radius: 999px;
+    padding: 5px 13px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--primary-color);
+    cursor: pointer;
+    transition: background .15s ease, color .15s ease;
+
+    svg { flex-shrink: 0; }
+
+    &:hover {
+        background: var(--primary-color);
+        color: #fff;
+    }
+
+    &--light {
+        color: rgba(255, 255, 255, .9);
+        border-color: rgba(255, 255, 255, .5);
+
+        &:hover {
+            background: rgba(255, 255, 255, .2);
+            color: #fff;
+        }
+    }
 }
 
 // Modal
