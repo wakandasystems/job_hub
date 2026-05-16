@@ -2524,54 +2524,61 @@ form.auth-form {
     border-radius: 999px;
 }
 
-// "X more features" chip
+// "X more features" chip — scoped under .ck-content to beat CKEditor's button reset
+.ck-content .pricing-see-all,
 .pricing-see-all {
-    display: inline-flex;
-    align-items: center;
+    display: inline-flex !important;
+    align-items: center !important;
     gap: 7px;
-    background: rgba(60, 101, 245, .07);
-    border: none;
-    border-radius: 8px;
-    padding: 7px 14px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--primary-color);
-    cursor: pointer;
+    background: rgba(60, 101, 245, .08) !important;
+    border: none !important;
+    border-radius: 8px !important;
+    padding: 8px 14px !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: var(--primary-color) !important;
+    cursor: pointer !important;
     transition: background .18s ease, color .18s ease, box-shadow .18s ease;
-    width: 100%;
-    justify-content: space-between;
+    width: 100% !important;
+    justify-content: space-between !important;
+    line-height: 1.4 !important;
+    text-decoration: none !important;
+    outline: none !important;
+}
 
-    .pricing-see-all__label {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-    }
+.pricing-see-all__label {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+}
+
+.pricing-see-all__arrow {
+    font-size: 18px !important;
+    line-height: 1 !important;
+    transition: transform .18s ease;
+}
+
+.ck-content .pricing-see-all:hover,
+.pricing-see-all:hover {
+    background: var(--primary-color) !important;
+    color: #fff !important;
+    box-shadow: 0 4px 14px rgba(60, 101, 245, .28) !important;
 
     .pricing-see-all__arrow {
-        font-size: 16px;
-        line-height: 1;
-        transition: transform .18s ease;
+        transform: translateX(4px);
     }
+}
 
-    &:hover {
-        background: var(--primary-color);
-        color: #fff;
-        box-shadow: 0 4px 12px rgba(60, 101, 245, .25);
+.ck-content .pricing-see-all--light,
+.pricing-see-all--light {
+    background: rgba(255, 255, 255, .15) !important;
+    color: #fff !important;
+}
 
-        .pricing-see-all__arrow {
-            transform: translateX(3px);
-        }
-    }
-
-    &--light {
-        background: rgba(255, 255, 255, .15);
-        color: #fff;
-
-        &:hover {
-            background: rgba(255, 255, 255, .28);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, .15);
-        }
-    }
+.ck-content .pricing-see-all--light:hover,
+.pricing-see-all--light:hover {
+    background: rgba(255, 255, 255, .28) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, .15) !important;
 }
 
 // Modal
