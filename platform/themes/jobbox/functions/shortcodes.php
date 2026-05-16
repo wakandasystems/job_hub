@@ -376,7 +376,7 @@ app()->booted(function (): void {
 
         add_shortcode('pricing-table', __('Pricing Table'), __('Pricing Table'), function (Shortcode $shortcode) {
             $packages = Package::query()
-                ->wherePublished()->latest()
+                ->wherePublished()->oldest('order')
                 ->take((int) $shortcode->number_of_package ?: 6)
                 ->get();
 
