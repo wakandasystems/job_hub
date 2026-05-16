@@ -5,6 +5,7 @@ namespace Theme\Jobbox\Http\Controllers;
 use Botble\Base\Facades\BaseHelper;
 use Botble\Base\Http\Responses\BaseHttpResponse;
 use Botble\JobBoard\Facades\JobBoardHelper;
+use Botble\JobBoard\Models\Currency;
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Repositories\Interfaces\CategoryInterface;
 use Botble\JobBoard\Repositories\Interfaces\JobInterface;
@@ -39,6 +40,14 @@ class JobboxController extends PublicController
 
         session()->put('wakanda_country_id', $country->id);
         Cookie::queue('wakanda_country_id', $country->id, 60 * 24 * 365);
+
+        $currencyCode = cms_currency()->countryCurrencies()[strtoupper((string) $country->code)] ?? null;
+        if ($currencyCode) {
+            $currency = Currency::query()->where('title', $currencyCode)->first();
+            if ($currency) {
+                cms_currency()->setApplicationCurrency($currency);
+            }
+        }
 
         $redirect = $validated['redirect'] ?? url()->previous() ?: route('public.index');
 
