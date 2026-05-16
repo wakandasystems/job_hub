@@ -2440,6 +2440,69 @@ form.auth-form {
 
 // ── Pricing table helpers ─────────────────────────────────────────────────────
 
+// Equal-height cards — flex column so CTA pins to bottom
+.block-pricing .pricing-card-equal {
+    display: flex;
+    flex-direction: column;
+}
+
+// Remove the negative margin-top on most-popular so row heights stay equal
+.block-pricing .most-popular {
+    margin-top: 0 !important;
+}
+
+.block-pricing .most-popular h3,
+.block-pricing .most-popular .text-desc-package {
+    color: #fff;
+}
+
+.block-pricing .most-popular .btn.btn-white {
+    background: #fff;
+    color: var(--primary-color);
+    border-color: #fff;
+    font-weight: 700;
+
+    &:hover {
+        background: transparent;
+        color: #fff;
+        border-color: #fff;
+    }
+}
+
+// Justified description
+.pricing-desc {
+    text-align: justify;
+    hyphens: auto;
+    min-height: 60px; // keeps all descriptions roughly the same visual weight
+}
+
+// Feature list — fills available space so CTA always at bottom
+.pricing-features-list {
+    flex: 1;
+}
+
+// "X more features" link
+.pricing-see-all {
+    display: inline-block;
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--primary-color);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+
+    &:hover {
+        opacity: .75;
+    }
+
+    &--light {
+        color: rgba(255, 255, 255, .9);
+    }
+}
+
 .pricing-audience-badge {
     display: inline-block;
     font-size: 11px;
@@ -2464,20 +2527,52 @@ form.auth-form {
     opacity: .85;
 }
 
-.block-pricing .most-popular .btn.btn-white {
-    background: #fff;
-    color: var(--primary-color);
-    border-color: #fff;
-    font-weight: 700;
+// Modal
+.pricing-modal {
+    border-radius: 16px;
+    overflow: hidden;
 
-    &:hover {
-        background: transparent;
-        color: #fff;
-        border-color: #fff;
+    &__header {
+        padding: 20px 24px 16px;
+        border-bottom: 1px solid var(--border-color-2);
     }
-}
 
-.block-pricing .most-popular h3,
-.block-pricing .most-popular .text-desc-package {
-    color: #fff;
+    &__title {
+        font-size: 17px;
+        font-weight: 700;
+        margin: 0;
+    }
+
+    &__body {
+        padding: 20px 24px;
+    }
+
+    &__list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+
+        li {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            font-size: 14px;
+            color: #374151;
+            line-height: 1.45;
+
+            svg {
+                flex-shrink: 0;
+                margin-top: 1px;
+            }
+        }
+    }
+
+    &__footer {
+        padding: 14px 24px;
+        border-top: 1px solid var(--border-color-2);
+        gap: 10px;
+    }
 }

@@ -1,12 +1,13 @@
 @php
     $audienceMeta = [
-        0 => ['label' => 'For Individuals',  'cta' => 'Get Started Free'],
-        1 => ['label' => 'For Individuals',  'cta' => 'Boost My Profile'],
-        2 => ['label' => 'For Companies',    'cta' => 'Start Hiring Now'],
-        3 => ['label' => 'For Companies',    'cta' => 'Scale Up Hiring'],
-        4 => ['label' => 'For Companies',    'cta' => 'Go Enterprise'],
-        5 => ['label' => 'For Recruiters',   'cta' => 'Join as a Pro'],
+        0 => ['label' => 'For Individuals', 'cta' => 'Get Started Free'],
+        1 => ['label' => 'For Individuals', 'cta' => 'Boost My Profile'],
+        2 => ['label' => 'For Companies',   'cta' => 'Start Hiring Now'],
+        3 => ['label' => 'For Companies',   'cta' => 'Scale Up Hiring'],
+        4 => ['label' => 'For Companies',   'cta' => 'Go Enterprise'],
+        5 => ['label' => 'For Recruiters',  'cta' => 'Join as a Pro'],
     ];
+    $maxVisible = 6;
 @endphp
 
 <section class="section-box mt-90 mb-50">
@@ -17,20 +18,25 @@
         <div class="font-lg color-text-paragraph-2 text-center">
             {!! BaseHelper::clean($shortcode->subtitle) !!}
         </div>
+
         <div class="max-width-price">
             <div class="block-pricing mt-70">
-                <div class="row align-items-center">
+                <div class="row align-items-stretch">
                     @foreach ($packages as $package)
                         @php
                             $idx      = $loop->index;
                             $meta     = $audienceMeta[$idx] ?? $audienceMeta[2];
                             $popular  = $idx === 3;
                             $features = $package->formatted_features ?? [];
+                            $visible  = array_slice($features, 0, $maxVisible);
+                            $hidden   = array_slice($features, $maxVisible);
                             $color    = theme_option('primary_color', '#3C65F5');
+                            $modalId  = 'pricing-modal-' . $package->id;
                         @endphp
-                        <div class="col-xl-4 col-lg-6 col-md-6">
-                            <div class="box-pricing-item @if($popular) most-popular @endif"
-                                 @if($popular) style="background: {{ $color }};" @endif>
+
+                        <div class="col-xl-4 col-lg-6 col-md-6 d-flex">
+                            <div class="box-pricing-item pricing-card-equal @if($popular) most-popular @endif w-100"
+                                 @if($popular) style="background:{{ $color }};" @endif>
 
                                 {{-- Audience badge --}}
                                 <div class="mb-10">
@@ -45,7 +51,7 @@
                                 <h3>{{ $package->name }}</h3>
 
                                 @if ($package->description)
-                                    <p class="text-desc-package mt-5 mb-0">{{ $package->description }}</p>
+                                    <p class="text-desc-package pricing-desc mt-5 mb-0">{{ $package->description }}</p>
                                 @endif
 
                                 <div class="box-info-price">
@@ -56,8 +62,9 @@
 
                                 <div class="border-bottom mb-30"></div>
 
-                                <ul class="list-package-feature">
-                                    @foreach ($features as $feature)
+                                {{-- Feature list (capped at $maxVisible) --}}
+                                <ul class="list-package-feature pricing-features-list">
+                                    @foreach ($visible as $feature)
                                         <li>
                                             <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
                                                 <circle opacity="0.1" cx="14" cy="14" r="14" fill="{{ $popular ? '#fff' : $color }}"/>
@@ -68,7 +75,20 @@
                                     @endforeach
                                 </ul>
 
-                                <div>
+                                {{-- See all link (only when features overflow) --}}
+                                @if (count($hidden) > 0)
+                                    <div class="mb-25">
+                                        <button type="button"
+                                                class="pricing-see-all @if($popular) pricing-see-all--light @endif"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#{{ $modalId }}">
+                                            + {{ count($hidden) }} more feature{{ count($hidden) > 1 ? 's' : '' }} &rarr;
+                                        </button>
+                                    </div>
+                                @endif
+
+                                {{-- CTA pinned to bottom --}}
+                                <div class="mt-auto pt-10">
                                     <a class="btn btn-border @if($popular) btn-white @endif"
                                        href="{{ auth('account')->check() ? route('public.account.packages') : route('public.account.login') }}">
                                         {{ $meta['cta'] }}
@@ -77,6 +97,49 @@
 
                             </div>
                         </div>
+
+                        {{-- Modal (rendered once per package, outside card) --}}
+                        @if (count($hidden) > 0)
+                            <div class="modal fade" id="{{ $modalId }}" tabindex="-1" aria-labelledby="{{ $modalId }}-label" aria-hidden="true">
+                                <div class="modal-dialog modal-dialog-centered">
+                                    <div class="modal-content pricing-modal">
+                                        <div class="modal-header pricing-modal__header"
+                                             @if($popular) style="background:{{ $color }};" @endif>
+                                            <div>
+                                                <span class="pricing-audience-badge @if($popular) pricing-audience-badge--light @else @endif" style="@if(!$popular) background:rgba(60,101,245,.08);color:{{ $color }}; @endif">
+                                                    {{ $meta['label'] }}
+                                                </span>
+                                                <h5 class="modal-title pricing-modal__title @if($popular) text-white @endif mt-5" id="{{ $modalId }}-label">
+                                                    {{ $package->name }} — All Features
+                                                </h5>
+                                            </div>
+                                            <button type="button" class="btn-close @if($popular) btn-close-white @endif" data-bs-dismiss="modal" aria-label="Close"></button>
+                                        </div>
+                                        <div class="modal-body pricing-modal__body">
+                                            <ul class="pricing-modal__list">
+                                                @foreach ($features as $feature)
+                                                    <li>
+                                                        <svg width="22" height="22" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                            <circle opacity="0.1" cx="14" cy="14" r="14" fill="{{ $color }}"/>
+                                                            <path d="M19 10.5L11.5 18L8.5 15" stroke="{{ $color }}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                                        </svg>
+                                                        {{ $feature }}
+                                                    </li>
+                                                @endforeach
+                                            </ul>
+                                        </div>
+                                        <div class="modal-footer pricing-modal__footer">
+                                            <a class="btn btn-default" style="background:{{ $color }};color:#fff;border-color:{{ $color }};"
+                                               href="{{ auth('account')->check() ? route('public.account.packages') : route('public.account.login') }}">
+                                                {{ $meta['cta'] }}
+                                            </a>
+                                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+
                     @endforeach
                 </div>
             </div>
