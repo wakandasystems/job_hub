@@ -2438,6 +2438,29 @@ form.auth-form {
     }
 }
 
+// ── Pricing price row — always one line ──────────────────────────────────────
+//
+// The theme's default .text-price uses word-break:break-word which splits
+// "$1,000.00" across two lines. Override: clamp the font so it scales with
+// the viewport and lock it to a single line with white-space:nowrap.
+//
+.block-pricing .box-info-price {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: nowrap;
+    gap: 6px;
+
+    .text-price {
+        white-space: nowrap !important;
+        overflow-wrap: normal !important;
+        word-break: normal !important;
+        // Scales: 20px at mobile → 38px at desktop. Narrower range than the
+        // theme default (34–56px) ensures even "$1,000.00" sits on one line.
+        font-size: clamp(20px, 2.6vw, 38px) !important;
+        line-height: 1.1 !important;
+    }
+}
+
 // ── Pricing table helpers ─────────────────────────────────────────────────────
 
 // Equal-height cards — flex column so CTA pins to bottom
