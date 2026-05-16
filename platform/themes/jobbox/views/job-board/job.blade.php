@@ -337,7 +337,7 @@
                 <div class="col-lg-4 col-md-12 col-sm-12 col-12 pl-40 pl-lg-15 mt-lg-30">
                     <div class="sidebar-border">
                         <div class="sidebar-heading">
-                            <div class="avatar-sidebar">
+                            <div class="avatar-sidebar job-company-sidebar">
                                 <figure>
                                     <a href="{{ $company->url }}"><img alt="{{ $company->name }}" src="{{ $company->logo_thumb }}"></a>
                                 </figure>
@@ -349,7 +349,12 @@
                                 </div>
                             </div>
                         </div>
-                        @if(! JobBoardHelper::isCompanyInformationHiddenForGuests() || auth('account')->check())
+                        @include(Theme::getThemeNamespace('views.job-board.partials.share'), [
+                            'job' => $job,
+                            'containerClass' => 'sidebar-share',
+                            'headingClass' => 'sidebar-share-title',
+                        ])
+                        @if((! JobBoardHelper::isCompanyInformationHiddenForGuests() || auth('account')->check()) && ($company->address || $company->website || $company->phone))
                             <div class="sidebar-list-job">
                                 <ul class="ul-disc">
                                     @if ($company->address)

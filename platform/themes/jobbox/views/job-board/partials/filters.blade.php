@@ -14,6 +14,9 @@
                 <input type="hidden" name="per_page" />
                 <input type="hidden" name="layout" />
                 <input type="hidden" name="sort_by" value="{{ BaseHelper::stringify(request()->query('sort_by')) }}" />
+                @if ($selectedCountry = wakanda_selected_country())
+                    <input type="hidden" name="country_id" value="{{ $selectedCountry->id }}" />
+                @endif
 
                 @if(Request::has('job_category') || isset($category))
                     <input type="hidden" name="job_categories[]" value="{{ $category->id ?? Arr::first(Request::query('job_categories')) }}">

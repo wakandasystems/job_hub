@@ -9,18 +9,52 @@ use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Repositories\Interfaces\CategoryInterface;
 use Botble\JobBoard\Repositories\Interfaces\JobInterface;
 use Botble\Location\Facades\Location;
+use Botble\Location\Models\Country;
 use Botble\Location\Repositories\Interfaces\CityInterface;
 use Botble\Location\Repositories\Interfaces\CountryInterface;
 use Botble\Location\Repositories\Interfaces\StateInterface;
 use Botble\Theme\Facades\Theme;
 use Botble\Theme\Http\Controllers\PublicController;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\Validator;
 use Theme\Jobbox\Http\Resources\CategoryResource;
 use Theme\Jobbox\Http\Resources\LocationResource;
 
 class JobboxController extends PublicController
 {
+    public function setLocalizationCountry(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'country_id' => ['required', 'integer', 'exists:countries,id'],
+            'redirect' => ['nullable', 'string'],
+        ]);
+
+        $country = Country::query()->findOrFail($validated['country_id']);
+
+        session()->put('wakanda_country_id', $country->id);
+        Cookie::queue('wakanda_country_id', $country->id, 60 * 24 * 365);
+
+        $redirect = $validated['redirect'] ?? url()->previous() ?: route('public.index');
+
+        if (! str_starts_with($redirect, url('/'))) {
+            $redirect = route('public.index');
+        }
+
+        $parts = parse_url($redirect);
+        parse_str($parts['query'] ?? '', $query);
+        $query['country_id'] = $country->id;
+
+        $redirect = ($parts['scheme'] ?? request()->getScheme()) . '://'
+            . ($parts['host'] ?? request()->getHost())
+            . (isset($parts['port']) ? ':' . $parts['port'] : '')
+            . ($parts['path'] ?? '/')
+            . '?' . http_build_query($query);
+
+        return redirect()->to($redirect);
+    }
+
     public function ajaxGetLocation(
         Request $request,
         CityInterface $cityRepository,
@@ -157,6 +191,7 @@ class JobboxController extends PublicController
     {
         $validated = $request->validate([
             'job_categories' => ['nullable', 'string'],
+            'country_id' => ['nullable', 'integer'],
             'location' => ['nullable', 'string'],
             'keyword' => ['nullable', 'string'],
         ]);

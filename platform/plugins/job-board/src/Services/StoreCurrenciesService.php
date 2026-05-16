@@ -26,6 +26,10 @@ class StoreCurrenciesService
                 $item['is_default'] = 1;
             }
 
+            if (! empty($item['is_default'])) {
+                $item['exchange_rate'] = 1;
+            }
+
             $currency = Currency::query()->find($item['id']);
 
             if (! $currency) {

@@ -179,7 +179,73 @@
                     }
                 }
             }
+            &.job-company-sidebar {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 14px;
+
+                figure {
+                    float: none;
+                    margin: 0;
+                    width: 100%;
+
+                    a {
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 100%;
+                        min-height: 190px;
+                        padding: 18px;
+                        border: 1px solid $color-border-2;
+                        border-radius: 12px;
+                        background-color: $background-white;
+                    }
+
+                    img {
+                        width: auto;
+                        height: auto;
+                        max-width: 240px;
+                        max-height: 154px;
+                        border-radius: 0;
+                        object-fit: contain;
+                    }
+                }
+
+                .sidebar-info {
+                    padding-left: 0;
+                    width: 100%;
+                    text-align: center;
+
+                    .sidebar-company {
+                        padding-top: 0;
+                        line-height: 24px;
+                    }
+                }
+            }
         }
+    }
+
+    .sidebar-share {
+        margin-top: 22px;
+        padding-top: 20px;
+        border-top: 1px solid $color-border-2;
+        text-align: center;
+    }
+
+    .sidebar-share-title {
+        display: block;
+        margin-bottom: 12px;
+        color: $color-text-paragraph-2;
+        font-size: 14px;
+        line-height: 20px;
+    }
+
+    .sidebar-share .bb-social-sharing {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
     }
 }
 .sidebar-shadow

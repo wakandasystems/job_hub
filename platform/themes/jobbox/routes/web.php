@@ -7,6 +7,11 @@ use Illuminate\Support\Facades\Route;
 Route::group(['namespace' => 'Theme\Jobbox\Http\Controllers', 'middleware' => ['web', 'core']], function (): void {
     Route::group(apply_filters(BASE_FILTER_GROUP_PUBLIC_ROUTE, []), function (): void {
         Route::group(['as' => 'public.'], function (): void {
+            Route::get('localization/country', [
+                'as' => 'localization.country',
+                'uses' => 'JobboxController@setLocalizationCountry',
+            ]);
+
             Route::group(['prefix' => 'ajax', 'as' => 'ajax.'], function (): void {
                 Route::controller('JobboxController')
                     ->middleware(RequiresJsonRequestMiddleware::class)

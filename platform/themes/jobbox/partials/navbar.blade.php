@@ -45,6 +45,9 @@
                     @auth('account')
                         <ul class="header-menu list-inline d-flex align-items-center mb-0 user-header-dropdown">
                             {!! apply_filters('theme-header-right-nav', null) !!}
+                            <li class="list-inline-item">
+                                {!! Theme::partial('country-switcher') !!}
+                            </li>
                             @if (auth('account')->check() && $account = auth('account')->user())
                                 <li class="list-inline-item dropdown">
                                     <a href="#" class="d-inline-flex header-item" id="userdropdown" data-bs-toggle="dropdown"
@@ -72,7 +75,7 @@
                         </ul>
                     @else
                         <div class="block-signin">
-                            <a class="text-link-bd-btom hover-up" href="{{ route('public.account.register') }}"><x-core::icon name="ti ti-user-plus" class="me-1" />{{ __('Register') }}</a>
+                            {!! Theme::partial('country-switcher') !!}
                             <a class="btn btn-default btn-shadow ml-30 hover-up" href="{{ route('public.account.login') }}"><x-core::icon name="ti ti-user-shield" class="me-1" />{{ __('Sign In') }}</a>
                         </div>
                     @endauth
@@ -96,6 +99,9 @@
                 </div>
                 <div class="mobile-menu-wrap mobile-header-border">
                     <nav>
+                        <div class="mobile-country-switcher">
+                            {!! Theme::partial('country-switcher') !!}
+                        </div>
                         {!!
                             Menu::renderMenuLocation('main-menu', [
                                 'options' => ['class' => 'mobile-menu font-heading'],

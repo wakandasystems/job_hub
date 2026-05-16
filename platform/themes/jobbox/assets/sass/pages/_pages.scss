@@ -314,12 +314,16 @@
         padding-top: 15px;
 
         .text-price {
-            font-size: 56px;
+            display: block;
+            max-width: 100%;
+            font-size: clamp(34px, 4.4vw, 56px);
             color: $color-brand-2;
             font-family: $font-heading;
-            line-height: 56px;
+            line-height: 1.05;
             font-weight: 800;
             margin-right: 1px;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
 
         .text-month {

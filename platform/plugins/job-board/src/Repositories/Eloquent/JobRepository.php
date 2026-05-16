@@ -109,6 +109,20 @@ class JobRepository extends RepositoriesAbstract implements JobInterface
             unset($filters['offered_salary_from'], $filters['offered_salary_to']);
         }
 
+        $hasSpecificJobCondition = array_key_exists('id', $params['condition'])
+            || array_key_exists('jb_jobs.id', $params['condition']);
+
+        foreach ($params['condition'] as $condition) {
+            if (is_array($condition) && in_array($condition[0] ?? null, ['id', 'jb_jobs.id'], true)) {
+                $hasSpecificJobCondition = true;
+                break;
+            }
+        }
+
+        if (! $hasSpecificJobCondition && function_exists('wakanda_apply_localized_job_filter')) {
+            $filters = wakanda_apply_localized_job_filter($filters);
+        }
+
         $this->model = $this->model->filterJobs($filters);
 
         if (JobBoardHelper::isClosedJobListing()) {

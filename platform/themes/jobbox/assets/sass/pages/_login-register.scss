@@ -1,11 +1,54 @@
 .login-register-cover{
     border-bottom: 1px solid $border-color;
     position: relative;
+    align-items: center;
+    min-height: 640px;
+    overflow: hidden;
     .img-1 {
         position: absolute;
-        right: 10%;
-        top: 20%;
-        width: unset;
+        right: 3%;
+        top: 50%;
+        width: clamp(260px, 27vw, 420px);
+        transform: translateY(-50%);
+        z-index: 0;
+
+        img {
+            display: block;
+            height: auto;
+            border-radius: 22px;
+            background: #fff;
+            box-shadow: 0 18px 45px rgba(15, 23, 42, .18), 0 4px 14px rgba(83, 15, 147, .12);
+            object-fit: cover;
+            max-height: 360px;
+            padding: 8px;
+            width: 100%;
+        }
+    }
+
+    .img-2 {
+        bottom: 0;
+        left: 0;
+        position: absolute;
+        width: clamp(360px, 38vw, 460px);
+        overflow: hidden;
+        z-index: 0;
+
+        img {
+            display: block;
+            height: auto;
+            border-radius: 22px;
+            background: #fff;
+            box-shadow: 0 20px 50px rgba(15, 23, 42, .16), 0 4px 16px rgba(83, 15, 147, .1);
+            object-fit: cover;
+            max-height: 200px;
+            padding: 8px;
+            width: 100%;
+        }
+    }
+
+    > [class*="col-"] {
+        position: relative;
+        z-index: 1;
     }
 }
 .divider-text-center {
@@ -34,5 +77,43 @@
         height: 53px;
         line-height: 53px;
         font-size: $font-sm;
+    }
+}
+
+@media screen and (max-width: 1199px) {
+    .login-register-cover {
+        min-height: 600px;
+
+        .img-1 {
+            right: 2%;
+            width: 260px;
+        }
+
+        .img-2 {
+            left: 0;
+            width: 240px;
+        }
+    }
+}
+
+@media screen and (max-width: 991px) {
+    .login-register-cover {
+        min-height: auto;
+        overflow: visible;
+
+        .img-1 {
+            display: none;
+        }
+
+        .img-2 {
+            margin: 0 auto;
+            max-width: 520px;
+            position: static;
+            width: 100%;
+
+            img {
+                max-height: 240px;
+            }
+        }
     }
 }

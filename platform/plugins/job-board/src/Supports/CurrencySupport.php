@@ -108,6 +108,12 @@ class CurrencySupport
     {
         $currencies = $this->countryCurrencies();
 
+        $countryCode = $this->detectedCountryCodeFromHeaders();
+
+        if ($countryCode && $detectedCurrencyCode = Arr::get($currencies, $countryCode)) {
+            return apply_filters('cms_currency_detected_currency', $detectedCurrencyCode);
+        }
+
         if (! isset($_SERVER['HTTP_ACCEPT_LANGUAGE'])) {
             return null;
         }
@@ -131,6 +137,24 @@ class CurrencySupport
         $detectedCurrencyCode = Arr::get($currencies, strtoupper(substr($httpAcceptLanguage, 0, 2)));
 
         return apply_filters('cms_currency_detected_currency', $detectedCurrencyCode);
+    }
+
+    protected function detectedCountryCodeFromHeaders(): ?string
+    {
+        foreach ([
+            'HTTP_CF_IPCOUNTRY',
+            'HTTP_X_COUNTRY_CODE',
+            'HTTP_X_GEOIP_COUNTRY_CODE',
+            'GEOIP_COUNTRY_CODE',
+        ] as $header) {
+            $countryCode = strtoupper((string) ($_SERVER[$header] ?? ''));
+
+            if (preg_match('/^[A-Z]{2}$/', $countryCode)) {
+                return $countryCode;
+            }
+        }
+
+        return null;
     }
 
     public function countryCurrencies(): array
@@ -217,7 +241,7 @@ class CurrencySupport
             'PN' => 'NZD',
             'PL' => 'PLN',
             'PM' => 'EUR',
-            'ZM' => 'ZMK',
+            'ZM' => 'ZMW',
             'EH' => 'MAD',
             'EE' => 'EUR',
             'EG' => 'EGP',
@@ -252,7 +276,7 @@ class CurrencySupport
             'MQ' => 'EUR',
             'MP' => 'USD',
             'MS' => 'XCD',
-            'MR' => 'MRO',
+            'MR' => 'MRU',
             'IM' => 'GBP',
             'UG' => 'UGX',
             'TZ' => 'TZS',
@@ -311,7 +335,7 @@ class CurrencySupport
             'KH' => 'KHR',
             'KN' => 'XCD',
             'KM' => 'KMF',
-            'ST' => 'STD',
+            'ST' => 'STN',
             'SK' => 'EUR',
             'KR' => 'KRW',
             'SI' => 'EUR',
@@ -319,7 +343,7 @@ class CurrencySupport
             'KW' => 'KWD',
             'SN' => 'XOF',
             'SM' => 'EUR',
-            'SL' => 'SLL',
+            'SL' => 'SLE',
             'SC' => 'SCR',
             'KZ' => 'KZT',
             'KY' => 'KYD',

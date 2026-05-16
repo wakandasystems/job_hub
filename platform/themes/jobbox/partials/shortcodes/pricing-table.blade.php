@@ -14,7 +14,7 @@
                             <div class="box-pricing-item">
                                 <h3>{{ $package->name }}</h3>
                                 <div class="box-info-price">
-                                    <span class="text-price color-brand-2">{{ format_price($package->price) }}</span>
+                                    <span class="text-price color-brand-2">{{ $package->price_text }}</span>
                                 </div>
                                 <div class="border-bottom mb-30"></div>
                                 <ul class="list-package-feature">

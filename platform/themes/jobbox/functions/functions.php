@@ -67,6 +67,154 @@ register_sidebar([
 
 Menu::addMenuLocation('footer-menu', 'Footer navigation');
 
+if (! function_exists('wakanda_country_flag')) {
+    function wakanda_country_flag(?string $countryCode): string
+    {
+        $countryCode = strtoupper((string) $countryCode);
+
+        if (strlen($countryCode) !== 2 || ! ctype_alpha($countryCode)) {
+            return '&#127987;';
+        }
+
+        return '&#' . (127397 + ord($countryCode[0])) . ';&#' . (127397 + ord($countryCode[1])) . ';';
+    }
+}
+
+if (! function_exists('wakanda_localization_countries')) {
+    function wakanda_localization_countries()
+    {
+        if (! is_plugin_active('location')) {
+            return collect();
+        }
+
+        return cache()->remember('wakanda_localization_countries', 3600, function () {
+            return \Botble\Location\Models\Country::query()
+                ->where('status', \Botble\Base\Enums\BaseStatusEnum::PUBLISHED)
+                ->orderByDesc('is_default')
+                ->oldest('order')
+                ->orderBy('name')
+                ->get(['id', 'name', 'code', 'is_default']);
+        });
+    }
+}
+
+if (! function_exists('wakanda_detect_country_code')) {
+    function wakanda_detect_country_code(): ?string
+    {
+        $headerCountry = strtoupper((string) request()->header('CF-IPCountry'));
+
+        if (strlen($headerCountry) === 2 && $headerCountry !== 'XX') {
+            return $headerCountry;
+        }
+
+        try {
+            $reader = new \GeoIp2\Database\Reader(base_path('platform/plugins/job-board/database/GeoLite2-Country.mmdb'));
+            $record = $reader->country(request()->ip());
+
+            return $record->country->isoCode ?: null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+}
+
+if (! function_exists('wakanda_country_from_host')) {
+    function wakanda_country_from_host()
+    {
+        $host = strtolower((string) request()->getHost());
+
+        if (! str_ends_with($host, 'wakandajobs.com')) {
+            return null;
+        }
+
+        $subdomain = str_replace('.wakandajobs.com', '', $host);
+
+        if (! $subdomain || in_array($subdomain, ['www', 'wakandajobs.com'], true)) {
+            return null;
+        }
+
+        $countryNames = [
+            'zambia' => 'Zambia',
+            'nigeria' => 'Nigeria',
+            'ghana' => 'Ghana',
+            'kenya' => 'Kenya',
+            'zimbabwe' => 'Zimbabwe',
+            'southafrica' => 'South Africa',
+        ];
+
+        if (! isset($countryNames[$subdomain])) {
+            return null;
+        }
+
+        return wakanda_localization_countries()
+            ->first(fn ($country) => strcasecmp($country->name, $countryNames[$subdomain]) === 0);
+    }
+}
+
+if (! function_exists('wakanda_selected_country')) {
+    function wakanda_selected_country()
+    {
+        static $selectedCountry = null;
+
+        if ($selectedCountry !== null) {
+            return $selectedCountry;
+        }
+
+        $countries = wakanda_localization_countries();
+
+        if ($countries->isEmpty()) {
+            return $selectedCountry = false;
+        }
+
+        if ($country = wakanda_country_from_host()) {
+            return $selectedCountry = $country;
+        }
+
+        $countryId = (int) request()->query('country_id')
+            ?: (int) session('wakanda_country_id')
+            ?: (int) request()->cookie('wakanda_country_id')
+            ?: (int) optional(auth('account')->user())->country_id;
+
+        if ($countryId && $country = $countries->firstWhere('id', $countryId)) {
+            return $selectedCountry = $country;
+        }
+
+        if ($countryCode = wakanda_detect_country_code()) {
+            if ($country = $countries->firstWhere('code', strtoupper($countryCode))) {
+                return $selectedCountry = $country;
+            }
+        }
+
+        return $selectedCountry = $countries->firstWhere('is_default', true) ?: $countries->first();
+    }
+}
+
+if (! function_exists('wakanda_apply_localized_job_filter')) {
+    function wakanda_apply_localized_job_filter(array $filters): array
+    {
+        if (! is_plugin_active('location')) {
+            return $filters;
+        }
+
+        if (
+            ! empty($filters['country_id'])
+            || ! empty($filters['state_id'])
+            || ! empty($filters['city_id'])
+            || ! empty($filters['location'])
+        ) {
+            return $filters;
+        }
+
+        $country = wakanda_selected_country();
+
+        if ($country && $country->id) {
+            $filters['country_id'] = $country->id;
+        }
+
+        return $filters;
+    }
+}
+
 app()->booted(function (): void {
     ThemeSupport::registerDateFormatOption();
     ThemeSupport::registerSocialSharing();

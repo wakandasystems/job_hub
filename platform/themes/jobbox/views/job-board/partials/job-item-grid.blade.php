@@ -44,7 +44,12 @@
                         {!! Theme::partial('salary', compact('job')) !!}
                     </div>
                     <div class="col-12 mt-3">
-                        {!! Theme::partial('apply-button', compact('job')) !!}
+                        <div class="job-card-actions">
+                            <a class="btn btn-view-details" href="{{ $job->url }}" aria-label="{{ __('View details for :job', ['job' => $job->name]) }}">
+                                {{ __('View Details') }}
+                            </a>
+                            {!! Theme::partial('apply-button', ['job' => $job, 'wrapClass' => 'job-card-action']) !!}
+                        </div>
                     </div>
                 </div>
             </div>
