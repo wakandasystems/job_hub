@@ -487,8 +487,30 @@ app()->booted(function (): void {
 });
 
 // Sync currency with the selected country on every page load.
-// When no currency session exists yet, use the detected country's currency
-// instead of relying solely on Cloudflare headers (which may be absent).
+// On every request, sync the application currency to the selected country.
+// This runs before any rendering so salary displays are always correct.
+// The filter approach only fires when there is no session — this hook
+// also corrects a stale USD session when the user has Zambia selected.
+app()->booted(function (): void {
+    add_action('init', function (): void {
+        $country = wakanda_selected_country();
+        if (! $country || ! $country->code) {
+            return;
+        }
+        $code = cms_currency()->countryCurrencies()[strtoupper((string) $country->code)] ?? null;
+        if (! $code) {
+            return;
+        }
+        if (session('currency') !== $code) {
+            $currency = \Botble\JobBoard\Models\Currency::query()->where('title', $code)->first();
+            if ($currency) {
+                cms_currency()->setApplicationCurrency($currency);
+            }
+        }
+    });
+});
+
+// Fallback filter for requests where init hook hasn't fired yet.
 add_filter('cms_currency_detected_currency', function (?string $detected): ?string {
     $country = wakanda_selected_country();
     if ($country && $country->code) {
