@@ -486,6 +486,20 @@ app()->booted(function (): void {
     }
 });
 
+// Sync currency with the selected country on every page load.
+// When no currency session exists yet, use the detected country's currency
+// instead of relying solely on Cloudflare headers (which may be absent).
+add_filter('cms_currency_detected_currency', function (?string $detected): ?string {
+    $country = wakanda_selected_country();
+    if ($country && $country->code) {
+        $code = cms_currency()->countryCurrencies()[strtoupper((string) $country->code)] ?? null;
+        if ($code) {
+            return $code;
+        }
+    }
+    return $detected;
+}, 20);
+
 if (! function_exists('get_currencies_json')) {
     function get_currencies_json(): array
     {
