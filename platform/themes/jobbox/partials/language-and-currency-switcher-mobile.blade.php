@@ -19,23 +19,53 @@
     <div class="mobile-menu-switcher">
         <ul class="mobile-menu font-heading">
             @if ($displayCurrencySwitcher)
+                @php $currencyActive = get_application_currency()->title; @endphp
                 <li class="has-children"><span class="menu-expand"><i class="fi-rr-angle-small-down"></i></span>
                     <a>
-                        {{ $currencyActive = get_application_currency()->title }}
+                        {{ $currencyActive }}
                         <div class="arrow-down"></div>
                     </a>
                     <ul class="sub-menu" style="display: none;">
+                        <li class="mobile-currency-search-wrap" style="padding: 8px 15px;">
+                            <input
+                                type="search"
+                                class="form-control form-control-sm mobile-currency-search"
+                                placeholder="{{ __('Search currency') }}"
+                                aria-label="{{ __('Search currency') }}"
+                                autocomplete="off"
+                            >
+                        </li>
                         @foreach ($currencies as $currency)
                             @if ($currency->title != $currencyActive)
-                                <li>
+                                <li data-currency-code-mobile="{{ strtolower($currency->title) }}">
                                     <a href="{{ route('public.change-currency', $currency->title) }}">
                                         {{ $currency->title }}
                                     </a>
                                 </li>
                             @endif
                         @endforeach
+                        <li class="mobile-currency-empty" hidden style="padding: 8px 15px; color: #777;">{{ __('No currencies found') }}</li>
                     </ul>
                 </li>
+                <script>
+                    document.addEventListener('input', function (e) {
+                        if (! e.target.matches('.mobile-currency-search')) return;
+                        const term = e.target.value.trim().toLowerCase();
+                        const list = e.target.closest('.sub-menu');
+                        const items = list.querySelectorAll('[data-currency-code-mobile]');
+                        const empty = list.querySelector('.mobile-currency-empty');
+                        let visible = 0;
+                        items.forEach(function (item) {
+                            const match = !term || item.dataset.currencyCodeMobile.includes(term);
+                            item.hidden = !match;
+                            if (match) visible++;
+                        });
+                        empty.hidden = visible > 0;
+                    });
+                    document.addEventListener('click', function (e) {
+                        if (e.target.closest('.mobile-currency-search-wrap')) e.stopPropagation();
+                    });
+                </script>
             @endif
 
             @if ($displayLanguageSwitcher)
