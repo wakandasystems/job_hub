@@ -434,10 +434,30 @@ app()->booted(function (): void {
             __('Popular category'),
             __('Popular category'),
             function (Shortcode $shortcode) {
-                $categories = app(CategoryInterface::class)
-                    ->getFeaturedCategories($shortcode->limit_category ?: 10);
+                $selectedCountry = wakanda_selected_country();
+                $countryId = $selectedCountry ? $selectedCountry->id : null;
+                $limit = (int) ($shortcode->limit_category ?: 10);
 
-                $categories->loadCount('activeJobs');
+                $query = Category::query()
+                    ->wherePublished()
+                    ->with(['slugable', 'metadata'])
+                    ->selectRaw('jb_categories.*, SUM(jb_jobs.views) as total_views, COUNT(DISTINCT jb_jobs.id) as jobs_count')
+                    ->join('jb_jobs_categories', 'jb_categories.id', '=', 'jb_jobs_categories.category_id')
+                    ->join('jb_jobs', 'jb_jobs.id', '=', 'jb_jobs_categories.job_id')
+                    ->where('jb_jobs.status', \Botble\JobBoard\Enums\JobStatusEnum::PUBLISHED)
+                    ->where('jb_jobs.moderation_status', \Botble\JobBoard\Enums\ModerationStatusEnum::APPROVED)
+                    ->where(function ($q): void {
+                        $q->where('jb_jobs.never_expired', true)
+                            ->orWhereNull('jb_jobs.expire_date')
+                            ->orWhere('jb_jobs.expire_date', '>=', now());
+                    })
+                    ->when($countryId, fn ($q) => $q->where('jb_jobs.country_id', $countryId))
+                    ->groupBy('jb_categories.id')
+                    ->having('jobs_count', '>', 0)
+                    ->orderByDesc('total_views')
+                    ->limit($limit);
+
+                $categories = $query->get();
 
                 return Theme::partial('shortcodes.popular-category', compact('shortcode', 'categories'));
             }
