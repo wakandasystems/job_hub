@@ -42,7 +42,7 @@
                     @include(Theme::getThemeNamespace('views.job-board.partials.companies'), ['companies' => $companies])
                 </div>
             </div>
-            {!! Form::open(['url' => route('public.ajax.companies'), 'method' => 'GET', 'id' => 'company-filter-form']) !!}
+            {!! Form::open(['url' => '/ajax/companies', 'method' => 'GET', 'id' => 'company-filter-form']) !!}
             <input type="hidden" name="per_page" value="{{ BaseHelper::stringify(request()->query('per_page')) }}">
             <input type="hidden" name="page" value="{{ BaseHelper::stringify(request()->query('page')) }}">
             <input type="hidden" name="layout" value="{{ BaseHelper::stringify(request()->query('layout')) }}">
