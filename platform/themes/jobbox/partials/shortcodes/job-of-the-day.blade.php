@@ -159,7 +159,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="list-tags-banner text-center mt-50 wow animate__animated animate__fadeInUp" data-wow-delay=".3s">
+                        <div class="list-tags-banner text-center mt-30 wow animate__animated animate__fadeInUp" data-wow-delay=".3s" style="font-size:18px">
                             <strong>{{ __('Looking for more?') }}</strong>
                             <a href="{{ JobBoardHelper::getJobsPageURL() }}">{{ __('View All Jobs') }}</a>
                         </div>
