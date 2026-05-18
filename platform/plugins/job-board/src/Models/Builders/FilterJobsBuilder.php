@@ -103,43 +103,7 @@ class FilterJobsBuilder extends BaseQueryBuilder
                 } elseif ($countryId) {
                     $model->where('country_id', $countryId);
                 } elseif ($location) {
-                    $locationData = explode(',', $location);
-
-                    $cityRelation = 'city';
-                    $stateRelation = 'state';
-
-                    if (
-                        is_plugin_active('language') &&
-                        is_plugin_active('language-advanced') &&
-                        Language::getCurrentLocale() != Language::getDefaultLocale()
-                    ) {
-                        $cityRelation = 'city.translations';
-                        $stateRelation = 'state.translations';
-                    }
-
-                    if (count($locationData) > 1) {
-                        $model
-                            ->whereHas($cityRelation, function ($query) use ($locationData): void {
-                                $query->where('name', 'LIKE', '%' . trim($locationData[0]) . '%');
-                            })
-                            ->whereHas($stateRelation, function ($query) use ($locationData): void {
-                                $query->where('name', 'LIKE', '%' . trim($locationData[1]) . '%');
-                            });
-                    } else {
-                        $model
-                            ->where(function (Builder $query) use ($cityRelation, $stateRelation, $location): void {
-                                $query
-                                    ->whereHas($cityRelation, function ($query) use ($location): void {
-                                        $query->where('name', 'LIKE', '%' . $location . '%');
-                                    })
-                                    ->orWhereHas($stateRelation, function ($query) use ($location): void {
-                                        $query->where('name', 'LIKE', '%' . $location . '%');
-                                    })
-                                    ->orWhereHas('country', function ($query) use ($location): void {
-                                        $query->where('name', 'LIKE', '%' . $location . '%');
-                                    });
-                            });
-                    }
+                    $model->where('address', 'LIKE', '%' . $location . '%');
                 }
             }
         }

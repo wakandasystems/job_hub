@@ -187,15 +187,15 @@ $(document).ready(function () {
             placeholder: element.data('placeholder'),
             tags: true,
             ajax: {
-                url: $(this).data('url') || `${window.siteUrl}/ajax/locations`,
+                url: element.data('url') || `${window.siteUrl}/ajax/locations`,
                 dataType: 'json',
                 delay: 500,
                 type: 'GET',
                 data: function (params) {
                     return {
-                        k: params.term, // search term
+                        k: params.term,
                         page: params.page || 1,
-                        type: $(this).data('location-type'),
+                        type: element.data('location-type'),
                     }
                 },
                 processResults: function (data, params) {

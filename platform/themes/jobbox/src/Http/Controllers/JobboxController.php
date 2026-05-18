@@ -11,9 +11,6 @@ use Botble\JobBoard\Repositories\Interfaces\CategoryInterface;
 use Botble\JobBoard\Repositories\Interfaces\JobInterface;
 use Botble\Location\Facades\Location;
 use Botble\Location\Models\Country;
-use Botble\Location\Repositories\Interfaces\CityInterface;
-use Botble\Location\Repositories\Interfaces\CountryInterface;
-use Botble\Location\Repositories\Interfaces\StateInterface;
 use Botble\Theme\Facades\Theme;
 use Botble\Theme\Http\Controllers\PublicController;
 use Illuminate\Http\RedirectResponse;
@@ -21,7 +18,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\Validator;
 use Theme\Jobbox\Http\Resources\CategoryResource;
-use Theme\Jobbox\Http\Resources\LocationResource;
 
 class JobboxController extends PublicController
 {
@@ -71,63 +67,29 @@ class JobboxController extends PublicController
 
     public function ajaxGetLocation(
         Request $request,
-        CityInterface $cityRepository,
-        StateInterface $stateRepository,
-        CountryInterface $countryRepository,
         BaseHttpResponse $response
     ) {
         $request->validate([
             'k' => ['nullable', 'string'],
-            'type' => ['required', 'string', 'in:state,city'],
         ]);
 
         $keyword = BaseHelper::stringify($request->query('k'));
-        $limit = (int) theme_option('limit_results_on_job_location_filter', 10) ?: 1000;
-        if ($request->input('type', 'state') === 'state') {
-            $locations = $stateRepository->filters($keyword, $limit);
+        $selectedCountry = wakanda_selected_country();
 
-            $jobsLocationAvailable = $stateRepository->getModel()::query()
-                ->wherePublished()
-                ->whereExists(function ($query): void {
-                    $query->select('id')
-                        ->from(with(new Job())->getTable())
-                        ->whereColumn('state_id', 'states.id');
-                })
-                ->pluck('id')
-                ->toArray();
-        } else {
-            $locations = $cityRepository->filters($keyword, $limit);
-            $locations->loadMissing('state');
-
-            $jobsLocationAvailable = $cityRepository->getModel()::query()
-                ->whereExists(function ($query): void {
-                    $query->select('id')
-                        ->from(with(new Job())->getTable())
-                        ->whereColumn('city_id', 'cities.id');
-                })
-                ->wherePublished()
-                ->pluck('id')
-                ->toArray();
-        }
-
-        $countryIds = $countryRepository->getModel()::query()
+        $addresses = Job::query()
+            ->select('address')
+            ->whereNotNull('address')
+            ->where('address', '!=', '')
             ->wherePublished()
-            ->whereExists(function ($query): void {
-                $query->select('id')
-                    ->from(with(new Job())->getTable())
-                    ->whereColumn('country_id', 'countries.id')
-                    ->whereNull('city_id')
-                    ->whereNull('state_id');
-            })
-            ->where('name', 'like', '%' . $keyword . '%')
-            ->pluck('id')
-            ->toArray();
+            ->when($selectedCountry, fn ($q) => $q->where('country_id', $selectedCountry->id))
+            ->when($keyword, fn ($q) => $q->where('address', 'LIKE', '%' . $keyword . '%'))
+            ->distinct()
+            ->orderBy('address')
+            ->limit(50)
+            ->pluck('address')
+            ->map(fn ($addr) => ['id' => $addr, 'name' => $addr]);
 
-        $locations = $locations->whereIn('id', array_values(array_unique($jobsLocationAvailable)));
-
-        $locations = $locations->merge($countryRepository->getByWhereIn('id', $countryIds))->sort();
-
-        return $response->setData([LocationResource::collection($locations), 'total' => $locations->count()]);
+        return $response->setData([$addresses, 'total' => $addresses->count()]);
     }
 
     public function ajaxGetJobCategories(

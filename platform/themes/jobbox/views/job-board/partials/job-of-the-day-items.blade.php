@@ -31,7 +31,11 @@
                                     @endforeach
                                 </span>
                             @endif
-                            <span class="card-time">{{ $job->created_at->diffForHumans() }}</span></div>
+                            <span class="card-time">{{ $job->created_at->diffForHumans() }}</span>
+                            @if($job->location)
+                                <span class="card-location">{{ $job->location }}</span>
+                            @endif
+                        </div>
                         <p class="font-sm color-text-paragraph job-description mt-15" title="{{ $job->description }}">{{ $job->description }}</p>
                         <div class="mt-15">
                             @if($job->tags->isNotEmpty())

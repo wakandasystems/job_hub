@@ -452,11 +452,22 @@ class Job extends BaseModel
     {
         $displayType = setting('job_board_job_location_display', 'state_and_country');
 
-        return match ($displayType) {
-            'city_state_and_country' => ($this->city_name ? $this->city_name . ', ' : '') . ($this->state_name ? $this->state_name . ', ' : '') . $this->country->code,
-            'city_and_state' => ($this->city_name ? $this->city_name . ', ' : '') . $this->state_name,
-            default => ($this->state_name ? $this->state_name . ', ' : '') . $this->country->code,
-        };
+        $parts = array_filter([$this->city_name, $this->state_name]);
+
+        if (! empty($parts)) {
+            if ($displayType === 'city_state_and_country') {
+                $parts[] = $this->country->code;
+            }
+
+            return implode(', ', $parts);
+        }
+
+        // Crawled jobs store location as free text in address field
+        if ($this->address) {
+            return $this->address;
+        }
+
+        return null;
     }
 
     public function customFields(): MorphMany

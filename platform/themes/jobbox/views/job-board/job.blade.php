@@ -38,6 +38,9 @@
                         <span class="card-briefcase">{{ $jobType->name }}</span>
                     @endforeach
                     <span class="card-time">{{ $job->created_at->diffForHumans() }}</span>
+                    @if($job->location)
+                        <span class="card-location"><i class="fi-rr-marker"></i> {{ $job->location }}</span>
+                    @endif
                 </div>
             </div>
             @php($classButtonApply = 'btn btn-apply-icon btn-apply btn-apply-big hover-up ml-auto')
@@ -164,7 +167,7 @@
                             </div>
                         @endif
 
-                        @if($job->full_address)
+                        @if($job->full_address || $job->location)
                             <div class="col-md-6 d-flex mt-15">
                                 <div class="sidebar-icon-item">
                                     <img src="{{ Theme::asset()->url('imgs/page/job-single/location.svg') }}" alt="{{ __('Location') }}">
@@ -172,8 +175,8 @@
                                 <div class="sidebar-text-info ml-10">
                                     <span class="text-description mb-10">{{ __('Location') }}</span>
                                     <strong class="small-heading">
-                                        {{ $job->full_address }}
-                                        {{ (JobBoardHelper::isZipCodeEnabled() && $job->zip_code) ? ', ' . $job->zip_code : '' }}
+                                        {{ $job->full_address ?: $job->location }}
+                                        {{ ($job->full_address && JobBoardHelper::isZipCodeEnabled() && $job->zip_code) ? ', ' . $job->zip_code : '' }}
                                     </strong>
                                 </div>
                             </div>
