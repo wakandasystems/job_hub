@@ -100,15 +100,15 @@
                         }
 
                         document.addEventListener('click', function (e) {
-                            if (e.target.closest('.mobile-currency-search-wrap')) { e.stopPropagation(); return; }
-                            const toggle = e.target.closest('.has-children > a');
-                            if (!toggle) return;
-                            const sub = toggle.closest('.has-children').querySelector('.sub-menu');
-                            if (!sub || !sub.querySelector('.mobile-currency-search')) return;
-                            if (!sub.dataset.currencyInited) {
-                                sub.dataset.currencyInited = '1';
-                                initMobileCurrency(sub);
-                            }
+                            if (e.target.closest('.mobile-currency-search-wrap')) e.stopPropagation();
+                        });
+
+                        document.addEventListener('DOMContentLoaded', function () {
+                            document.querySelectorAll('.sub-menu').forEach(function (sub) {
+                                if (sub.querySelector('.mobile-currency-search')) {
+                                    initMobileCurrency(sub);
+                                }
+                            });
                         });
                     })();
                 </script>
