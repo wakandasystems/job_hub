@@ -1,7 +1,7 @@
 @php
     $layout = BaseHelper::stringify(request()->query('layout'));
     if (! in_array($layout, ['list', 'grid', 'map'])) {
-        $layout = 'list';
+        $layout = 'grid';
     }
     $isMapActive = (theme_option('show_map_on_jobs_page', 'yes') === 'yes' && $layout === 'map') && $jobs->isNotEmpty();
     $template = $isMapActive ? 'map' : $layout;
