@@ -597,25 +597,42 @@ class JobCrawlerRunner
 
     protected function extractCareers24List(string $html): array
     {
-        $jobs = [];
-        $dom  = new DomCrawler($html);
+        $jobs    = [];
+        $offset  = 0;
+        $needle  = 'class="job-card"';
 
-        $dom->filter('div.job-card[data-id]')->each(function (DomCrawler $node) use (&$jobs): void {
-            $id  = $node->attr('data-id');
-            $a   = $node->filter('a[data-control="vacancy-title"]');
-            $url = $a->count() ? $a->first()->attr('href') : null;
-            $title = $a->count() ? $a->first()->text('') : '';
+        while (($pos = strpos($html, $needle, $offset)) !== false) {
+            // find data-id
+            $chunk = substr($html, $pos, 2000);
 
-            $li  = $node->filter('ul li');
-            $location = $li->count() > 0 ? trim($li->first()->text('')) : '';
+            if (! preg_match('/data-id="(\d+)"/', $chunk, $idM)) {
+                $offset = $pos + strlen($needle);
+                continue;
+            }
+
+            // title and URL — attributes may appear in any order on the <a> tag
+            preg_match('/<a\b[^>]*href="([^"]+)"[^>]*data-control="vacancy-title"[^>]*>\s*<h2>([^<]+)<\/h2>/', $chunk, $linkM);
+            if (! $linkM) {
+                preg_match('/<a\b[^>]*data-control="vacancy-title"[^>]*href="([^"]+)"[^>]*>\s*<h2>([^<]+)<\/h2>/', $chunk, $linkM);
+            }
+            $url   = $linkM[1] ?? null;
+            $title = isset($linkM[2]) ? html_entity_decode(trim($linkM[2])) : '';
+
+            // location = first <li> in job-card-left
+            $location = '';
+            if (preg_match('/job-card-left.*?<li>(.*?)<\/li>/s', $chunk, $locM)) {
+                $location = trim(strip_tags($locM[1]));
+            }
 
             $jobs[] = [
-                'id'       => (string) $id,
-                'title'    => trim($title),
+                'id'       => $idM[1],
+                'title'    => $title,
                 'url'      => $url,
                 'location' => $location,
             ];
-        });
+
+            $offset = $pos + strlen($needle);
+        }
 
         return $jobs;
     }
