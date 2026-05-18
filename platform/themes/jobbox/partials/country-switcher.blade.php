@@ -100,6 +100,16 @@
                     event.stopPropagation();
                 }
             });
+
+            document.addEventListener('shown.bs.dropdown', function (event) {
+                const toggle = event.target.closest('.country-switch');
+                if (toggle) {
+                    const input = toggle.querySelector('[data-country-switch-search]');
+                    if (input) {
+                        input.focus();
+                    }
+                }
+            });
         }
     </script>
 @endif
