@@ -48,23 +48,69 @@
                     </ul>
                 </li>
                 <script>
-                    document.addEventListener('input', function (e) {
-                        if (! e.target.matches('.mobile-currency-search')) return;
-                        const term = e.target.value.trim().toLowerCase();
-                        const list = e.target.closest('.sub-menu');
-                        const items = list.querySelectorAll('[data-currency-code-mobile]');
-                        const empty = list.querySelector('.mobile-currency-empty');
-                        let visible = 0;
-                        items.forEach(function (item) {
-                            const match = !term || item.dataset.currencyCodeMobile.includes(term);
-                            item.hidden = !match;
-                            if (match) visible++;
+                    (function () {
+                        const perPage = 3;
+
+                        function initMobileCurrency(wrap) {
+                            const search = wrap.querySelector('.mobile-currency-search');
+                            const items = Array.from(wrap.querySelectorAll('[data-currency-code-mobile]'));
+                            const empty = wrap.querySelector('.mobile-currency-empty');
+
+                            let prevEl = wrap.querySelector('.mobile-currency-prev');
+                            let nextEl = wrap.querySelector('.mobile-currency-next');
+                            let pageEl = wrap.querySelector('.mobile-currency-page');
+
+                            if (!prevEl) {
+                                const nav = document.createElement('li');
+                                nav.className = 'mobile-currency-nav';
+                                nav.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:6px 15px;';
+                                nav.innerHTML = '<button type="button" class="mobile-currency-prev" style="background:none;border:none;font-size:18px;cursor:pointer;" disabled>‹</button>'
+                                              + '<span class="mobile-currency-page" style="font-size:13px;"></span>'
+                                              + '<button type="button" class="mobile-currency-next" style="background:none;border:none;font-size:18px;cursor:pointer;">›</button>';
+                                wrap.appendChild(nav);
+                                prevEl = nav.querySelector('.mobile-currency-prev');
+                                nextEl = nav.querySelector('.mobile-currency-next');
+                                pageEl = nav.querySelector('.mobile-currency-page');
+                            }
+
+                            let page = 1;
+
+                            function filtered() {
+                                const term = (search.value || '').trim().toLowerCase();
+                                return items.filter(i => !term || i.dataset.currencyCodeMobile.includes(term));
+                            }
+
+                            function render() {
+                                const vis = filtered();
+                                const total = Math.max(1, Math.ceil(vis.length / perPage));
+                                page = Math.min(page, total);
+                                const start = (page - 1) * perPage;
+                                items.forEach(i => { i.hidden = true; });
+                                vis.slice(start, start + perPage).forEach(i => { i.hidden = false; });
+                                empty.hidden = vis.length > 0;
+                                pageEl.textContent = vis.length ? page + ' / ' + total : '0 / 0';
+                                prevEl.disabled = page <= 1;
+                                nextEl.disabled = page >= total;
+                            }
+
+                            search.addEventListener('input', () => { page = 1; render(); });
+                            prevEl.addEventListener('click', () => { page--; render(); });
+                            nextEl.addEventListener('click', () => { page++; render(); });
+                            render();
+                        }
+
+                        document.addEventListener('click', function (e) {
+                            if (e.target.closest('.mobile-currency-search-wrap')) { e.stopPropagation(); return; }
+                            const toggle = e.target.closest('.has-children > a');
+                            if (!toggle) return;
+                            const sub = toggle.closest('.has-children').querySelector('.sub-menu');
+                            if (!sub || !sub.querySelector('.mobile-currency-search')) return;
+                            if (!sub.dataset.currencyInited) {
+                                sub.dataset.currencyInited = '1';
+                                initMobileCurrency(sub);
+                            }
                         });
-                        empty.hidden = visible > 0;
-                    });
-                    document.addEventListener('click', function (e) {
-                        if (e.target.closest('.mobile-currency-search-wrap')) e.stopPropagation();
-                    });
+                    })();
                 </script>
             @endif
 
