@@ -75,9 +75,11 @@ class JobRepository extends RepositoriesAbstract implements JobInterface
             $this->model = $this->model->select($params['select'])->where($jobDisplayQueryConditions);
 
             if (JobBoardHelper::isClosedJobAccessible() || JobBoardHelper::isClosedJobListing()) {
-                $this->model = $this->model->whereIn('jb_jobs.status', [
-                    JobStatusEnum::PUBLISHED, JobStatusEnum::CLOSED,
-                ]);
+                $statuses = [JobStatusEnum::PUBLISHED];
+                if (JobBoardHelper::isClosedJobListing()) {
+                    $statuses[] = JobStatusEnum::CLOSED;
+                }
+                $this->model = $this->model->whereIn('jb_jobs.status', $statuses);
             }
         } else {
             $this->model = $this->model->select($params['select']);

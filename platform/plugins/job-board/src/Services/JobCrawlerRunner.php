@@ -548,6 +548,7 @@ class JobCrawlerRunner
             } else {
                 $newJob = new Job();
                 $newJob->forceFill($this->buildGoZambiaJobAttributes($crawler, $item, $company))->save();
+                $this->clearConflictingCrawlerSlugs($crawler, $newJob);
                 SlugHelper::createSlug($newJob);
                 $this->assignGoZambiaCategory($newJob, $item);
                 $newJob->jobTypes()->syncWithoutDetaching([3]); // Full Time
@@ -626,6 +627,35 @@ class JobCrawlerRunner
         }
 
         return $stats;
+    }
+
+    /**
+     * Remove any slug records that share the same key as the new job and belong to
+     * expired or draft jobs from the same crawler. This prevents the new job's slug
+     * from silently colliding with a stale entry, which would cause the URL to keep
+     * resolving to the old expired job instead.
+     */
+    protected function clearConflictingCrawlerSlugs(JobCrawler $crawler, Job $newJob): void
+    {
+        $slugKey = Str::slug($newJob->name);
+
+        DB::table('slugs')
+            ->where('key', $slugKey)
+            ->where('prefix', 'jobs')
+            ->whereIn('reference_id', function ($query) use ($crawler): void {
+                $query->select('id')
+                    ->from('jb_jobs')
+                    ->where('crawler_id', $crawler->getKey())
+                    ->where(function ($q): void {
+                        $q->where('status', JobStatusEnum::DRAFT)
+                            ->orWhere(function ($q2): void {
+                                $q2->where('never_expired', false)
+                                    ->whereNotNull('expire_date')
+                                    ->where('expire_date', '<', Carbon::now());
+                            });
+                    });
+            })
+            ->delete();
     }
 
     protected function deleteDuplicateCrawledJobs(JobCrawler $crawler): int
