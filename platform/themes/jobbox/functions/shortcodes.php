@@ -632,7 +632,16 @@ app()->booted(function (): void {
                 ->withAvg('reviews', 'star')
                 ->paginate($requestQuery['per_page'] ?: Arr::first(JobBoardHelper::getPerPageParams()));
 
-            return Theme::partial('shortcodes.job-companies', compact('shortcode', 'companies'));
+            $activeLetters = Company::query()
+                ->wherePublished()
+                ->selectRaw('UPPER(SUBSTRING(name, 1, 1)) as letter')
+                ->groupBy('letter')
+                ->pluck('letter')
+                ->filter(fn ($l) => preg_match('/^[A-Z]$/', $l))
+                ->values()
+                ->toArray();
+
+            return Theme::partial('shortcodes.job-companies', compact('shortcode', 'companies', 'activeLetters'));
         });
 
         shortcode()->setAdminConfig('job-companies', function (array $attributes) {

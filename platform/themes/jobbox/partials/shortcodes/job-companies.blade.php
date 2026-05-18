@@ -16,9 +16,11 @@
                     <div class="box-list-character">
                         <ul>
                             @foreach(range('A', 'Z') as $word)
-                                <li>
-                                    <a class="filter-by-word @if(BaseHelper::stringify(request()->query('keyword')) == $word) active @endif" data-keyword="{{ $word }}" href="#">{{ $word }}</a>
-                                </li>
+                                @if(in_array($word, $activeLetters ?? []))
+                                    <li>
+                                        <a class="filter-by-word @if(BaseHelper::stringify(request()->query('keyword')) == $word) active @endif" data-keyword="{{ $word }}" href="#">{{ $word }}</a>
+                                    </li>
+                                @endif
                             @endforeach
                         </ul>
                     </div>
