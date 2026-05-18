@@ -144,6 +144,10 @@ class JobCrawlerRunner
             return $this->fetchGoZambiaJobs($crawler);
         }
 
+        if ($crawler->parser_type === 'careers24') {
+            return $this->fetchCareers24Jobs($crawler);
+        }
+
         $sourceUrl = (string) $crawler->source_url;
         $paginated = str_contains($sourceUrl, '{page}');
 
@@ -274,6 +278,10 @@ class JobCrawlerRunner
             return $this->importGoZambiaJobs($crawler, $items);
         }
 
+        if ($crawler->parser_type === 'careers24') {
+            return $this->importCareers24Jobs($crawler, $items);
+        }
+
         $stats = [
             'jobs_found' => count($items),
             'jobs_created' => 0,
@@ -383,6 +391,364 @@ class JobCrawlerRunner
         }
 
         return $attribute ? $nodes->first()->attr(trim($attribute)) : $nodes->first()->text('');
+    }
+
+    // -------------------------------------------------------------------------
+    // Careers24 South Africa
+    // -------------------------------------------------------------------------
+
+    protected function fetchCareers24Jobs(JobCrawler $crawler): array
+    {
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->toArray();
+
+        $isFirstRun = empty($existingIds);
+        $jobs       = [];
+        $seenIds    = [];
+
+        for ($page = 1; $page <= 20; $page++) {
+            $this->saveProgress($page, count($jobs));
+
+            if ($page > 1) {
+                usleep(600_000);
+            }
+
+            $url      = 'https://www.careers24.com/jobs/?pageIndex=' . $page;
+            $response = $this->careers24Request($url);
+
+            if (! $response->successful()) {
+                break;
+            }
+
+            $html     = $response->body();
+            $pageJobs = $this->extractCareers24List($html);
+
+            if (empty($pageJobs)) {
+                break;
+            }
+
+            $newOnPage = 0;
+
+            foreach ($pageJobs as $job) {
+                $id = (string) ($job['id'] ?? '');
+                if ($id === '' || isset($seenIds[$id])) {
+                    continue;
+                }
+                $seenIds[$id] = true;
+                $jobs[]       = $job;
+
+                if (! array_key_exists($id, $existingIds)) {
+                    $newOnPage++;
+                }
+            }
+
+            // Stop early once we've hit a page of only known jobs.
+            if (! $isFirstRun && $page > 1 && $newOnPage === 0) {
+                break;
+            }
+        }
+
+        return $jobs;
+    }
+
+    protected function importCareers24Jobs(JobCrawler $crawler, array $items): array
+    {
+        $deletedDuplicates = $this->deleteDuplicateCrawledJobs($crawler);
+
+        $stats = [
+            'jobs_found'   => count($items),
+            'jobs_created' => 0,
+            'jobs_updated' => 0,
+            'jobs_skipped' => 0,
+        ];
+
+        if ($deletedDuplicates > 0) {
+            $stats['jobs_deleted'] = $deletedDuplicates;
+            $this->saveMeta(['jobs_deleted' => $deletedDuplicates]);
+        }
+
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->toArray();
+
+        $newItems      = [];
+        $existingItems = [];
+
+        foreach ($items as $item) {
+            $id = (string) ($item['id'] ?? '');
+            if ($id !== '' && array_key_exists($id, $existingIds)) {
+                $existingItems[] = $item;
+            } else {
+                $newItems[] = $item;
+            }
+        }
+
+        $newTotal      = count($newItems);
+        $existingTotal = count($existingItems);
+
+        // Phase 1: fetch detail pages for new jobs
+        $this->saveNewImportProgress(0, $newTotal, $stats);
+
+        foreach ($newItems as $index => $item) {
+            $sourceId = (string) ($item['id'] ?? '');
+            $title    = trim((string) ($item['title'] ?? ''));
+
+            if ($sourceId === '' || $title === '') {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
+            $detailUrl = $this->absoluteCareers24Url((string) ($item['url'] ?? ''));
+            $detail    = null;
+
+            if ($detailUrl) {
+                try {
+                    $detailResponse = $this->careers24Request($detailUrl);
+                    if ($detailResponse->successful()) {
+                        $detail = $this->extractCareers24Detail($detailResponse->body());
+                    }
+                } catch (Throwable) {
+                    // keep list data
+                }
+            }
+
+            if ($detail) {
+                $item = array_merge($item, $detail);
+            }
+
+            $item['external_source_url'] = $detailUrl ?: '';
+
+            $company = $this->firstOrCreateCareers24Company($item);
+            if (! $company) {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
+            $existing = Job::query()
+                ->where('crawler_id', $crawler->getKey())
+                ->where('external_source_id', $sourceId)
+                ->first();
+
+            if ($existing) {
+                $existing->forceFill($this->buildCareers24Attributes($crawler, $item, $company))->save();
+                $this->assignGoZambiaCategory($existing, ['category' => ['name' => $item['industry'] ?? '']]);
+                $stats['jobs_updated']++;
+            } else {
+                $newJob = new Job();
+                $newJob->forceFill($this->buildCareers24Attributes($crawler, $item, $company))->save();
+                $this->clearConflictingCrawlerSlugs($crawler, $newJob);
+                SlugHelper::createSlug($newJob);
+                $this->assignGoZambiaCategory($newJob, ['category' => ['name' => $item['industry'] ?? '']]);
+                $newJob->jobTypes()->syncWithoutDetaching([3]); // Full Time
+                $this->dispatchNewJobEvents($newJob);
+                $stats['jobs_created']++;
+            }
+
+            usleep(300_000);
+            $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+        }
+
+        // Phase 2: update existing jobs from list data (no HTTP)
+        $this->saveExistingUpdateProgress(0, $existingTotal, $stats);
+
+        foreach ($existingItems as $index => $item) {
+            $sourceId = (string) ($item['id'] ?? '');
+            if ($sourceId === '') {
+                $stats['jobs_skipped']++;
+            } else {
+                $job = Job::query()
+                    ->where('crawler_id', $crawler->getKey())
+                    ->where('external_source_id', $sourceId)
+                    ->first();
+
+                if ($job) {
+                    // Refresh expiry from list data
+                    $job->forceFill([
+                        'name'       => $this->limitGoZambiaField(trim((string) ($item['title'] ?? '')), 110),
+                        'expire_date' => isset($item['validThrough'])
+                            ? Carbon::parse($item['validThrough'])
+                            : Carbon::now()->addDays(30),
+                        'application_closing_date' => isset($item['validThrough'])
+                            ? Carbon::parse($item['validThrough'])
+                            : null,
+                    ])->save();
+                    $stats['jobs_updated']++;
+                } else {
+                    $stats['jobs_skipped']++;
+                }
+            }
+
+            if ($index % 10 === 9 || $index === $existingTotal - 1) {
+                $this->saveExistingUpdateProgress($index + 1, $existingTotal, $stats);
+            }
+        }
+
+        return $stats;
+    }
+
+    protected function extractCareers24List(string $html): array
+    {
+        $jobs = [];
+        $dom  = new DomCrawler($html);
+
+        $dom->filter('div.job-card[data-id]')->each(function (DomCrawler $node) use (&$jobs): void {
+            $id  = $node->attr('data-id');
+            $a   = $node->filter('a[data-control="vacancy-title"]');
+            $url = $a->count() ? $a->first()->attr('href') : null;
+            $title = $a->count() ? $a->first()->text('') : '';
+
+            $li  = $node->filter('ul li');
+            $location = $li->count() > 0 ? trim($li->first()->text('')) : '';
+
+            $jobs[] = [
+                'id'       => (string) $id,
+                'title'    => trim($title),
+                'url'      => $url,
+                'location' => $location,
+            ];
+        });
+
+        return $jobs;
+    }
+
+    protected function extractCareers24Detail(string $html): array
+    {
+        // Primary source: JSON-LD structured data
+        if (preg_match('/<script type="application\/ld\+json">(.*?)<\/script>/s', $html, $m)) {
+            $data = json_decode($m[1], true);
+            if (is_array($data) && ($data['@type'] ?? '') === 'JobPosting') {
+                $org      = $data['hiringOrganization'] ?? [];
+                $location = $data['jobLocation']['address'] ?? [];
+                $salary   = $data['baseSalary'] ?? [];
+                $salValue = $salary['value']['value'] ?? null;
+                $salUnit  = $salary['value']['unitText'] ?? null;
+
+                return [
+                    'title'           => $data['title'] ?? '',
+                    'description'     => $data['description'] ?? '',
+                    'company_name'    => $org['name'] ?? '',
+                    'location'        => trim(($location['addressLocality'] ?? '') . ', ' . ($location['addressRegion'] ?? '')),
+                    'industry'        => $data['industry'] ?? '',
+                    'datePosted'      => $data['datePosted'] ?? null,
+                    'validThrough'    => $data['validThrough'] ?? null,
+                    'employmentType'  => $data['employmentType'] ?? '',
+                    'salary_from'     => $salValue,
+                    'salary_to'       => $salValue,
+                    'salary_currency' => $salary['currency'] ?? 'ZAR',
+                    'salary_unit'     => $salUnit,
+                ];
+            }
+        }
+
+        return [];
+    }
+
+    protected function buildCareers24Attributes(JobCrawler $crawler, array $item, Company $company): array
+    {
+        $postedAt  = $item['datePosted'] ?? null;
+        $expiresAt = $item['validThrough'] ?? null;
+
+        $postedDate = $postedAt ? Carbon::parse($postedAt) : Carbon::now();
+        $expireDate = $expiresAt
+            ? Carbon::parse($expiresAt)
+            : $postedDate->copy()->addDays(60);
+
+        $description = trim(strip_tags((string) ($item['description'] ?? '')));
+        $salary      = $item['salary_from'] ?? null;
+
+        return [
+            'crawler_id'              => $crawler->getKey(),
+            'external_source_id'      => (string) ($item['id'] ?? ''),
+            'external_source_url'     => (string) ($item['external_source_url'] ?? ''),
+            'name'                    => $this->limitGoZambiaField(trim((string) ($item['title'] ?? '')), 110),
+            'description'             => Str::limit($description, 400, ''),
+            'content'                 => $item['description'] ?? $description,
+            'company_id'              => $company->getKey(),
+            'address'                 => (string) ($item['location'] ?? 'South Africa'),
+            'country_id'              => 53, // South Africa
+            'apply_url'               => (string) ($item['external_source_url'] ?? ''),
+            'status'                  => JobStatusEnum::PUBLISHED,
+            'moderation_status'       => ModerationStatusEnum::APPROVED,
+            'salary_from'             => $salary ? (float) $salary : null,
+            'salary_to'               => $salary ? (float) $salary : null,
+            'salary_range'            => $this->careers24SalaryRange($item['salary_unit'] ?? ''),
+            'salary_type'             => $salary ? \Botble\JobBoard\Enums\SalaryTypeEnum::FIXED : \Botble\JobBoard\Enums\SalaryTypeEnum::HIDDEN,
+            'currency_id'             => 46, // ZAR
+            'career_level_id'         => 3,
+            'is_featured'             => false,
+            'expire_date'             => $expireDate,
+            'application_closing_date'=> $expireDate,
+            'never_expired'           => false,
+            'created_at'              => $postedDate,
+            'updated_at'              => $postedDate,
+        ];
+    }
+
+    protected function firstOrCreateCareers24Company(array $item): ?Company
+    {
+        $name = trim((string) ($item['company_name'] ?? ''));
+        if ($name === '') {
+            return null;
+        }
+
+        $company = $this->findGoZambiaCompany($name, null);
+
+        if (! $company) {
+            $company = Company::query()->create([
+                'name'        => $this->limitGoZambiaField($name, 110),
+                'country_id'  => 53,
+                'status'      => \Botble\Base\Enums\BaseStatusEnum::PUBLISHED,
+                'is_verified' => false,
+            ]);
+            SlugHelper::createSlug($company);
+        }
+
+        return $company;
+    }
+
+    protected function careers24SalaryRange(string $unit): string
+    {
+        return match (strtoupper(trim($unit))) {
+            'MONTH', 'MONTHLY' => \Botble\JobBoard\Enums\SalaryRangeEnum::MONTHLY,
+            'WEEK', 'WEEKLY'   => \Botble\JobBoard\Enums\SalaryRangeEnum::WEEKLY,
+            'DAY', 'DAILY'     => \Botble\JobBoard\Enums\SalaryRangeEnum::DAILY,
+            'HOUR', 'HOURLY'   => \Botble\JobBoard\Enums\SalaryRangeEnum::HOURLY,
+            default            => \Botble\JobBoard\Enums\SalaryRangeEnum::YEARLY,
+        };
+    }
+
+    protected function absoluteCareers24Url(string $path): ?string
+    {
+        $path = trim($path);
+        if ($path === '') {
+            return null;
+        }
+
+        if (Str::startsWith($path, ['http://', 'https://'])) {
+            return $path;
+        }
+
+        return 'https://www.careers24.com' . $path;
+    }
+
+    protected function careers24Request(string $url): \Illuminate\Http\Client\Response
+    {
+        return Http::timeout(15)
+            ->withHeaders([
+                'User-Agent'      => 'Mozilla/5.0 (compatible; WakandaJobsCrawler/1.0)',
+                'Accept'          => 'text/html,application/xhtml+xml',
+                'Accept-Language' => 'en-ZA,en;q=0.9',
+            ])
+            ->get($url);
     }
 
     // -------------------------------------------------------------------------
