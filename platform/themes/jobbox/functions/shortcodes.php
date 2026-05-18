@@ -174,8 +174,7 @@ app()->booted(function (): void {
 
             if ($categories->isEmpty()) {
                 $categories = $categoriesQuery
-                    ->oldest('order')
-                    ->latest()
+                    ->orderByDesc('jobs_count')
                     ->limit(6)
                     ->get();
             }
