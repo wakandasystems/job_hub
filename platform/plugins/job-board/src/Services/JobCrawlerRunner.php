@@ -231,7 +231,10 @@ class JobCrawlerRunner
         }
 
         $category = \Botble\JobBoard\Models\Category::query()
-            ->whereRaw('LOWER(name) = ?', [$key])
+            ->whereRaw('LOWER(name) = ? OR LOWER(name) = ?', [
+                $key,
+                mb_strtolower(htmlspecialchars($name, ENT_QUOTES | ENT_HTML5, 'UTF-8')),
+            ])
             ->first();
 
         if (! $category) {
