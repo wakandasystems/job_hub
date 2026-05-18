@@ -114,9 +114,18 @@ app()->booted(function (): void {
         });
 
         add_shortcode('job-categories', __('Job categories'), __('Job categories'), function (Shortcode $shortcode) {
+            $selectedCountry = wakanda_selected_country();
+            $countryId = $selectedCountry ? $selectedCountry->id : null;
+
             $categories = Category::query()
                 ->wherePublished()
-                ->withCount(['activeJobs as jobs_count'])
+                ->withCount(['activeJobs as jobs_count' => function ($query) use ($countryId): void {
+                    if ($countryId) {
+                        $query->where('jb_jobs.country_id', $countryId);
+                    }
+                }])
+                ->having('jobs_count', '>', 0)
+                ->orderByDesc('jobs_count')
                 ->paginate((int) $shortcode->limit_category ?: Arr::first(JobBoardHelper::getPerPageParams()));
 
             return Theme::partial('shortcodes.job-categories', compact('shortcode', 'categories'));
