@@ -1,10 +1,10 @@
 @php
-    $currency = $job->currency->getKey() ? $job->currency : get_application_currency();
+    $currency = get_application_currency();
 @endphp
 
 @if ($job->hide_salary)
     <span class="text-muted">{{ __('Attractive') }}</span>
-@elseif ($job->salary_from || $job->salary_to)
+@elseif (($job->salary_from || $job->salary_to) && ($job->salary_from > 0 || $job->salary_to > 0))
     @if(! JobBoardHelper::isSalaryHiddenForGuests())
         @if ($job->salary_from && $job->salary_to)
             <span class="card-text-price" title="{{ format_price($job->salary_from, $currency) }} - {{ format_price($job->salary_to, $currency) }}">
