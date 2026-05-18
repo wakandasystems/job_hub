@@ -439,7 +439,7 @@ app()->booted(function (): void {
                 $limit = (int) ($shortcode->limit_category ?: 10);
 
                 $query = Category::query()
-                    ->wherePublished()
+                    ->where('jb_categories.status', \Botble\Base\Enums\BaseStatusEnum::PUBLISHED)
                     ->with(['slugable', 'metadata'])
                     ->selectRaw('jb_categories.*, SUM(jb_jobs.views) as total_views, COUNT(DISTINCT jb_jobs.id) as jobs_count')
                     ->join('jb_jobs_categories', 'jb_categories.id', '=', 'jb_jobs_categories.category_id')
