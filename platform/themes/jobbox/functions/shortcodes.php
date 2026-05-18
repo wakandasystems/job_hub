@@ -81,29 +81,29 @@ app()->booted(function (): void {
             __('Featured job categories'),
             function (Shortcode $shortcode) {
                 $limit = (int) $shortcode->limit_category ?: Arr::first(JobBoardHelper::getPerPageParams());
+                $selectedCountry = wakanda_selected_country();
+                $countryId = $selectedCountry ? $selectedCountry->id : null;
 
-                $categoriesQuery = Category::query()
-                    ->wherePublished()
-                    ->withCount(['activeJobs'])
-                    ->with([
-                        'slugable',
-                        'metadata',
-                    ]);
-
-                $categories = (clone $categoriesQuery)
-                    ->where('is_featured', true)
-                    ->whereHas('activeJobs')
-                    ->oldest('order')->latest()
+                $categories = Category::query()
+                    ->where('jb_categories.status', \Botble\Base\Enums\BaseStatusEnum::PUBLISHED)
+                    ->with(['slugable', 'metadata'])
+                    ->whereHas('slugable')
+                    ->selectRaw('jb_categories.*, COUNT(DISTINCT jb_jobs.id) as jobs_count, MAX(jb_jobs.created_at) as latest_job_at')
+                    ->join('jb_jobs_categories', 'jb_categories.id', '=', 'jb_jobs_categories.category_id')
+                    ->join('jb_jobs', 'jb_jobs.id', '=', 'jb_jobs_categories.job_id')
+                    ->where('jb_jobs.status', \Botble\JobBoard\Enums\JobStatusEnum::PUBLISHED)
+                    ->where('jb_jobs.moderation_status', \Botble\JobBoard\Enums\ModerationStatusEnum::APPROVED)
+                    ->where(function ($q): void {
+                        $q->where('jb_jobs.never_expired', true)
+                            ->orWhereNull('jb_jobs.expire_date')
+                            ->orWhere('jb_jobs.expire_date', '>=', now());
+                    })
+                    ->when($countryId, fn ($q) => $q->where('jb_jobs.country_id', $countryId))
+                    ->groupBy('jb_categories.id')
+                    ->having('jobs_count', '>', 0)
+                    ->orderByDesc('latest_job_at')
                     ->limit($limit)
                     ->get();
-
-                if ($categories->isEmpty()) {
-                    $categories = $categoriesQuery
-                        ->whereHas('activeJobs')
-                        ->oldest('order')->latest()
-                        ->limit($limit)
-                        ->get();
-                }
 
                 return Theme::partial('shortcodes.featured-job-categories', compact('shortcode', 'categories'));
             }
