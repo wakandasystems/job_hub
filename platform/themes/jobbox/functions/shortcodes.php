@@ -166,7 +166,7 @@ app()->booted(function (): void {
             if ($categoryIds) {
                 $categories = (clone $categoriesQuery)
                     ->whereIn('id', $categoryIds)
-                    ->oldest('order')
+                    ->orderByDesc('jobs_count')
                     ->get();
             } else {
                 $categories = collect();
