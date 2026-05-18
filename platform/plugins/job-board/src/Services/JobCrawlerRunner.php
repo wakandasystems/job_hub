@@ -243,6 +243,9 @@ class JobCrawlerRunner
                 'status' => \Botble\Base\Enums\BaseStatusEnum::PUBLISHED,
             ]);
             SlugHelper::createSlug($category);
+            $this->assignCategoryIcon($category, $name);
+        } elseif (! $category->getMetaData('icon_image', true)) {
+            $this->assignCategoryIcon($category, $name);
         }
 
         return $this->categoryCache[$key] = $category;
@@ -638,6 +641,54 @@ class JobCrawlerRunner
      * from silently colliding with a stale entry, which would cause the URL to keep
      * resolving to the old expired job instead.
      */
+    protected function assignCategoryIcon(\Botble\JobBoard\Models\Category $category, string $name): void
+    {
+        static $iconMap = [
+            'engineering' => 'general/lightning.png', 'construction' => 'general/lightning.png',
+            'transport'   => 'general/management.png', 'logistics'   => 'general/management.png',
+            'ngo'         => 'general/research.png',  'development'  => 'general/research.png',
+            'marketing'   => 'general/marketing.png', 'communications' => 'general/marketing.png',
+            'administration' => 'general/management.png', 'office'  => 'general/management.png',
+            'hospitality' => 'general/customer.png',  'tourism'     => 'general/customer.png',
+            'banking'     => 'general/finance.png',   'financial'   => 'general/finance.png',
+            'retail'      => 'general/retail.png',    'sales'       => 'general/marketing.png',
+            'accounting'  => 'general/finance.png',   'auditing'    => 'general/finance.png',
+            'education'   => 'general/research.png',  'training'    => 'general/research.png',
+            'manufacturing' => 'general/lightning.png', 'fmcg'      => 'general/retail.png',
+            'agriculture' => 'general/research.png',  'it'          => 'general/lightning.png',
+            'telecoms'    => 'general/lightning.png', 'human resource' => 'general/human.png',
+            'recruitment' => 'general/human.png',     'sheq'        => 'general/security.png',
+            'security'    => 'general/security.png',  'healthcare'  => 'general/customer.png',
+            'medical'     => 'general/customer.png',  'mining'      => 'general/lightning.png',
+            'energy'      => 'general/lightning.png', 'legal'       => 'general/management.png',
+            'management'  => 'general/management.png', 'customer'   => 'general/customer.png',
+            'software'    => 'general/lightning.png', 'finance'     => 'general/finance.png',
+        ];
+
+        $lower = mb_strtolower($name);
+        $icon  = 'general/management.png';
+
+        foreach ($iconMap as $keyword => $file) {
+            if (str_contains($lower, $keyword)) {
+                $icon = $file;
+                break;
+            }
+        }
+
+        \DB::table('meta_boxes')->updateOrInsert(
+            [
+                'reference_id'   => $category->getKey(),
+                'reference_type' => get_class($category),
+                'meta_key'       => 'icon_image',
+            ],
+            [
+                'meta_value' => json_encode([$icon]),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]
+        );
+    }
+
     protected function clearConflictingCrawlerSlugs(JobCrawler $crawler, Job $newJob): void
     {
         $slugKey = Str::slug($newJob->name);

@@ -88,7 +88,7 @@ app()->booted(function (): void {
                     ->where('jb_categories.status', \Botble\Base\Enums\BaseStatusEnum::PUBLISHED)
                     ->with(['slugable', 'metadata'])
                     ->whereHas('slugable')
-                    ->selectRaw('jb_categories.*, COUNT(DISTINCT jb_jobs.id) as jobs_count, MAX(jb_jobs.created_at) as latest_job_at')
+                    ->selectRaw('jb_categories.*, COUNT(DISTINCT jb_jobs.id) as active_jobs_count, MAX(jb_jobs.created_at) as latest_job_at')
                     ->join('jb_jobs_categories', 'jb_categories.id', '=', 'jb_jobs_categories.category_id')
                     ->join('jb_jobs', 'jb_jobs.id', '=', 'jb_jobs_categories.job_id')
                     ->where('jb_jobs.status', \Botble\JobBoard\Enums\JobStatusEnum::PUBLISHED)
@@ -100,7 +100,7 @@ app()->booted(function (): void {
                     })
                     ->when($countryId, fn ($q) => $q->where('jb_jobs.country_id', $countryId))
                     ->groupBy('jb_categories.id')
-                    ->having('jobs_count', '>', 0)
+                    ->having('active_jobs_count', '>', 0)
                     ->orderByDesc('latest_job_at')
                     ->limit($limit)
                     ->get();
