@@ -38,10 +38,27 @@ class JobCrawlerTable extends TableAbstract
             ]);
     }
 
+    protected function countryForCrawler(JobCrawler $crawler): string
+    {
+        $map = [
+            'gozambiajobs' => ['flag' => '🇿🇲', 'name' => 'Zambia'],
+            'careers24'    => ['flag' => '🇿🇦', 'name' => 'South Africa'],
+        ];
+
+        $info = $map[$crawler->parser_type] ?? null;
+
+        if ($info) {
+            return $info['flag'] . ' ' . $info['name'];
+        }
+
+        return '&mdash;';
+    }
+
     public function ajax(): JsonResponse
     {
         $data = $this->table
             ->eloquent($this->query())
+            ->addColumn('country', fn (JobCrawler $crawler) => $this->countryForCrawler($crawler))
             ->editColumn('last_status', fn (JobCrawler $crawler) => $crawler->last_status
                 ? BaseHelper::renderBadge($crawler->last_status, $crawler->last_status === 'failed' ? 'danger' : 'success')
                 : '&mdash;')
@@ -61,7 +78,7 @@ class JobCrawlerTable extends TableAbstract
             'last_status',
             'last_run_at',
             'created_at',
-        ]));
+        ])->orderBy('id'));
     }
 
     public function columns(): array
@@ -69,9 +86,10 @@ class JobCrawlerTable extends TableAbstract
         return [
             IdColumn::make(),
             NameColumn::make()->route('job-board.crawlers.edit'),
+            Column::make('country')->title('Country')->width(160)->orderable(false),
             Column::make('source_url')->title('Source URL')->className('text-start'),
-            Column::make('parser_type')->title('Parser')->width(100),
-            YesNoColumn::make('is_active')->title('Active')->width(100),
+            Column::make('parser_type')->title('Parser')->width(120),
+            YesNoColumn::make('is_active')->title('Active')->width(80),
             Column::make('last_status')->title('Last status')->width(130),
             Column::make('last_run_at')->title('Last run')->width(160),
             CreatedAtColumn::make(),
