@@ -160,33 +160,30 @@ app()->booted(function (): void {
         });
 
         add_shortcode('job-of-the-day', __('Job of the day'), __('Job of the day'), function (Shortcode $shortcode) {
-            $categoryIds = [];
+            $selectedCountry = wakanda_selected_country();
+            $countryId = $selectedCountry ? $selectedCountry->id : null;
 
-            if ($shortcode->job_categories) {
-                $categoryIds = array_filter(array_map('intval', explode(',', $shortcode->job_categories)));
-            }
-
-            $categoriesQuery = Category::query()
+            // Always pick categories dynamically: those with the most recently posted
+            // active jobs for the selected country, so the section stays fresh automatically.
+            $categories = Category::query()
                 ->wherePublished()
                 ->with(['slugable', 'metadata'])
-                ->withCount(['activeJobs as jobs_count'])
-                ->having('jobs_count', '>', 0);
-
-            if ($categoryIds) {
-                $categories = (clone $categoriesQuery)
-                    ->whereIn('id', $categoryIds)
-                    ->orderByDesc('jobs_count')
-                    ->get();
-            } else {
-                $categories = collect();
-            }
-
-            if ($categories->isEmpty()) {
-                $categories = $categoriesQuery
-                    ->orderByDesc('jobs_count')
-                    ->limit(6)
-                    ->get();
-            }
+                ->selectRaw('jb_categories.*, COUNT(DISTINCT jb_jobs.id) as jobs_count, MAX(jb_jobs.created_at) as latest_job_at')
+                ->join('jb_jobs_categories', 'jb_categories.id', '=', 'jb_jobs_categories.category_id')
+                ->join('jb_jobs', 'jb_jobs.id', '=', 'jb_jobs_categories.job_id')
+                ->where('jb_jobs.status', \Botble\JobBoard\Enums\JobStatusEnum::PUBLISHED)
+                ->where('jb_jobs.moderation_status', \Botble\JobBoard\Enums\ModerationStatusEnum::APPROVED)
+                ->where(function ($q): void {
+                    $q->where('jb_jobs.never_expired', true)
+                        ->orWhereNull('jb_jobs.expire_date')
+                        ->orWhere('jb_jobs.expire_date', '>=', now());
+                })
+                ->when($countryId, fn ($q) => $q->where('jb_jobs.country_id', $countryId))
+                ->groupBy('jb_categories.id')
+                ->having('jobs_count', '>', 0)
+                ->orderByDesc('latest_job_at')
+                ->limit(6)
+                ->get();
 
             $with = [
                 'slugable',
