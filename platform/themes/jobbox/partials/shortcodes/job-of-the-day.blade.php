@@ -159,6 +159,9 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="text-center mt-50">
+                            <a href="{{ JobBoardHelper::getJobsPageURL() }}" class="btn btn-default hover-up">{{ __('View All Jobs') }}</a>
+                        </div>
                     </div>
                 @endif
             </div>
