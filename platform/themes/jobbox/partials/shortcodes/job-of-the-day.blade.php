@@ -159,8 +159,9 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="text-center mt-50">
-                            <a href="{{ JobBoardHelper::getJobsPageURL() }}" class="btn btn-default hover-up">{{ __('View All Jobs') }}</a>
+                        <div class="list-tags-banner text-center mt-50 wow animate__animated animate__fadeInUp" data-wow-delay=".3s">
+                            <strong>{{ __('Looking for more?') }}</strong>
+                            <a href="{{ JobBoardHelper::getJobsPageURL() }}">{{ __('View All Jobs') }}</a>
                         </div>
                     </div>
                 @endif
