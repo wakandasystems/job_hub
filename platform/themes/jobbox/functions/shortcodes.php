@@ -166,7 +166,7 @@ app()->booted(function (): void {
             // Always pick categories dynamically: those with the most recently posted
             // active jobs for the selected country, so the section stays fresh automatically.
             $categories = Category::query()
-                ->wherePublished()
+                ->where('jb_categories.status', \Botble\Base\Enums\BaseStatusEnum::PUBLISHED)
                 ->with(['slugable', 'metadata'])
                 ->selectRaw('jb_categories.*, COUNT(DISTINCT jb_jobs.id) as jobs_count, MAX(jb_jobs.created_at) as latest_job_at')
                 ->join('jb_jobs_categories', 'jb_categories.id', '=', 'jb_jobs_categories.category_id')
