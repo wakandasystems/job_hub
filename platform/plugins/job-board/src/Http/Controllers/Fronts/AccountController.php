@@ -60,6 +60,23 @@ class AccountController extends BaseController
         return JobBoardHelper::scope('account.overview', $data);
     }
 
+    public function getCareerServices()
+    {
+        SeoHelper::setTitle(__('Career Services'));
+
+        /** @var Account $account */
+        $account = auth('account')->user();
+
+        $services = \Botble\JobBoard\Models\CareerServiceOrder::services();
+
+        $myOrders = \Botble\JobBoard\Models\CareerServiceOrder::where('customer_email', $account->email)
+            ->latest()
+            ->limit(10)
+            ->get();
+
+        return JobBoardHelper::scope('account.career-services', compact('account', 'services', 'myOrders'));
+    }
+
     public function getSettings()
     {
         SeoHelper::setTitle(trans('plugins/job-board::messages.account_settings'));

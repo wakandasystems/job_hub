@@ -141,55 +141,6 @@
                         @endif
                     </div>
 
-                    {{-- Career Services Marketplace --}}
-                    @php $careerServices = \Botble\JobBoard\Models\CareerServiceOrder::services(); @endphp
-                    <div class="mt-5 pt-3">
-                        <div class="d-flex align-items-center justify-content-between mb-1">
-                            <h4 class="fs-17 fw-bold mb-0">Career Services</h4>
-                            <span class="badge bg-warning text-dark font-xs">Boost your career</span>
-                        </div>
-                        <p class="text-muted font-sm mb-4">Professional CV writing, LinkedIn optimisation &amp; interview coaching — delivered by vetted career coaches within 24–72 hrs.</p>
-
-                        <div class="row g-3">
-                            @foreach($careerServices as $key => $svc)
-                                <div class="col-md-6">
-                                    <div class="card h-100 border career-service-card" style="border-radius:12px;transition:box-shadow .2s;">
-                                        <div class="card-body p-3">
-                                            <div class="d-flex align-items-center gap-2 mb-2">
-                                                <span class="d-flex align-items-center justify-content-center rounded-circle bg-primary bg-opacity-10" style="width:38px;height:38px;flex-shrink:0;">
-                                                    <i class="{{ $svc['icon'] ?? 'fi-rr-briefcase' }} text-primary"></i>
-                                                </span>
-                                                <div>
-                                                    <div class="fw-semibold small lh-sm">{{ $svc['name'] }}</div>
-                                                    @if(!empty($svc['badge']))
-                                                        <span class="badge bg-warning text-dark" style="font-size:10px;">{{ $svc['badge'] }}</span>
-                                                    @endif
-                                                </div>
-                                            </div>
-                                            <p class="text-muted mb-2" style="font-size:12px;line-height:1.4;">{{ $svc['description'] }}</p>
-                                            <div class="d-flex align-items-center justify-content-between mt-auto">
-                                                <div>
-                                                    <span class="fw-bold text-primary">${{ $svc['price'] }}</span>
-                                                    <span class="text-muted ms-1" style="font-size:11px;">· {{ $svc['delivery'] }}</span>
-                                                </div>
-                                                <a href="{{ route('public.career-service.checkout', ['service' => $key, 'candidate' => $candidate->slug]) }}"
-                                                   class="btn btn-sm btn-apply px-3">Book</a>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            @endforeach
-                        </div>
-
-                        <p class="text-muted text-center mt-3" style="font-size:11px;">
-                            <i class="fi-rr-shield-check text-success me-1"></i>Secure payment · Money-back guarantee if not delivered · Powered by Wakanda Jobs
-                        </p>
-                    </div>
-
-                    <style>
-                        .career-service-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,.10); border-color: var(--primary-color) !important; }
-                    </style>
-
                     @if(JobBoardHelper::isEnabledReview())
                         <div class="mt-4 pt-3 position-relative review-listing" @style(['display: none' => $candidate->reviews_count < 1])>
                             <h6 class="fs-17 fw-semibold mb-3">{{ __(":candidate's Reviews", ['candidate' => $candidate->name]) }}</h6>

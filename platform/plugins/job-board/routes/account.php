@@ -127,6 +127,11 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
                         'uses' => 'getSecurity',
                     ]);
 
+                    Route::get('career-services', [
+                        'as' => 'career-services',
+                        'uses' => 'getCareerServices',
+                    ]);
+
                     Route::put('security', [
                         'as' => 'post.security',
                         'uses' => 'postSecurity',

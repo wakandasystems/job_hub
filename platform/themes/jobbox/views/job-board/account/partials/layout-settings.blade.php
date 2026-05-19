@@ -52,6 +52,7 @@
                            @if ($account->isJobSeeker())
                                 <li><a @class(['btn btn-border recruitment-icon mb-20', 'active' => $url === route('public.account.experiences.index')]) href="{{ route('public.account.experiences.index') }}" >{{ __('Experiences') }}</a></li>
                                 <li><a @class(['btn btn-border recruitment-icon mb-20', 'active' => $url === route('public.account.educations.index')]) href="{{ route('public.account.educations.index') }}" >{{ __('Educations') }}</a></li>
+                                <li><a @class(['btn btn-border recruitment-icon mb-20', 'active' => $url === route('public.account.career-services')]) href="{{ route('public.account.career-services') }}">{{ __('Career Services') }}</a></li>
                            @endif
                         </ul>
                     </div>
