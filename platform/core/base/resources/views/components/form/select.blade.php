@@ -17,7 +17,7 @@
 
     $classes = Arr::toCssClasses([
         'form-select',
-        'is-invalid' => $name && $errors->has($name),
+        'is-invalid' => $name && $errors?->has($name),
         'select-search-full' => $searchable,
     ]);
 @endphp
