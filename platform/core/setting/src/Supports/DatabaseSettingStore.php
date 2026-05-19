@@ -42,12 +42,25 @@ class DatabaseSettingStore extends SettingStore
 
     protected function write(array $data): void
     {
-        $keys = $this->newQuery()->pluck('key')->all();
+        // Fetch existing key→value pairs so we can skip rows that haven't changed,
+        // avoiding write amplification where every save() would UPDATE all 370+ rows.
+        $existing = $this->newQuery()->pluck('value', 'key')->all();
 
         $data = Arr::dot($data);
 
-        $updateData = Arr::only($data, $keys);
-        $insertData = Arr::except($data, $keys);
+        $updateData = [];
+        $insertData = [];
+
+        foreach ($data as $key => $value) {
+            $stringValue = (string) $value;
+            if (array_key_exists($key, $existing)) {
+                if ($existing[$key] !== $stringValue) {
+                    $updateData[$key] = $stringValue;
+                }
+            } else {
+                $insertData[$key] = $value;
+            }
+        }
 
         foreach ($updateData as $key => $value) {
             $this->newQuery()

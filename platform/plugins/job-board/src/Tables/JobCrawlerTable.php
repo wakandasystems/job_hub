@@ -53,18 +53,50 @@ class JobCrawlerTable extends TableAbstract
 
     protected function countryForCrawler(JobCrawler $crawler): string
     {
-        $map = [
+        // Static map for parsers that always target one country
+        $staticMap = [
             'gozambiajobs' => ['flag' => '🇿🇲', 'name' => 'Zambia'],
             'careers24'    => ['flag' => '🇿🇦', 'name' => 'South Africa'],
+            'myjobmu'      => ['flag' => '🇲🇺', 'name' => 'Mauritius'],
+            'jobstanzania' => ['flag' => '🇹🇿', 'name' => 'Tanzania'],
+            'jobinrwanda'  => ['flag' => '🇷🇼', 'name' => 'Rwanda'],
+            'keejob'       => ['flag' => '🇹🇳', 'name' => 'Tunisia'],
         ];
 
-        $info = $map[$crawler->parser_type] ?? null;
+        if (isset($staticMap[$crawler->parser_type])) {
+            $info = $staticMap[$crawler->parser_type];
 
-        if ($info) {
             return $info['flag'] . ' ' . $info['name'];
         }
 
+        // For parsers whose country is stored in field_mappings.country_id
+        if (in_array($crawler->parser_type, ['ringier', 'africawork', 'pending'])) {
+            $mappings  = $crawler->field_mappings;
+            $countryId = is_array($mappings) ? ($mappings['country_id'] ?? null) : null;
+
+            if ($countryId) {
+                $country = \DB::table('countries')->where('id', $countryId)->first(['name', 'code']);
+
+                if ($country) {
+                    return $this->codeToFlag((string) $country->code) . ' ' . $country->name;
+                }
+            }
+        }
+
         return '&mdash;';
+    }
+
+    protected function codeToFlag(string $code): string
+    {
+        $code = strtoupper(trim($code));
+        if (strlen($code) !== 2) {
+            return '';
+        }
+
+        $offset = 0x1F1E6 - ord('A');
+
+        return mb_chr(ord($code[0]) + $offset, 'UTF-8')
+             . mb_chr(ord($code[1]) + $offset, 'UTF-8');
     }
 
     public function ajax(): JsonResponse
@@ -72,6 +104,16 @@ class JobCrawlerTable extends TableAbstract
         $data = $this->table
             ->eloquent($this->query())
             ->addColumn('country', fn (JobCrawler $crawler) => $this->countryForCrawler($crawler))
+            ->addColumn('total_jobs', fn (JobCrawler $crawler) => number_format((int) $crawler->total_jobs))
+            ->addColumn('new_today', function (JobCrawler $crawler) {
+                $count = (int) $crawler->new_today;
+
+                if ($count === 0) {
+                    return '<span class="text-muted">0</span>';
+                }
+
+                return '<span class="badge bg-success-lt">' . number_format($count) . ' new</span>';
+            })
             ->editColumn('last_status', fn (JobCrawler $crawler) => $crawler->last_status
                 ? BaseHelper::renderBadge($crawler->last_status, $crawler->last_status === 'failed' ? 'danger' : 'success')
                 : '&mdash;')
@@ -82,16 +124,29 @@ class JobCrawlerTable extends TableAbstract
 
     public function query(): Relation|Builder|QueryBuilder
     {
-        return $this->applyScopes($this->getModel()->query()->select([
-            'id',
-            'name',
-            'source_url',
-            'parser_type',
-            'is_active',
-            'last_status',
-            'last_run_at',
-            'created_at',
-        ])->orderBy('id'));
+        return $this->applyScopes(
+            $this->getModel()->query()
+                ->select([
+                    'id',
+                    'name',
+                    'source_url',
+                    'parser_type',
+                    'field_mappings',
+                    'is_active',
+                    'last_status',
+                    'last_run_at',
+                    'created_at',
+                ])
+                ->selectRaw(
+                    '(SELECT COUNT(*) FROM jb_jobs WHERE jb_jobs.crawler_id = jb_job_crawlers.id) AS total_jobs'
+                )
+                ->selectRaw(
+                    '(SELECT COALESCE(SUM(jobs_created), 0) FROM jb_job_crawler_runs'
+                    . ' WHERE jb_job_crawler_runs.crawler_id = jb_job_crawlers.id'
+                    . ' AND DATE(started_at) = CURDATE()) AS new_today'
+                )
+                ->orderBy('id')
+        );
     }
 
     public function columns(): array
@@ -99,7 +154,9 @@ class JobCrawlerTable extends TableAbstract
         return [
             IdColumn::make(),
             NameColumn::make()->route('job-board.crawlers.edit'),
-            Column::make('country')->title('Country')->width(160)->orderable(false),
+            Column::make('country')->title('Country')->width(150)->orderable(false),
+            Column::make('total_jobs')->title('Total jobs')->width(110)->orderable(false)->className('text-end'),
+            Column::make('new_today')->title('New today')->width(110)->orderable(false)->className('text-end'),
             Column::make('source_url')->title('Source URL')->className('text-start'),
             Column::make('parser_type')->title('Parser')->width(120),
             FormattedColumn::make('is_active')
