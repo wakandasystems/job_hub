@@ -254,9 +254,25 @@ app()->booted(function (): void {
     RvMedia::addSize('featured', 403, 257);
 
     if (is_plugin_active('job-board')) {
-        AccountSettingForm::beforeRendering(function (AccountSettingForm $form) {
-            return $form->remove(['slug']);
-        });
+        // Move the permalink field to appear right after last_name
+        add_filter(BASE_FILTER_BEFORE_RENDER_FORM, function (\Botble\Base\Forms\FormAbstract $form) {
+            if (! $form instanceof AccountSettingForm) {
+                return $form;
+            }
+
+            if (! array_key_exists('slug', $form->getFields())) {
+                return $form;
+            }
+
+            $model = $form->getModel();
+            $form->remove(['slug']);
+            $form->addAfter('last_name', 'slug', \Botble\Slug\Forms\Fields\PermalinkField::class, [
+                'model' => $model,
+                'colspan' => 'full',
+            ]);
+
+            return $form;
+        }, 1713);
 
         AccountSettingForm::beforeSaving(function (AccountSettingForm $form): void {
             $request = $form->getRequest();

@@ -7,14 +7,14 @@
         @if ($url = $config['app_store_url'])
             @if ($image = $config['app_store_image'])
                 <a class="mr-5" href="{{ $url }}">
-                    <img src="{{ RvMedia::getImageUrl($image) }}" alt="{{ __('App Store') }}">
+                    <img src="{{ RvMedia::getImageUrl($image) }}" alt="{{ __('App Store') }}" style="height:40px;width:auto;">
                 </a>
             @endif
         @endif
         @if ($url = $config['android_app_url'])
             @if ($image = $config['google_play_image'])
                 <a class="mr-5" href="{{ $url }}">
-                    <img src="{{ RvMedia::getImageUrl($image) }}" alt="{{ __('Google Play') }}">
+                    <img src="{{ RvMedia::getImageUrl($image) }}" alt="{{ __('Google Play') }}" style="height:40px;width:auto;">
                 </a>
             @endif
         @endif

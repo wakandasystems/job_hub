@@ -2,11 +2,9 @@
     @foreach ($menu_nodes as $key => $row)
         @php
             $menuPath = trim(parse_url($row->url, PHP_URL_PATH) ?: '', '/');
-            $isEmployer = auth('account')->check() && auth('account')->user()->isEmployer();
         @endphp
 
         @continue(in_array($menuPath, ['about-us', 'pricing-plan'], true))
-        @continue($menuPath === 'candidates' && ! $isEmployer)
 
         <li class="@if ($row->has_child) has-children @endif {{ $row->css_class }}">
             <a href="{{ $row->url }}" target="{{ $row->target }}">

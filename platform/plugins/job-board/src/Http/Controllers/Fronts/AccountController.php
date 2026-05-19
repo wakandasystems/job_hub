@@ -15,8 +15,6 @@ use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\AccountActivityLog;
 use Botble\JobBoard\Models\AccountEducation;
 use Botble\JobBoard\Models\AccountExperience;
-use Botble\JobBoard\Models\JobSkill;
-use Botble\JobBoard\Models\Tag;
 use Botble\Media\Facades\RvMedia;
 use Botble\Media\Models\MediaFile;
 use Botble\Media\Services\ThumbnailService;
@@ -72,27 +70,13 @@ class AccountController extends BaseController
 
         $form = AccountSettingForm::createFromModel($account);
 
-        $selectedJobSkills = $account->favoriteSkills()->pluck('jb_job_skills.id')->all();
-
-        $jobSkills = JobSkill::query()
-            ->wherePublished()
-            ->select(['id', 'name'])
-            ->get();
-
-        $selectedJobTags = $account->favoriteTags()->pluck('jb_tags.id')->all();
-
-        $jobTags = Tag::query()
-            ->wherePublished()
-            ->select(['id', 'name'])
-            ->get();
-
         $languages = $account->languages()->with('languageLevel')->get();
 
         $languageForm = AccountLanguageForm::create();
 
         return JobBoardHelper::scope(
             'account.settings.index',
-            compact('account', 'jobSkills', 'jobTags', 'selectedJobSkills', 'selectedJobTags', 'languages', 'form', 'languageForm')
+            compact('account', 'languages', 'form', 'languageForm')
         );
     }
 

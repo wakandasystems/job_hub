@@ -137,4 +137,35 @@ class CityController extends BaseController
             ->httpResponse()
             ->setData(CityResource::collection($data));
     }
+
+    public function searchCities(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $query = City::query()
+            ->select(['id', 'name'])
+            ->wherePublished()
+            ->orderBy('order')
+            ->orderBy('name');
+
+        $stateId = $request->input('state_id');
+        if ($stateId && $stateId !== 'null') {
+            $query->where('state_id', $stateId);
+        }
+
+        $countryId = $request->input('country_id');
+        if ($countryId && $countryId !== 'null') {
+            $query->where('country_id', $countryId);
+        }
+
+        $term = BaseHelper::stringify($request->query('q'));
+        if ($term) {
+            $query->where('name', 'LIKE', '%' . $term . '%');
+        }
+
+        $results = $query->paginate(10);
+
+        return response()->json([
+            'results' => $results->map(fn (City $c) => ['id' => $c->id, 'text' => $c->name])->values(),
+            'pagination' => ['more' => $results->hasMorePages()],
+        ]);
+    }
 }

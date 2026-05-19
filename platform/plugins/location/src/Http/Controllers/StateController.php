@@ -122,4 +122,32 @@ class StateController extends BaseController
             ->httpResponse()
             ->setData(StateResource::collection($data));
     }
+
+    public function searchStates(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $query = State::query()
+            ->select(['id', 'name'])
+            ->wherePublished()
+            ->orderBy('order')
+            ->orderBy('name');
+
+        $countryId = $request->input('country_id');
+        if ($countryId && $countryId !== 'null') {
+            $query->whereHas('country', function ($q) use ($countryId): void {
+                $q->where('id', $countryId)->orWhere('code', $countryId);
+            });
+        }
+
+        $term = BaseHelper::stringify($request->query('q'));
+        if ($term) {
+            $query->where('name', 'LIKE', '%' . $term . '%');
+        }
+
+        $results = $query->paginate(10);
+
+        return response()->json([
+            'results' => $results->map(fn (State $s) => ['id' => $s->id, 'text' => $s->name])->values(),
+            'pagination' => ['more' => $results->hasMorePages()],
+        ]);
+    }
 }
