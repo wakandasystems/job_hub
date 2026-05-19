@@ -82,6 +82,12 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middlew
     Route::group(['prefix' => 'payments'], function (): void {
         Route::post('checkout', 'CheckoutController@postCheckout')->name('payments.checkout');
     });
+
+    Route::group(['prefix' => 'career-services', 'as' => 'public.career-service.'], function (): void {
+        Route::get('{service}/checkout', 'CareerServiceController@getCheckout')->name('checkout');
+        Route::get('{order}/callback', 'CareerServiceController@getCallback')->name('callback');
+        Route::get('{order}/thanks', 'CareerServiceController@getThanks')->name('thanks');
+    });
 });
 
 Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers', 'middleware' => ['web', 'core']], function (): void {
