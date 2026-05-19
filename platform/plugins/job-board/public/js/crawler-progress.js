@@ -382,6 +382,33 @@ $(() => {
     });
 
     // -------------------------------------------------------------------------
+    // Status badge tooltip: show on badge hover, positioned via fixed coords
+    // -------------------------------------------------------------------------
+    $(document).on('mouseenter', '.crstatus', function () {
+        const $tip = $(this).find('.crstatus-tip');
+        if (!$tip.length) return;
+        const rect = this.getBoundingClientRect();
+        const left = Math.min(rect.left, window.innerWidth - 330);
+        $tip.css({ top: rect.bottom + 8, left }).addClass('crstatus-tip--open');
+    }).on('mouseleave', '.crstatus', function () {
+        $(this).find('.crstatus-tip').removeClass('crstatus-tip--open');
+    });
+
+    // -------------------------------------------------------------------------
+    // Agent name tooltip: show on full-row hover, positioned via fixed coords
+    // -------------------------------------------------------------------------
+    $(document).on('mouseenter', 'tbody tr', function () {
+        const $tip = $(this).find('.crname-tip');
+        if (!$tip.length) return;
+        const anchor = $(this).find('.crname')[0];
+        if (!anchor) return;
+        const rect = anchor.getBoundingClientRect();
+        $tip.css({ top: rect.bottom + 8, left: rect.left }).addClass('crname-tip--open');
+    }).on('mouseleave', 'tbody tr', function () {
+        $(this).find('.crname-tip').removeClass('crname-tip--open');
+    });
+
+    // -------------------------------------------------------------------------
     // Inline toggle: enable / disable agent
     // -------------------------------------------------------------------------
     $(document).on('change', '.crawler-toggle-active', function () {

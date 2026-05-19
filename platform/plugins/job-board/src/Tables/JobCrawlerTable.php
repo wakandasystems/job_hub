@@ -11,7 +11,6 @@ use Botble\Table\Actions\DeleteAction;
 use Botble\Table\Actions\EditAction;
 use Botble\Table\BulkActions\DeleteBulkAction;
 use Botble\Table\Columns\Column;
-use Botble\Table\Columns\CreatedAtColumn;
 use Botble\Table\Columns\FormattedColumn;
 use Botble\Table\Columns\IdColumn;
 use Botble\Table\Columns\NameColumn;
@@ -26,6 +25,7 @@ class JobCrawlerTable extends TableAbstract
     {
         $this
             ->model(JobCrawler::class)
+            ->displayActionsAsDropdown(false)
             ->addActions([
                 Action::make('run')
                     ->label('Run')
@@ -104,20 +104,47 @@ class JobCrawlerTable extends TableAbstract
         $data = $this->table
             ->eloquent($this->query())
             ->addColumn('country', fn (JobCrawler $crawler) => $this->countryForCrawler($crawler))
-            ->addColumn('total_jobs', fn (JobCrawler $crawler) => number_format((int) $crawler->total_jobs))
-            ->addColumn('new_today', function (JobCrawler $crawler) {
-                $count = (int) $crawler->new_today;
+            ->addColumn('jobs', function (JobCrawler $crawler) {
+                $total = number_format((int) $crawler->total_jobs);
+                $new   = (int) $crawler->new_today;
+                $badge = $new > 0
+                    ? '<span class="badge bg-success-lt ms-2">' . number_format($new) . ' new</span>'
+                    : '<span class="text-muted ms-2 small">0 new</span>';
+                $tip = 'Total jobs: ' . $total . ' · New today: ' . number_format($new);
 
-                if ($count === 0) {
-                    return '<span class="text-muted">0</span>';
+                return '<span title="' . e($tip) . '" style="cursor:default;">' . $total . $badge . '</span>';
+            })
+            ->editColumn('last_status', function (JobCrawler $crawler) {
+                if (! $crawler->last_status) {
+                    return '&mdash;';
                 }
 
-                return '<span class="badge bg-success-lt">' . number_format($count) . ' new</span>';
+                $color  = $crawler->last_status === 'failed' ? 'danger' : 'success';
+                $badge  = BaseHelper::renderBadge($crawler->last_status, $color);
+
+                $runAt      = $crawler->last_run_at
+                    ? e($crawler->last_run_at->format('D, M j \a\t g:ia') . ' (' . $crawler->last_run_at->diffForHumans() . ')')
+                    : 'Never';
+                $newToday   = number_format((int) $crawler->new_today);
+                $lrCreated  = number_format((int) ($crawler->last_run_created ?? 0));
+                $lrUpdated  = number_format((int) ($crawler->last_run_updated ?? 0));
+                $lrFound    = number_format((int) ($crawler->last_run_found ?? 0));
+                $activeJobs = number_format((int) ($crawler->active_jobs ?? 0));
+                $totalJobs  = number_format((int) $crawler->total_jobs);
+
+                return <<<HTML
+                    <span class="crstatus">{$badge}<span class="crstatus-tip">
+                        <span class="crname-tip-row"><span class="crname-tip-lbl">Last run</span><span>{$runAt}</span></span>
+                        <span class="crname-tip-row"><span class="crname-tip-lbl">Today</span><span class="text-success fw-semibold">{$newToday} new jobs</span></span>
+                        <span class="crname-tip-row"><span class="crname-tip-lbl">Last run</span><span>+{$lrCreated} new &middot; {$lrUpdated} updated &middot; {$lrFound} found</span></span>
+                        <span class="crname-tip-row"><span class="crname-tip-lbl">Published</span><span>{$activeJobs} active / {$totalJobs} total</span></span>
+                    </span></span>
+                HTML;
             })
-            ->editColumn('last_status', fn (JobCrawler $crawler) => $crawler->last_status
-                ? BaseHelper::renderBadge($crawler->last_status, $crawler->last_status === 'failed' ? 'danger' : 'success')
-                : '&mdash;')
-            ->editColumn('last_run_at', fn (JobCrawler $crawler) => $crawler->last_run_at?->diffForHumans() ?: '&mdash;');
+            ->editColumn('last_run_at', fn (JobCrawler $crawler) => $crawler->last_run_at?->diffForHumans() ?: '&mdash;')
+            ->addColumn('runs_today', fn (JobCrawler $crawler) => (int) $crawler->runs_today > 0
+                ? '<span class="badge bg-blue-lt">' . number_format((int) $crawler->runs_today) . 'x</span>'
+                : '<span class="text-muted">—</span>');
 
         return $this->toJson($data);
     }
@@ -145,6 +172,30 @@ class JobCrawlerTable extends TableAbstract
                     . ' WHERE jb_job_crawler_runs.crawler_id = jb_job_crawlers.id'
                     . ' AND DATE(started_at) = CURDATE()) AS new_today'
                 )
+                ->selectRaw(
+                    "(SELECT jobs_created FROM jb_job_crawler_runs"
+                    . " WHERE crawler_id = jb_job_crawlers.id AND status IN ('success','failed')"
+                    . " ORDER BY id DESC LIMIT 1) AS last_run_created"
+                )
+                ->selectRaw(
+                    "(SELECT jobs_updated FROM jb_job_crawler_runs"
+                    . " WHERE crawler_id = jb_job_crawlers.id AND status IN ('success','failed')"
+                    . " ORDER BY id DESC LIMIT 1) AS last_run_updated"
+                )
+                ->selectRaw(
+                    "(SELECT jobs_found FROM jb_job_crawler_runs"
+                    . " WHERE crawler_id = jb_job_crawlers.id AND status IN ('success','failed')"
+                    . " ORDER BY id DESC LIMIT 1) AS last_run_found"
+                )
+                ->selectRaw(
+                    "(SELECT COUNT(*) FROM jb_jobs"
+                    . " WHERE jb_jobs.crawler_id = jb_job_crawlers.id AND jb_jobs.status = 'published') AS active_jobs"
+                )
+                ->selectRaw(
+                    '(SELECT COUNT(*) FROM jb_job_crawler_runs'
+                    . ' WHERE crawler_id = jb_job_crawlers.id'
+                    . ' AND DATE(started_at) = CURDATE()) AS runs_today'
+                )
                 ->orderBy('id')
         );
     }
@@ -153,12 +204,19 @@ class JobCrawlerTable extends TableAbstract
     {
         return [
             IdColumn::make(),
-            NameColumn::make()->route('job-board.crawlers.edit'),
+            NameColumn::make()->renderUsing(function (FormattedColumn $column) {
+                $item   = $column->getItem();
+                $name   = e($item->name);
+                $parser = e($item->parser_type ?? '');
+                $source = e($item->source_url ?? '');
+                $href   = $source ?: '#';
+
+                return <<<HTML
+                    <span class="crname"><a href="{$href}" target="_blank" rel="noopener">{$name}</a><span class="crname-tip"><span class="crname-tip-row"><span class="crname-tip-lbl">Parser</span><code>{$parser}</code></span><span class="crname-tip-row"><span class="crname-tip-lbl">Source</span>{$source}</span></span></span>
+                HTML;
+            }),
             Column::make('country')->title('Country')->width(150)->orderable(false),
-            Column::make('total_jobs')->title('Total jobs')->width(110)->orderable(false)->className('text-end'),
-            Column::make('new_today')->title('New today')->width(110)->orderable(false)->className('text-end'),
-            Column::make('source_url')->title('Source URL')->className('text-start'),
-            Column::make('parser_type')->title('Parser')->width(120),
+            Column::make('jobs')->title('Jobs')->width(180)->orderable(false)->className('text-end'),
             FormattedColumn::make('is_active')
                 ->title('Active')
                 ->width(90)
@@ -178,7 +236,7 @@ class JobCrawlerTable extends TableAbstract
                 }),
             Column::make('last_status')->title('Last status')->width(130),
             Column::make('last_run_at')->title('Last run')->width(160),
-            CreatedAtColumn::make(),
+            Column::make('runs_today')->title('Runs today')->width(100)->orderable(false)->className('text-center'),
         ];
     }
 

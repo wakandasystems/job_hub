@@ -43,3 +43,109 @@
     background-color: var(--bb-primary, #206bc4) !important;
     border-color: var(--bb-primary, #206bc4) !important;
 }
+
+/* ── Status badge tooltip (last run details, shown on badge hover via JS) ── */
+.crstatus {
+    display: inline-block;
+    cursor: default;
+}
+
+.crstatus-tip {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    flex-direction: column;
+    gap: 7px;
+    background: #fff;
+    border: 1px solid rgba(0, 0, 0, .1);
+    border-radius: 8px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .18);
+    padding: 10px 14px;
+    min-width: 300px;
+    pointer-events: none;
+}
+
+.crstatus-tip::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: 14px;
+    width: 8px;
+    height: 8px;
+    background: #fff;
+    border-top: 1px solid rgba(0, 0, 0, .1);
+    border-left: 1px solid rgba(0, 0, 0, .1);
+    transform: rotate(45deg);
+}
+
+.crstatus-tip.crstatus-tip--open {
+    display: flex;
+}
+
+/* ── Agent name tooltip (parser + source URL, shown on row hover via JS) ── */
+.crname-tip {
+    display: none;
+    position: fixed;      /* viewport-relative: immune to table overflow clipping */
+    z-index: 9999;
+    flex-direction: column;
+    gap: 7px;
+    background: #fff;
+    border: 1px solid rgba(0, 0, 0, .1);
+    border-radius: 8px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .18);
+    padding: 10px 14px;
+    min-width: 300px;
+    pointer-events: none; /* let mouse pass through so row mouseleave fires cleanly */
+}
+
+.crname-tip.crname-tip--open {
+    display: flex;
+}
+
+/* Arrow */
+.crname-tip::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: 14px;
+    width: 8px;
+    height: 8px;
+    background: #fff;
+    border-top: 1px solid rgba(0, 0, 0, .1);
+    border-left: 1px solid rgba(0, 0, 0, .1);
+    transform: rotate(45deg);
+}
+
+.crname-tip-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    white-space: normal;
+}
+
+.crname-tip-lbl {
+    font-size: .7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: #8b98a7;
+    min-width: 48px;
+    padding-top: 2px;
+    flex-shrink: 0;
+}
+
+.crname-tip code {
+    font-size: .8125rem;
+    background: #f1f5f9;
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: #c2185b;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.crname-tip a {
+    font-size: .8125rem;
+    color: #206bc4;
+    text-decoration: none;
+    word-break: break-all;
+}
