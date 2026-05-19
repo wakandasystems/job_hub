@@ -1,0 +1,45 @@
+/* Agents table: dropdown actions button */
+.table-actions .btn.dropdown-toggle {
+    border: 1px solid var(--bb-border-color, #dee2e6);
+    background: var(--bb-body-bg, #fff);
+    color: var(--bb-body-color, #354052);
+    padding: .3rem .65rem;
+    font-size: .8125rem;
+    border-radius: var(--bb-border-radius, .375rem);
+    gap: .25rem;
+    display: inline-flex;
+    align-items: center;
+}
+
+.table-actions .btn.dropdown-toggle:hover,
+.table-actions .btn.dropdown-toggle:focus {
+    background: var(--bb-primary, #206bc4);
+    border-color: var(--bb-primary, #206bc4);
+    color: #fff;
+    outline: none;
+    box-shadow: none;
+}
+
+/* Style each dropdown item icon with its color */
+.table-actions .dropdown-menu .dropdown-item.text-success { color: #2fb344 !important; }
+.table-actions .dropdown-menu .dropdown-item.text-warning { color: #f76707 !important; }
+.table-actions .dropdown-menu .dropdown-item.text-info    { color: #4299e1 !important; }
+.table-actions .dropdown-menu .dropdown-item.text-danger  { color: #d63939 !important; }
+
+.table-actions .dropdown-menu .dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .45rem 1rem;
+    font-size: .875rem;
+}
+
+.table-actions .dropdown-menu .dropdown-item:hover {
+    background: var(--bb-primary-lt, #e6f0fb);
+}
+
+/* Active toggle switch */
+.crawler-toggle-active:checked {
+    background-color: var(--bb-primary, #206bc4) !important;
+    border-color: var(--bb-primary, #206bc4) !important;
+}

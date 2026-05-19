@@ -1,13 +1,13 @@
 @php
     /** @var Botble\Table\Actions\Action $action */
+    $existingClass = $action->getAttribute('class');
+    if (!$existingClass || is_array($existingClass)) {
+        $action->addAttribute('class', trim('dropdown-item ' . str_replace('btn-', 'text-', $action->getColor())));
+    }
 @endphp
 
 <li>
     <a
-        @if (!$action->getAttribute('class')) @class([
-            'dropdown-item',
-            str_replace('btn-', 'text-', $action->getColor()),
-        ]) @endif
         @include('core/table::actions.includes.action-attributes')
     >
         @include('core/table::actions.includes.action-icon')

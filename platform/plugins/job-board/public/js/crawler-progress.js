@@ -1,4 +1,46 @@
 $(() => {
+    // ── Mode picker modal (Full pull vs Incremental) ───────────────────────────
+    if (!document.getElementById('crawler-mode-modal')) {
+        document.body.insertAdjacentHTML('beforeend', `
+<div id="crawler-mode-modal" class="modal fade" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-dialog-centered modal-sm" role="document">
+    <div class="modal-content">
+      <div class="modal-header py-2 px-3">
+        <h6 class="modal-title mb-0 fw-semibold">Run Careers24 agent</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body px-3 py-3">
+        <p class="text-muted small mb-3">Choose how to run this agent:</p>
+        <div class="d-grid gap-2">
+          <button id="crawler-mode-full" class="btn btn-primary text-start px-3 py-2" style="white-space:normal;">
+            <div class="fw-semibold"><i class="ti ti-database-import me-1"></i> Full data pull</div>
+            <div class="small opacity-75 mt-1">Fetches all available jobs across every page.<br>Slow &amp; thorough — best run once overnight.</div>
+          </button>
+          <button id="crawler-mode-incremental" class="btn btn-outline-secondary text-start px-3 py-2" style="white-space:normal;">
+            <div class="fw-semibold"><i class="ti ti-refresh me-1"></i> Incremental update</div>
+            <div class="small text-muted mt-1">Fetches only new jobs since last run.<br>Fast — safe to run daily or on demand.</div>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>`);
+    }
+
+    const $modeModal    = $('#crawler-mode-modal');
+    let   _pendingBtn   = null;
+    let   _pendingBase  = '';
+
+    $('#crawler-mode-full').on('click', () => {
+        $modeModal.modal('hide');
+        fireRun(_pendingBtn, _pendingBase + '?mode=full');
+    });
+    $('#crawler-mode-incremental').on('click', () => {
+        $modeModal.modal('hide');
+        fireRun(_pendingBtn, _pendingBase + '?mode=incremental');
+    });
+
+    // ── Progress modal ─────────────────────────────────────────────────────────
     if (!document.getElementById('crawler-progress-modal')) {
         document.body.insertAdjacentHTML('beforeend', `
 <div id="crawler-progress-modal" class="modal fade" tabindex="-1" role="dialog" data-bs-backdrop="static" data-bs-keyboard="false">
@@ -255,26 +297,10 @@ $(() => {
     checkActiveRuns();
 
     // -------------------------------------------------------------------------
-    // Click: "Run" (POST to start a new run)
+    // Core: fire a run against a URL (mode already baked into the URL)
     // -------------------------------------------------------------------------
 
-    $(document).on('click', '[data-crawler-run]', function (e) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-
-        const $btn = $(this);
-
-        // If this button is already watching a running crawl, re-attach to it.
-        if ($btn.data('crawler-watching')) {
-            const statusUrl = $btn.data('crawler-status-url');
-            resetModal();
-            $modal.modal('show');
-            pollStatus(statusUrl);
-            return;
-        }
-
-        const runUrl = $btn.prop('href');
-
+    function fireRun($btn, runUrl) {
         resetModal();
         $modal.modal('show');
 
@@ -282,7 +308,6 @@ $(() => {
             .then(({ data: resp }) => {
                 const d = resp.data;
                 if (d && d.status_url) {
-                    // Mark this button as running immediately.
                     markAsRunning($btn, { status_url: d.status_url, run_url: d.run_url });
                     pollStatus(d.status_url);
                 } else {
@@ -293,6 +318,42 @@ $(() => {
             .catch(() => {
                 $modal.modal('hide');
             });
+    }
+
+    // -------------------------------------------------------------------------
+    // Click: "Run" — Careers24 shows a mode picker; others start immediately
+    // -------------------------------------------------------------------------
+
+    $(document).on('click', '[data-crawler-run]', function (e) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+
+        const $btn       = $(this);
+        const rawHref    = $btn.prop('href') || '';
+        const hrefUrl    = new URL(rawHref, window.location.origin);
+        const parserType = hrefUrl.searchParams.get('pt') || '';
+        // Strip the helper ?pt= param — the server only needs the clean run URL.
+        hrefUrl.searchParams.delete('pt');
+        const baseRunUrl = hrefUrl.toString();
+
+        // If already watching a running crawl, re-attach to the live progress.
+        if ($btn.data('crawler-watching')) {
+            resetModal();
+            $modal.modal('show');
+            pollStatus($btn.data('crawler-status-url'));
+            return;
+        }
+
+        // Careers24: show the mode picker modal before starting.
+        if (parserType === 'careers24') {
+            _pendingBtn  = $btn;
+            _pendingBase = baseRunUrl;
+            $modeModal.modal('show');
+            return;
+        }
+
+        // All other parser types: start immediately without prompting.
+        fireRun($btn, baseRunUrl);
     });
 
     // -------------------------------------------------------------------------
@@ -309,5 +370,39 @@ $(() => {
                 if (api.length) api.ajax.reload(null, false);
             } catch (_) {}
         }
+    });
+
+    // -------------------------------------------------------------------------
+    // Fix: prevent .table-responsive overflow from clipping action dropdowns
+    // -------------------------------------------------------------------------
+    $(document).on('show.bs.dropdown', function (e) {
+        $(e.target).closest('.table-responsive').css('overflow', 'visible');
+    }).on('hidden.bs.dropdown', function (e) {
+        $(e.target).closest('.table-responsive').css('overflow', '');
+    });
+
+    // -------------------------------------------------------------------------
+    // Inline toggle: enable / disable agent
+    // -------------------------------------------------------------------------
+    $(document).on('change', '.crawler-toggle-active', function () {
+        const $toggle = $(this);
+        const url = $toggle.data('url');
+        const enabled = $toggle.is(':checked');
+
+        $toggle.prop('disabled', true);
+
+        $.post(url, { _token: $('meta[name="csrf-token"]').attr('content') })
+            .done(function (res) {
+                const active = res.data && res.data.is_active;
+                $toggle.prop('checked', active);
+                Botble.showSuccess(res.message || (active ? 'Agent enabled.' : 'Agent disabled.'));
+            })
+            .fail(function () {
+                $toggle.prop('checked', !enabled);
+                Botble.showError('Failed to update agent status.');
+            })
+            .always(function () {
+                $toggle.prop('disabled', false);
+            });
     });
 });

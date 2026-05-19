@@ -140,6 +140,18 @@ AdminHelper::registerRoutes(function (): void {
                 'permission' => 'job-board.crawlers.run',
             ])->where(['crawler' => '[0-9]+', 'run' => '[0-9]+']);
 
+            Route::delete('{crawler}/clear-jobs', [
+                'as' => 'clear-jobs',
+                'uses' => 'JobCrawlerController@clearJobs',
+                'permission' => 'job-board.crawlers.edit',
+            ])->wherePrimaryKey();
+
+            Route::post('{crawler}/toggle-active', [
+                'as' => 'toggle-active',
+                'uses' => 'JobCrawlerController@toggleActive',
+                'permission' => 'job-board.crawlers.edit',
+            ])->wherePrimaryKey();
+
             Route::resource('', 'JobCrawlerController')
                 ->parameters(['' => 'crawler'])
                 ->except('show');

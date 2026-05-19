@@ -66,8 +66,9 @@ class JobTable extends TableAbstract
                 'never_expired',
                 'unique_id',
                 'company_id',
+                'country_id',
             ])
-            ->with(['company:id,name,logo'])
+            ->with(['company:id,name,logo', 'country:id,name,code'])
             ->latest('created_at');
 
         return $this->applyScopes($query);
@@ -102,6 +103,20 @@ class JobTable extends TableAbstract
                         null,
                         false
                     )->toHtml();
+                }),
+            FormattedColumn::make('country_id')
+                ->title('Country')
+                ->withEmptyState()
+                ->getValueUsing(function (FormattedColumn $column) {
+                    $item = $column->getItem();
+
+                    if (! $item->country || ! $item->country->getKey()) {
+                        return null;
+                    }
+
+                    $flag = wakanda_country_flag($item->country->code);
+
+                    return '<span style="font-size:1.2em;margin-right:4px;">' . $flag . '</span>' . e($item->country->name);
                 }),
             FormattedColumn::make('expire_date')
                 ->title(trans('plugins/job-board::messages.expire_date'))

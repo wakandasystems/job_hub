@@ -32,6 +32,7 @@ class CrawlRunCommand extends Command
         }
 
         try {
+            $runner->runMode = $run->meta['mode'] ?? 'incremental';
             $runner->executeRun($crawler, $run);
         } catch (Throwable) {
             return 1;

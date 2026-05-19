@@ -43,7 +43,6 @@ class JobCrawler extends BaseModel
     protected $casts = [
         'name' => SafeContent::class,
         'source_url' => SafeContent::class,
-        'parser_type' => SafeContent::class,
         'schedule' => SafeContent::class,
         'is_active' => 'bool',
         'field_mappings' => 'array',

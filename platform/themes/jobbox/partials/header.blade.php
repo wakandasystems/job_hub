@@ -8,6 +8,14 @@
         <meta name="google-adsense-account" content="ca-pub-1694446344606687">
         {!! Theme::partial('theme-meta') !!}
         {!! Theme::header() !!}
+        <!-- Google tag (gtag.js) -->
+        <script async src="https://www.googletagmanager.com/gtag/js?id=G-QPTHYTGC91"></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'G-QPTHYTGC91');
+        </script>
     </head>
     <body {!! Theme::bodyAttributes() !!}>
         {!! apply_filters(THEME_FRONT_BODY, null) !!}

@@ -61,3 +61,5 @@ storage/framework/maintenance.php
 .claude/
 .mcp.json
 .taskmaster/
+/access.log.*
+/error.log.*

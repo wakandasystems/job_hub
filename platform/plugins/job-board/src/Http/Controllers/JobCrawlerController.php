@@ -11,6 +11,7 @@ use Botble\Base\Http\Controllers\BaseController;
 use Botble\Base\Supports\Breadcrumb;
 use Botble\JobBoard\Forms\JobCrawlerForm;
 use Botble\JobBoard\Http\Requests\JobCrawlerRequest;
+use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\JobCrawler;
 use Botble\JobBoard\Models\JobCrawlerRun;
 use Botble\JobBoard\Tables\JobCrawlerTable;
@@ -33,6 +34,7 @@ class JobCrawlerController extends BaseController
         $this->pageTitle('Agents');
 
         Assets::addScriptsDirectly('vendor/core/plugins/job-board/js/crawler-progress.js');
+        Assets::addStylesDirectly('vendor/core/plugins/job-board/css/crawler-admin.css');
 
         return $table->renderTable();
     }
@@ -104,11 +106,15 @@ class JobCrawlerController extends BaseController
         );
     }
 
-    public function run(JobCrawler $crawler)
+    public function run(JobCrawler $crawler, Request $request)
     {
+        $mode = in_array($request->input('mode'), ['full', 'incremental'])
+            ? $request->input('mode')
+            : 'incremental';
+
         $usingExistingRun = false;
 
-        $run = DB::transaction(function () use ($crawler, &$usingExistingRun) {
+        $run = DB::transaction(function () use ($crawler, $mode, &$usingExistingRun) {
             $crawler = JobCrawler::query()
                 ->whereKey($crawler->getKey())
                 ->lockForUpdate()
@@ -124,7 +130,7 @@ class JobCrawlerController extends BaseController
                 'crawler_id' => $crawler->getKey(),
                 'status' => 'running',
                 'started_at' => Carbon::now(),
-                'meta' => ['stage' => 'scanning', 'current_page' => 0, 'total_pages' => 20, 'jobs_found_so_far' => 0],
+                'meta' => ['stage' => 'scanning', 'current_page' => 0, 'total_pages' => 20, 'jobs_found_so_far' => 0, 'mode' => $mode],
             ]);
         });
 
@@ -186,6 +192,25 @@ class JobCrawlerController extends BaseController
             'error_message' => $run->error_message,
             'run_url' => route('job-board.crawler-runs.show', $run->id),
         ]);
+    }
+
+    public function clearJobs(JobCrawler $crawler)
+    {
+        $count = Job::query()->where('crawler_id', $crawler->getKey())->count();
+        Job::query()->where('crawler_id', $crawler->getKey())->delete();
+
+        return $this->httpResponse()
+            ->setMessage("Cleared {$count} job(s) collected by this agent.");
+    }
+
+    public function toggleActive(JobCrawler $crawler)
+    {
+        $crawler->is_active = ! $crawler->is_active;
+        $crawler->save();
+
+        return $this->httpResponse()
+            ->setData(['is_active' => $crawler->is_active])
+            ->setMessage($crawler->is_active ? 'Agent enabled.' : 'Agent disabled.');
     }
 
     public function destroy(JobCrawler $crawler)

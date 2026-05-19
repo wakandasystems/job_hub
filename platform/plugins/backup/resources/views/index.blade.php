@@ -1,29 +1,6 @@
 @extends(BaseHelper::getAdminMasterLayoutTemplate())
 
 @section('content')
-    @if (!function_exists('proc_open'))
-        <x-core::alert
-            type="warning"
-            :title="trans('plugins/backup::backup.proc_open_disabled_error')"
-        />
-    @endif
-
-    @if ($driver === 'mysql')
-        <x-core::alert
-            type="warning"
-            :important="true"
-        >
-            <p>- {!! BaseHelper::clean(trans('plugins/backup::backup.important_message1')) !!}</p>
-            <p>- {!! BaseHelper::clean(trans('plugins/backup::backup.important_message2')) !!}</p>
-            <p>- {!! BaseHelper::clean(trans('plugins/backup::backup.important_message3')) !!}</p>
-            <p>- {!! BaseHelper::clean(trans('plugins/backup::backup.important_message4')) !!}</p>
-        </x-core::alert>
-    @elseif ($driver === 'pgsql')
-        <x-core::alert type="warning">
-            <p>- {!! BaseHelper::clean(trans('plugins/backup::backup.important_message_pgsql1')) !!}</p>
-            <p>- {!! BaseHelper::clean(trans('plugins/backup::backup.important_message_pgsql2')) !!}</p>
-        </x-core::alert>
-    @endif
 
     <x-core::card>
         @if ($driver === 'mysql' && auth()->user()->hasPermission('backups.create'))

@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Services;
 
 use Botble\Base\Events\CreatedContentEvent;
+use Botble\Base\Facades\EmailHandler;
 use Botble\JobBoard\Enums\JobStatusEnum;
 use Botble\JobBoard\Enums\ModerationStatusEnum;
 use Botble\JobBoard\Enums\SalaryRangeEnum;
@@ -39,6 +40,12 @@ class JobCrawlerRunner
 
     /** When true, skip the early-stop optimisation and scan every GoZambia page. */
     public bool $disableEarlyStop = false;
+
+    /**
+     * 'full'        — scan all pages with slow delays, import from listing data only (no detail fetches).
+     * 'incremental' — scan until caught-up with early-stop, fetch detail pages for new jobs only.
+     */
+    public string $runMode = 'incremental';
 
     public function run(JobCrawler $crawler): JobCrawlerRun
     {
@@ -90,6 +97,18 @@ class JobCrawlerRunner
                 'last_status' => 'failed',
                 'last_error' => $exception->getMessage(),
             ])->save();
+
+            try {
+                EmailHandler::setModule(JOB_BOARD_MODULE_SCREEN_NAME)
+                    ->setVariableValues([
+                        'crawler_name' => $crawler->name,
+                        'error_message' => $exception->getMessage(),
+                        'crawler_url' => route('job-board.crawlers.edit', $crawler->getKey()),
+                    ])
+                    ->sendUsingTemplate('crawler-failed');
+            } catch (Throwable) {
+                // Don't let email failure mask the crawler error
+            }
 
             throw $exception;
         } finally {
@@ -184,7 +203,11 @@ class JobCrawlerRunner
 
         $selector = trim((string) $crawler->item_selector);
         if ($selector === '') {
-            throw new \RuntimeException('HTML crawlers require an item selector.');
+            throw new \RuntimeException(sprintf(
+                'HTML crawlers require an item selector (crawler "%s", parser_type="%s").',
+                $crawler->name,
+                $crawler->getRawOriginal('parser_type') ?? $crawler->parser_type,
+            ));
         }
 
         $all = [];
@@ -406,53 +429,130 @@ class JobCrawlerRunner
             ->flip()
             ->toArray();
 
-        $isFirstRun = empty($existingIds);
-        $jobs       = [];
-        $seenIds    = [];
+        $isFirstRun  = empty($existingIds);
+        $isFullPull  = $this->runMode === 'full';
+        $jobs        = [];
+        $seenIds     = [];
+        $prevPageIds = [];
+        // Full pull: grab everything (site has ~6,800 jobs across ~680 pages).
+        // Incremental: 20 pages is enough to catch up with daily new postings.
+        $maxPages    = $isFullPull ? 200 : 20;
+        $listUrl     = 'https://www.careers24.com/jobs/';
 
-        for ($page = 1; $page <= 20; $page++) {
-            $this->saveProgress($page, count($jobs));
+        // ── Page 1: HTML GET — also extracts the vsp config for AJAX pagination ──
+        $this->saveProgress(1, 0);
+        $firstResponse = $this->careers24Request($listUrl);
 
-            if ($page > 1) {
-                usleep(600_000);
+        if (! $firstResponse->successful()) {
+            return $jobs;
+        }
+
+        $html = $firstResponse->body();
+
+        // vsp is the server-side search state object embedded in the page
+        $vsp = null;
+        if (preg_match('/var vsp = ({.*?});/s', $html, $m)) {
+            $vsp = json_decode($m[1], true);
+        }
+
+        $pageJobs = $this->extractCareers24List($html);
+        foreach ($pageJobs as $job) {
+            $id = (string) ($job['id'] ?? '');
+            if ($id === '' || isset($seenIds[$id])) {
+                continue;
             }
+            $seenIds[$id] = true;
+            $jobs[]       = $job;
+            $prevPageIds[] = $id;
+        }
 
-            $url      = 'https://www.careers24.com/jobs/?pageIndex=' . $page;
-            $response = $this->careers24Request($url);
+        if (empty($vsp) || empty($pageJobs)) {
+            return $jobs;
+        }
 
-            if (! $response->successful()) {
+        // ── Pages 2+: AJAX POST /Search/_SearchResults ────────────────────────
+        // Careers24 ignores the ?pageIndex query param on GET; pagination is
+        // jQuery $.post with bracket-notation form fields (vsp[pageIndex]=N etc.)
+        for ($page = 2; $page <= $maxPages; $page++) {
+            $this->saveProgress($page, count($jobs));
+            // Full pull: slower random delays to mimic human browsing.
+            // Incremental: moderate delays — we only fetch a handful of pages.
+            sleep($isFullPull ? rand(5, 12) : rand(2, 5));
+
+            $vsp['pageIndex'] = $page;
+            $vsp['startIndex'] = ($page - 1) * (int) ($vsp['pageSize'] ?? 10);
+
+            $postResponse = Http::timeout(20)
+                ->withHeaders([
+                    'User-Agent'       => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                    'Content-Type'     => 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'X-Requested-With' => 'XMLHttpRequest',
+                    'Accept'           => 'text/html, */*; q=0.01',
+                    'Referer'          => $listUrl,
+                ])
+                ->asForm()
+                ->post('https://www.careers24.com/Search/_SearchResults', $this->buildCareers24VspFormData($vsp));
+
+            if (! $postResponse->successful()) {
                 break;
             }
 
-            $html     = $response->body();
-            $pageJobs = $this->extractCareers24List($html);
+            $pageHtml = $postResponse->body();
+            $pageJobs = $this->extractCareers24List($pageHtml);
 
             if (empty($pageJobs)) {
                 break;
             }
 
-            $newOnPage = 0;
+            $newOnPage    = 0;
+            $newIdsOnPage = [];
 
             foreach ($pageJobs as $job) {
                 $id = (string) ($job['id'] ?? '');
                 if ($id === '' || isset($seenIds[$id])) {
                     continue;
                 }
-                $seenIds[$id] = true;
-                $jobs[]       = $job;
+                $seenIds[$id]   = true;
+                $newIdsOnPage[] = $id;
+                $jobs[]         = $job;
 
                 if (! array_key_exists($id, $existingIds)) {
                     $newOnPage++;
                 }
             }
 
-            // Stop early once we've hit a page of only known jobs.
-            if (! $isFirstRun && $page > 1 && $newOnPage === 0) {
+            // Redirect/repeat loop: same IDs as previous page → stop
+            if (! empty($newIdsOnPage) && $newIdsOnPage === $prevPageIds) {
+                break;
+            }
+            $prevPageIds = $newIdsOnPage;
+
+            // Incremental only: stop as soon as we've caught up with known jobs.
+            // Full pull never stops early — we want every page.
+            if (! $isFullPull && ! $isFirstRun && $newOnPage === 0) {
                 break;
             }
         }
 
         return $jobs;
+    }
+
+    protected function buildCareers24VspFormData(array $vsp): array
+    {
+        $formData = [];
+        foreach ($vsp as $k => $v) {
+            if (is_null($v)) {
+                $formData["vsp[$k]"] = '';
+            } elseif (is_bool($v)) {
+                $formData["vsp[$k]"] = $v ? 'true' : 'false';
+            } elseif (is_array($v)) {
+                $formData["vsp[$k]"] = json_encode($v);
+            } else {
+                $formData["vsp[$k]"] = (string) $v;
+            }
+        }
+
+        return $formData;
     }
 
     protected function importCareers24Jobs(JobCrawler $crawler, array $items): array
@@ -493,7 +593,13 @@ class JobCrawlerRunner
         $newTotal      = count($newItems);
         $existingTotal = count($existingItems);
 
-        // Phase 1: fetch detail pages for new jobs
+        // Phase 1: import new jobs.
+        // Full pull skips detail-page fetches entirely — fetching detail pages for
+        // hundreds of jobs would take hours. Jobs are imported from listing data and
+        // a subsequent incremental run (or manual run) fills in the full descriptions.
+        // Incremental runs DO fetch detail pages because they only process a handful
+        // of genuinely new jobs.
+        $isFullPull = $this->runMode === 'full';
         $this->saveNewImportProgress(0, $newTotal, $stats);
 
         foreach ($newItems as $index => $item) {
@@ -509,14 +615,14 @@ class JobCrawlerRunner
             $detailUrl = $this->absoluteCareers24Url((string) ($item['url'] ?? ''));
             $detail    = null;
 
-            if ($detailUrl) {
+            if (! $isFullPull && $detailUrl) {
                 try {
-                    $detailResponse = $this->careers24Request($detailUrl);
+                    $detailResponse = $this->careers24Request($detailUrl, 'https://www.careers24.com/jobs/');
                     if ($detailResponse->successful()) {
                         $detail = $this->extractCareers24Detail($detailResponse->body());
                     }
                 } catch (Throwable) {
-                    // keep list data
+                    // keep list data on failure
                 }
             }
 
@@ -553,7 +659,10 @@ class JobCrawlerRunner
                 $stats['jobs_created']++;
             }
 
-            usleep(300_000);
+            if (! $isFullPull) {
+                sleep(rand(1, 3)); // delay between detail fetches on incremental runs
+            }
+
             $this->saveNewImportProgress($index + 1, $newTotal, $stats);
         }
 
@@ -639,8 +748,10 @@ class JobCrawlerRunner
 
     protected function extractCareers24Detail(string $html): array
     {
-        // Primary source: JSON-LD structured data
-        if (preg_match('/<script type="application\/ld\+json">(.*?)<\/script>/s', $html, $m)) {
+        $result = [];
+
+        // ── JSON-LD: metadata (description here is truncated by careers24) ────
+        if (preg_match('/<script[^>]+type="application\/ld\+json"[^>]*>(.*?)<\/script>/s', $html, $m)) {
             $data = json_decode($m[1], true);
             if (is_array($data) && ($data['@type'] ?? '') === 'JobPosting') {
                 $org      = $data['hiringOrganization'] ?? [];
@@ -649,11 +760,10 @@ class JobCrawlerRunner
                 $salValue = $salary['value']['value'] ?? null;
                 $salUnit  = $salary['value']['unitText'] ?? null;
 
-                return [
+                $result = [
                     'title'           => $data['title'] ?? '',
-                    'description'     => $data['description'] ?? '',
                     'company_name'    => $org['name'] ?? '',
-                    'location'        => trim(($location['addressLocality'] ?? '') . ', ' . ($location['addressRegion'] ?? '')),
+                    'location'        => $this->formatCareers24Location($location),
                     'industry'        => $data['industry'] ?? '',
                     'datePosted'      => $data['datePosted'] ?? null,
                     'validThrough'    => $data['validThrough'] ?? null,
@@ -666,7 +776,78 @@ class JobCrawlerRunner
             }
         }
 
-        return [];
+        // ── Full description from .v-descrip divs ─────────────────────────────
+        $fullDesc = $this->extractCareers24VDescriptions($html);
+        if ($fullDesc !== '') {
+            $result['description'] = $fullDesc;
+        }
+
+        // ── Apply URL ─────────────────────────────────────────────────────────
+        if (preg_match('/href="(\/login\/\?returnurl=[^"]+)"/', $html, $applyM)) {
+            $result['apply_url'] = 'https://www.careers24.com' . html_entity_decode($applyM[1]);
+        }
+
+        return $result;
+    }
+
+    protected function formatCareers24Location(array $address): string
+    {
+        $parts = array_filter([
+            trim($address['addressLocality'] ?? ''),
+            trim($address['addressRegion'] ?? ''),
+        ]);
+
+        return implode(', ', $parts);
+    }
+
+    /**
+     * Extract content of each <div class="v-descrip"> block, handling nested tags
+     * correctly by walking balanced opening/closing div pairs.
+     */
+    protected function extractCareers24VDescriptions(string $html): string
+    {
+        $parts  = [];
+        $needle = 'class="v-descrip"';
+        $offset = 0;
+
+        while (($pos = strpos($html, $needle, $offset)) !== false) {
+            // Find the closing > of this opening tag
+            $gt = strpos($html, '>', $pos);
+            if ($gt === false) {
+                $offset = $pos + 1;
+                continue;
+            }
+            $start = $gt + 1;
+
+            // Walk HTML to find the matching </div>
+            $depth = 1;
+            $i     = $start;
+            $len   = strlen($html);
+
+            while ($i < $len && $depth > 0) {
+                $nextOpen  = strpos($html, '<div', $i);
+                $nextClose = strpos($html, '</div>', $i);
+
+                if ($nextClose === false) {
+                    break;
+                }
+
+                if ($nextOpen !== false && $nextOpen < $nextClose) {
+                    $depth++;
+                    $i = $nextOpen + 4;
+                } else {
+                    $depth--;
+                    if ($depth === 0) {
+                        $parts[] = trim(substr($html, $start, $nextClose - $start));
+                    }
+                    $i = $nextClose + 6;
+                }
+            }
+
+            $offset = $pos + strlen($needle);
+        }
+
+        return implode("\n", array_filter($parts));
     }
 
     protected function buildCareers24Attributes(JobCrawler $crawler, array $item, Company $company): array
@@ -679,7 +860,8 @@ class JobCrawlerRunner
             ? Carbon::parse($expiresAt)
             : $postedDate->copy()->addDays(60);
 
-        $description = trim(strip_tags((string) ($item['description'] ?? '')));
+        $rawDesc     = (string) ($item['description'] ?? '');
+        $description = trim(strip_tags($rawDesc));
         $salary      = $item['salary_from'] ?? null;
 
         return [
@@ -688,11 +870,11 @@ class JobCrawlerRunner
             'external_source_url'     => (string) ($item['external_source_url'] ?? ''),
             'name'                    => $this->limitGoZambiaField(trim((string) ($item['title'] ?? '')), 110),
             'description'             => Str::limit($description, 400, ''),
-            'content'                 => $item['description'] ?? $description,
+            'content'                 => $rawDesc ?: $description,
             'company_id'              => $company->getKey(),
             'address'                 => (string) ($item['location'] ?? 'South Africa'),
             'country_id'              => 53, // South Africa
-            'apply_url'               => (string) ($item['external_source_url'] ?? ''),
+            'apply_url'               => (string) ($item['apply_url'] ?? $item['external_source_url'] ?? ''),
             'status'                  => JobStatusEnum::PUBLISHED,
             'moderation_status'       => ModerationStatusEnum::APPROVED,
             'salary_from'             => $salary ? (float) $salary : null,
@@ -757,15 +939,26 @@ class JobCrawlerRunner
         return 'https://www.careers24.com' . $path;
     }
 
-    protected function careers24Request(string $url): \Illuminate\Http\Client\Response
+    protected function careers24Request(string $url, string $referer = ''): \Illuminate\Http\Client\Response
     {
-        return Http::timeout(15)
-            ->withHeaders([
-                'User-Agent'      => 'Mozilla/5.0 (compatible; WakandaJobsCrawler/1.0)',
-                'Accept'          => 'text/html,application/xhtml+xml',
-                'Accept-Language' => 'en-ZA,en;q=0.9',
-            ])
-            ->get($url);
+        $headers = [
+            'User-Agent'                => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept'                    => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language'           => 'en-ZA,en-GB;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding'           => 'gzip, deflate, br',
+            'Connection'                => 'keep-alive',
+            'Upgrade-Insecure-Requests' => '1',
+            'Sec-Fetch-Dest'            => 'document',
+            'Sec-Fetch-Mode'            => 'navigate',
+            'Sec-Fetch-Site'            => $referer !== '' ? 'same-origin' : 'none',
+            'Sec-Fetch-User'            => '?1',
+        ];
+
+        if ($referer !== '') {
+            $headers['Referer'] = $referer;
+        }
+
+        return Http::timeout(20)->withHeaders($headers)->get($url);
     }
 
     // -------------------------------------------------------------------------

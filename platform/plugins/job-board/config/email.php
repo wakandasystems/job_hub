@@ -214,5 +214,16 @@ return [
                 'company_url' => 'plugins/job-board::email.variables.company_url',
             ],
         ],
+        'crawler-failed' => [
+            'title' => 'Agent crawler failed',
+            'description' => 'Sent to the admin when a job crawler agent fails.',
+            'subject' => 'Job agent failed: {{ crawler_name }}',
+            'can_off' => true,
+            'variables' => [
+                'crawler_name' => 'Name of the crawler agent',
+                'error_message' => 'Error message from the failure',
+                'crawler_url' => 'Link to edit the crawler agent',
+            ],
+        ],
     ],
 ];

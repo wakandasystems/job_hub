@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Tables;
 
 use Botble\Base\Facades\BaseHelper;
+use Botble\Base\Facades\Html;
 use Botble\JobBoard\Models\JobCrawler;
 use Botble\Table\Abstracts\TableAbstract;
 use Botble\Table\Actions\Action;
@@ -11,9 +12,9 @@ use Botble\Table\Actions\EditAction;
 use Botble\Table\BulkActions\DeleteBulkAction;
 use Botble\Table\Columns\Column;
 use Botble\Table\Columns\CreatedAtColumn;
+use Botble\Table\Columns\FormattedColumn;
 use Botble\Table\Columns\IdColumn;
 use Botble\Table\Columns\NameColumn;
-use Botble\Table\Columns\YesNoColumn;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Query\Builder as QueryBuilder;
@@ -30,9 +31,21 @@ class JobCrawlerTable extends TableAbstract
                     ->label('Run')
                     ->icon('ti ti-player-play')
                     ->color('success')
-                    ->url(fn (Action $action) => route('job-board.crawlers.run', $action->getItem()->getKey()))
+                    ->url(fn (Action $action) => route('job-board.crawlers.run', $action->getItem()->getKey())
+                        . '?pt=' . urlencode((string) $action->getItem()->parser_type))
                     ->permission('job-board.crawlers.run')
                     ->addAttribute('data-crawler-run', '1'),
+                Action::make('clear-jobs')
+                    ->label('Clear jobs')
+                    ->icon('ti ti-trash')
+                    ->color('warning')
+                    ->url(fn (Action $action) => route('job-board.crawlers.clear-jobs', $action->getItem()->getKey()))
+                    ->permission('job-board.crawlers.edit')
+                    ->action('DELETE')
+                    ->confirmation()
+                    ->confirmationModalTitle('Clear collected jobs')
+                    ->confirmationModalMessage('Are you sure you want to delete all jobs collected by this agent? This cannot be undone.')
+                    ->confirmationModalButton('Yes, clear jobs'),
                 EditAction::make()->route('job-board.crawlers.edit'),
                 DeleteAction::make()->route('job-board.crawlers.destroy'),
             ]);
@@ -89,7 +102,23 @@ class JobCrawlerTable extends TableAbstract
             Column::make('country')->title('Country')->width(160)->orderable(false),
             Column::make('source_url')->title('Source URL')->className('text-start'),
             Column::make('parser_type')->title('Parser')->width(120),
-            YesNoColumn::make('is_active')->title('Active')->width(80),
+            FormattedColumn::make('is_active')
+                ->title('Active')
+                ->width(90)
+                ->orderable(false)
+                ->getValueUsing(function (FormattedColumn $column) {
+                    $item = $column->getItem();
+                    $checked = $item->is_active ? 'checked' : '';
+                    $url = route('job-board.crawlers.toggle-active', $item->getKey());
+
+                    return <<<HTML
+                        <label class="form-check form-switch mb-0" title="Toggle active">
+                            <input type="checkbox" class="form-check-input crawler-toggle-active" {$checked}
+                                data-url="{$url}"
+                                style="cursor:pointer;">
+                        </label>
+                        HTML;
+                }),
             Column::make('last_status')->title('Last status')->width(130),
             Column::make('last_run_at')->title('Last run')->width(160),
             CreatedAtColumn::make(),
@@ -98,7 +127,7 @@ class JobCrawlerTable extends TableAbstract
 
     public function buttons(): array
     {
-        return $this->addCreateButton(route('job-board.crawlers.create'), 'job-board.crawlers.create');
+        return [];
     }
 
     public function bulkActions(): array
