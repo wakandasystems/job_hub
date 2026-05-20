@@ -449,6 +449,24 @@ class JobBoardServiceProvider extends ServiceProvider
                     'url' => route('job-board.crawler-runs.index'),
                     'permissions' => ['job-board.crawler-runs.index'],
                 ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-career-service-orders',
+                    'priority' => 7,
+                    'parent_id' => 'cms-plugins-job-board-main',
+                    'name' => 'Career Services',
+                    'icon' => 'ti ti-user-star',
+                    'url' => route('career-service-orders.index'),
+                    'permissions' => ['career-service-orders.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-job-alert-orders',
+                    'priority' => 7,
+                    'parent_id' => 'cms-plugins-job-board-main',
+                    'name' => 'Job Alert Requests',
+                    'icon' => 'ti ti-bell-dollar',
+                    'url' => route('job-alert-orders.index'),
+                    'permissions' => ['job-alert-orders.index'],
+                ])
                 ->when(JobBoardHelper::isEnabledCreditsSystem(), static function (DashboardMenuSupport $dashboardMenu): void {
                     $dashboardMenu
                         ->registerItem([

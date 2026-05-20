@@ -3,6 +3,10 @@
 use Botble\Base\Facades\AdminHelper;
 use Botble\JobBoard\Http\Controllers\AccountEducationController;
 use Botble\JobBoard\Http\Controllers\AccountExperienceController;
+use Botble\JobBoard\Http\Controllers\CareerServiceOrderController;
+use Botble\JobBoard\Http\Controllers\JobAlertOrderController;
+use Botble\JobBoard\Http\Controllers\JobAlertPackageController;
+use Botble\JobBoard\Http\Controllers\Settings\CareerServiceSettingController;
 use Botble\JobBoard\Http\Controllers\CouponController;
 use Botble\JobBoard\Http\Controllers\CustomFieldController;
 use Botble\JobBoard\Http\Controllers\ExportAccountController;
@@ -15,6 +19,32 @@ use Botble\JobBoard\Http\Controllers\ReportController;
 use Illuminate\Support\Facades\Route;
 
 AdminHelper::registerRoutes(function (): void {
+    Route::group(['prefix' => 'career-alert-packages', 'as' => 'career-alert-packages.', 'middleware' => 'auth'], function (): void {
+        Route::resource('', JobAlertPackageController::class)
+            ->parameters(['' => 'careerAlertPackage'])
+            ->except('show');
+    });
+
+    Route::group(['prefix' => 'job-board/settings', 'as' => 'job-board.settings.', 'middleware' => 'auth'], function (): void {
+        Route::get('career-services', [CareerServiceSettingController::class, 'edit'])->name('career-services');
+        Route::put('career-services', [CareerServiceSettingController::class, 'update'])->name('career-services.update');
+    });
+
+    Route::group(['prefix' => 'job-alert-orders', 'as' => 'job-alert-orders.', 'middleware' => 'auth'], function (): void {
+        Route::get('', [JobAlertOrderController::class, 'index'])->name('index');
+        Route::post('{jobAlertOrder}/approve', [JobAlertOrderController::class, 'approve'])->name('approve');
+        Route::post('{jobAlertOrder}/reject', [JobAlertOrderController::class, 'reject'])->name('reject');
+    });
+
+    Route::group(['prefix' => 'career-service-orders', 'as' => 'career-service-orders.', 'middleware' => 'auth'], function (): void {
+        Route::resource('', CareerServiceOrderController::class)
+            ->parameters(['' => 'career-service-order'])
+            ->only(['index', 'edit', 'update']);
+        Route::post('{career_service_order}/upload-reviewed-cv', [CareerServiceOrderController::class, 'uploadReviewedCv'])->name('upload-reviewed-cv');
+        Route::get('{career_service_order}/download-candidate-cv', [CareerServiceOrderController::class, 'downloadCandidateCv'])->name('download-candidate-cv');
+        Route::get('{career_service_order}/download-reviewed-cv', [CareerServiceOrderController::class, 'downloadReviewedCv'])->name('download-reviewed-cv');
+    });
+
     Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers', 'prefix' => 'job-board', 'middleware' => 'auth'], function (): void {
         Route::prefix('settings')->name('job-board.settings.')->group(function (): void {
             Route::get('general', [

@@ -181,6 +181,23 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
                     Route::post('', [AccountLanguageController::class, 'store'])->name('store');
                     Route::delete('{id}', [AccountLanguageController::class, 'destroy'])->name('destroy');
                 });
+
+                Route::prefix('job-alerts')->name('job-alerts.')->group(function (): void {
+                    Route::controller('JobAlertController')->group(function (): void {
+                        Route::get('', ['as' => 'index', 'uses' => 'index']);
+                        Route::post('', ['as' => 'store', 'uses' => 'store']);
+                        Route::put('{jobAlert}', ['as' => 'update', 'uses' => 'update']);
+                        Route::delete('{jobAlert}', ['as' => 'destroy', 'uses' => 'destroy']);
+                    });
+                });
+
+                Route::controller('JobAlertPackageCheckoutController')->prefix('job-alert-packages')->name('job-alert.packages.')->group(function (): void {
+                    Route::get('', ['as' => 'index', 'uses' => 'index']);
+                    Route::get('{package}/checkout', ['as' => 'checkout', 'uses' => 'checkout']);
+                    Route::get('{order}/callback', ['as' => 'callback', 'uses' => 'callback']);
+                    Route::get('{order}/thanks', ['as' => 'thanks', 'uses' => 'thanks']);
+                    Route::get('{order}/pending', ['as' => 'pending', 'uses' => 'pending']);
+                });
             });
         });
     });
