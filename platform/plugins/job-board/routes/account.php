@@ -102,6 +102,11 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
             'namespace' => 'Fronts',
         ], function (): void {
             Route::group(['prefix' => 'account'], function (): void {
+
+                // Social login account-type selection
+                Route::get('choose-type', ['as' => 'choose-type', 'uses' => 'AccountController@getChooseType']);
+                Route::post('choose-type', ['as' => 'choose-type.save', 'uses' => 'AccountController@postChooseType']);
+
                 Route::prefix('custom-fields')->name('custom-fields.')->group(function (): void {
                     Route::get('info', [CustomFieldController::class, 'getInfo'])->name('get-info');
                 });

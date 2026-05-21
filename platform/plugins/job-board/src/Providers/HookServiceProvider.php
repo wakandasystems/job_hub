@@ -61,6 +61,13 @@ class HookServiceProvider extends ServiceProvider
     {
         add_filter(BASE_FILTER_APPEND_MENU_NAME, [$this, 'countPendingApplications'], 26, 2);
         add_filter(BASE_FILTER_MENU_ITEMS_COUNT, [$this, 'getMenuItemCount'], 26);
+
+        add_filter('social_login_view_path', function (string $view) {
+            if (Route::currentRouteName() === 'public.account.register') {
+                return 'plugins/job-board::partials.social-login-register-options';
+            }
+            return $view;
+        });
         if (function_exists('theme_option')) {
             add_action(RENDERING_THEME_OPTIONS_PAGE, [$this, 'addThemeOptions'], 55);
         }
@@ -605,11 +612,18 @@ class HookServiceProvider extends ServiceProvider
             if (Arr::get($providerData, 'model') == Account::class && Arr::get($providerData, 'guard') == 'account') {
                 $firstName = implode(' ', explode(' ', $oAuth->getName(), -1));
                 Arr::forget($data, 'name');
+
                 $data = array_merge($data, [
                     'first_name' => $firstName,
-                    'last_name' => trim(str_replace($firstName, '', $oAuth->getName())),
-                    'type' => '',
+                    'last_name'  => trim(str_replace($firstName, '', $oAuth->getName())),
                 ]);
+
+                // New social accounts must choose their account type after OAuth.
+                $isNew = ! Account::query()->where('email', $oAuth->getEmail())->exists();
+                if ($isNew) {
+                    $data['type'] = '';
+                    session(['url.intended' => route('public.account.choose-type')]);
+                }
             }
 
             return $data;

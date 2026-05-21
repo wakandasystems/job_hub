@@ -2,6 +2,7 @@
 
 namespace Botble\JobBoard\Http\Middleware;
 
+use Botble\JobBoard\Enums\AccountTypeEnum;
 use Botble\Theme\Facades\AdminBar;
 use Closure;
 use Illuminate\Http\Request;
@@ -20,14 +21,16 @@ class RedirectIfNotAccount
             return redirect()->guest(route('public.account.login'));
         }
 
+        $account = Auth::guard('account')->user();
+
         if (
-            ! Auth::guard('account')->user()->type->getKey() &&
-            ! in_array(Route::currentRouteName(), ['public.account.settings', 'public.account.post.settings',  'public.account.logout'])
+            ! in_array($account->type?->getValue(), [AccountTypeEnum::JOB_SEEKER, AccountTypeEnum::EMPLOYER], true) &&
+            ! in_array(Route::currentRouteName(), ['public.account.choose-type', 'public.account.choose-type.save', 'public.account.logout'], true)
         ) {
-            return redirect(route('public.account.settings'));
+            return redirect()->route('public.account.choose-type');
         }
 
-        if ($type && Auth::guard('account')->user()->type != $type) {
+        if ($type && $account->type != $type) {
             return redirect(route('public.index'));
         }
 

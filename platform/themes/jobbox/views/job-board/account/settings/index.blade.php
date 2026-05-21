@@ -94,6 +94,7 @@
                 <button type="submit" class="btn btn-apply-big font-md font-bold">{{ __('Save All Changes') }}</button>
             </div>
         {!! Form::close() !!}
+
     </div>
 
     <div class="modal fade" id="addLanguageModal" tabindex="-1" aria-labelledby="addLanguageModalLabel" aria-hidden="true">
@@ -267,4 +268,5 @@
             });
         });
     </script>
+
 @endsection

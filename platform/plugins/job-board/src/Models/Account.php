@@ -68,6 +68,10 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
         'city_id',
         'cover_letter',
         'unique_id',
+        'whatsapp_number',
+        'telegram_chat_id',
+        'cv_score',
+        'cv_score_data',
     ];
 
     protected $hidden = [
@@ -76,8 +80,9 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
     ];
 
     protected $casts = [
-        'type' => AccountTypeEnum::class,
-        'dob' => 'datetime',
+        'type'          => AccountTypeEnum::class,
+        'dob'           => 'datetime',
+        'cv_score_data' => 'array',
     ];
 
     public function sendPasswordResetNotification($token): void
@@ -300,6 +305,11 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
     public function languages(): HasMany
     {
         return $this->hasMany(AccountLanguage::class);
+    }
+
+    public function jobAlerts(): HasMany
+    {
+        return $this->hasMany(JobAlert::class, 'account_id');
     }
 
     protected function uploadFolder(): Attribute

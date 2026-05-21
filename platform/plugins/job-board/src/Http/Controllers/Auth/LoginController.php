@@ -58,7 +58,7 @@ class LoginController extends Controller
 
         if ($this->attemptLogin($request)) {
             if (auth('account')->user()->isEmployer()) {
-                $this->redirectTo = route('public.account.dashboard');
+                $this->redirectTo = route('public.account.employer.settings.edit');
             }
 
             return $this->sendLoginResponse($request);

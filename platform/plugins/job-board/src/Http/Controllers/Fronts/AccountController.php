@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Http\Controllers\Fronts;
 
 use Botble\Base\Http\Controllers\BaseController;
+use Botble\JobBoard\Enums\AccountTypeEnum;
 use Botble\JobBoard\Facades\JobBoardHelper;
 use Botble\JobBoard\Forms\Fronts\AccountLanguageForm;
 use Botble\JobBoard\Forms\Fronts\AccountSettingForm;
@@ -15,6 +16,7 @@ use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\AccountActivityLog;
 use Botble\JobBoard\Models\AccountEducation;
 use Botble\JobBoard\Models\AccountExperience;
+use Botble\JobBoard\Services\CvScoringService;
 use Botble\Media\Facades\RvMedia;
 use Botble\Media\Models\MediaFile;
 use Botble\Media\Services\ThumbnailService;
@@ -115,6 +117,20 @@ class AccountController extends BaseController
                 }
 
                 $data['resume'] = $result['data']->url;
+
+                try {
+                    $uploadedFile  = $request->file('resume');
+                    $cvScoreResult = app(CvScoringService::class)->scoreFile(
+                        $uploadedFile->getRealPath(),
+                        $uploadedFile->getClientOriginalExtension()
+                    );
+                    if ($cvScoreResult) {
+                        $data['cv_score']      = $cvScoreResult['score'];
+                        $data['cv_score_data'] = $cvScoreResult;
+                    }
+                } catch (\Throwable) {
+                    // Non-fatal
+                }
             }
         }
 
@@ -144,6 +160,43 @@ class AccountController extends BaseController
             ->httpResponse()
             ->setNextUrl(route('public.account.settings'))
             ->setMessage(trans('plugins/job-board::messages.update_profile_successfully'));
+    }
+
+    public function getChooseType()
+    {
+        /** @var Account $account */
+        $account = auth('account')->user();
+
+        // Already has a confirmed type, so skip the chooser.
+        if (in_array($account->type?->getValue(), [AccountTypeEnum::JOB_SEEKER, AccountTypeEnum::EMPLOYER], true)) {
+            if ($account->isEmployer()) {
+                return redirect()->route('public.account.employer.settings.edit');
+            }
+            return redirect()->route('public.account.dashboard');
+        }
+
+        SeoHelper::setTitle(__('Welcome! Tell us about yourself'));
+
+        return Theme::scope('job-board.auth.choose-type', compact('account'))->render();
+    }
+
+    public function postChooseType(Request $request)
+    {
+        $request->validate([
+            'type' => ['required', 'in:job-seeker,employer'],
+        ]);
+
+        /** @var Account $account */
+        $account = auth('account')->user();
+        $account->update(['type' => $request->input('type') === 'employer' ? AccountTypeEnum::EMPLOYER : AccountTypeEnum::JOB_SEEKER]);
+
+        if ($account->isEmployer()) {
+            return redirect()->route('public.account.employer.settings.edit')
+                ->with('success_msg', __('Welcome! Please complete your employer profile.'));
+        }
+
+        return redirect()->route('public.account.dashboard')
+            ->with('success_msg', __('Welcome! Start exploring jobs.'));
     }
 
     public function getSecurity()

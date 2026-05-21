@@ -1,6 +1,3 @@
-@extends(Theme::getThemeNamespace('views.base'))
-
-@section('content')
 <section class="section-box mt-50 mb-50">
     <div class="container">
         <div class="row justify-content-center">
@@ -32,6 +29,8 @@
                 @php
                     $formAction = route('payments.checkout');
                     $callbackUrl = route('public.career-service.callback', ['order' => $order->id]);
+                    $name = $service['name'];
+                    $amount = $service['price'];
                 @endphp
 
                 @include('plugins/payment::partials.header')
@@ -42,11 +41,12 @@
                         class="payment-checkout-form"
                         method="post"
                     >
-                        <input name="name"         type="hidden" value="{{ $service['name'] }}">
-                        <input name="amount"       type="hidden" value="{{ $service['price'] }}">
+                        <input name="name"         type="hidden" value="{{ $name }}">
+                        <input name="amount"       type="hidden" value="{{ $amount }}">
                         <input name="currency"     type="hidden" value="{{ $currency }}">
                         <input name="return_url"   type="hidden" value="{{ $returnUrl }}">
                         <input name="callback_url" type="hidden" value="{{ $callbackUrl }}">
+                        <input name="career_service_order_id" type="hidden" value="{{ $order->id }}">
 
                         {{-- Customer info fields --}}
                         <div class="card border-0 shadow-sm mb-4">
@@ -82,7 +82,7 @@
                             data-error-header="{{ trans('plugins/payment::payment.error') }}"
                             icon="ti ti-credit-card"
                         >
-                            Pay {{ $currency }} {{ number_format($service['price']) }} &amp; Book Service
+                            Pay {{ $currency }} {{ number_format($amount) }} &amp; Book Service
                         </x-core::button>
                     </x-core::form>
                 </div>
@@ -93,4 +93,3 @@
         </div>
     </div>
 </section>
-@endsection

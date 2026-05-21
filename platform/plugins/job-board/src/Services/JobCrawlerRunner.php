@@ -264,8 +264,8 @@ class JobCrawlerRunner
     }
 
     /**
-     * Find or create a category matching the GoZambia category name, with deduplication.
-     * Returns null for "Other" or empty names — those jobs won't be force-assigned a category.
+     * Find or create a category by name, never creating duplicates.
+     * Returns null for "Other" or empty names.
      */
     public function resolveGoZambiaCategory(string $rawName): ?\Botble\JobBoard\Models\Category
     {
@@ -281,20 +281,30 @@ class JobCrawlerRunner
             return $this->categoryCache[$key];
         }
 
+        // Lookup first using case-insensitive match (utf8mb4_unicode_ci collation
+        // makes this work for the unique index too).
         $category = \Botble\JobBoard\Models\Category::query()
-            ->whereRaw('LOWER(name) = ? OR LOWER(name) = ?', [
-                $key,
-                mb_strtolower(htmlspecialchars($name, ENT_QUOTES | ENT_HTML5, 'UTF-8')),
-            ])
+            ->whereRaw('LOWER(name) = ?', [$key])
             ->first();
 
         if (! $category) {
-            $category = \Botble\JobBoard\Models\Category::query()->create([
-                'name'   => $name,
-                'status' => \Botble\Base\Enums\BaseStatusEnum::PUBLISHED,
-            ]);
-            SlugHelper::createSlug($category);
-            $this->assignCategoryIcon($category, $name);
+            try {
+                $category = \Botble\JobBoard\Models\Category::query()->create([
+                    'name'   => $name,
+                    'status' => \Botble\Base\Enums\BaseStatusEnum::PUBLISHED,
+                ]);
+                SlugHelper::createSlug($category);
+                $this->assignCategoryIcon($category, $name);
+            } catch (\Illuminate\Database\QueryException $e) {
+                // Unique constraint violation — a concurrent run just created it.
+                if ($e->errorInfo[1] === 1062) {
+                    $category = \Botble\JobBoard\Models\Category::query()
+                        ->whereRaw('LOWER(name) = ?', [$key])
+                        ->first();
+                } else {
+                    throw $e;
+                }
+            }
         } elseif (! $category->getMetaData('icon_image', true)) {
             $this->assignCategoryIcon($category, $name);
         }
@@ -401,12 +411,13 @@ class JobCrawlerRunner
                 $job->fill($attributes)->save();
                 $stats['jobs_updated']++;
             } else {
-                $newJob = Job::query()->create($attributes);
-                SlugHelper::createSlug($newJob);
-                $this->syncJobCategories($newJob);
-                $newJob->jobTypes()->syncWithoutDetaching([3]); // Full Time
-                $this->dispatchNewJobEvents($newJob);
-                $stats['jobs_created']++;
+                $newJob = new Job();
+                $newJob->forceFill($attributes);
+                $this->persistNewJob($newJob, $crawler, $stats, function (Job $j): void {
+                    $this->syncJobCategories($j);
+                    $j->jobTypes()->syncWithoutDetaching([3]);
+                    $this->dispatchNewJobEvents($j);
+                });
             }
         }
 
@@ -698,13 +709,12 @@ class JobCrawlerRunner
                 $stats['jobs_updated']++;
             } else {
                 $newJob = new Job();
-                $newJob->forceFill($this->buildCareers24Attributes($crawler, $item, $company))->save();
-                $this->clearConflictingCrawlerSlugs($crawler, $newJob);
-                SlugHelper::createSlug($newJob);
-                $this->assignGoZambiaCategory($newJob, ['category' => ['name' => $item['industry'] ?? '']]);
-                $newJob->jobTypes()->syncWithoutDetaching([3]); // Full Time
-                $this->dispatchNewJobEvents($newJob);
-                $stats['jobs_created']++;
+                $newJob->forceFill($this->buildCareers24Attributes($crawler, $item, $company));
+                $this->persistNewJob($newJob, $crawler, $stats, function (Job $j) use ($item): void {
+                    $this->assignGoZambiaCategory($j, ['category' => ['name' => $item['industry'] ?? '']]);
+                    $j->jobTypes()->syncWithoutDetaching([3]);
+                    $this->dispatchNewJobEvents($j);
+                });
             }
 
             if (! $isFullPull) {
@@ -950,12 +960,12 @@ class JobCrawlerRunner
         $company = $this->findGoZambiaCompany($name, null);
 
         if (! $company) {
-            $company = Company::query()->create([
+            $company = $this->firstOrCreateCompany([
                 'name'        => $this->limitGoZambiaField($name, 110),
                 'country_id'  => 53,
                 'status'      => \Botble\Base\Enums\BaseStatusEnum::PUBLISHED,
                 'is_verified' => false,
-            ]);
+            ], $name);
             SlugHelper::createSlug($company);
         }
 
@@ -1182,13 +1192,12 @@ class JobCrawlerRunner
                 $this->assignGoZambiaCategory($job, $item);
             } else {
                 $newJob = new Job();
-                $newJob->forceFill($this->buildGoZambiaJobAttributes($crawler, $item, $company))->save();
-                $this->clearConflictingCrawlerSlugs($crawler, $newJob);
-                SlugHelper::createSlug($newJob);
-                $this->assignGoZambiaCategory($newJob, $item);
-                $newJob->jobTypes()->syncWithoutDetaching([3]); // Full Time
-                $this->dispatchNewJobEvents($newJob);
-                $stats['jobs_created']++;
+                $newJob->forceFill($this->buildGoZambiaJobAttributes($crawler, $item, $company));
+                $this->persistNewJob($newJob, $crawler, $stats, function (Job $j) use ($item): void {
+                    $this->assignGoZambiaCategory($j, $item);
+                    $j->jobTypes()->syncWithoutDetaching([3]);
+                    $this->dispatchNewJobEvents($j);
+                });
             }
 
             $this->saveNewImportProgress($index + 1, $newTotal, $stats);
@@ -1477,6 +1486,47 @@ class JobCrawlerRunner
         event(new JobPublishedEvent($job));
     }
 
+    /**
+     * Save a new Job, create its slug, and run $configure (category/types/events).
+     * Silently skips on a unique-key violation (1062) — concurrent run already saved it.
+     * Increments $stats['jobs_created'] on success, 'jobs_skipped' on duplicate.
+     */
+    protected function persistNewJob(Job $job, JobCrawler $crawler, array &$stats, callable $configure): void
+    {
+        try {
+            $job->save();
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($e->errorInfo[1] === 1062) {
+                $stats['jobs_skipped']++;
+                return;
+            }
+            throw $e;
+        }
+        $this->clearConflictingCrawlerSlugs($crawler, $job);
+        SlugHelper::createSlug($job);
+        $configure($job);
+        $stats['jobs_created']++;
+    }
+
+    /**
+     * Find or create a Company by name. On unique-key collision (concurrent run), refetches.
+     */
+    protected function firstOrCreateCompany(array $attributes, string $name): Company
+    {
+        try {
+            $company = Company::query()->create($attributes);
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($e->errorInfo[1] !== 1062) {
+                throw $e;
+            }
+            $company = Company::query()
+                ->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower(trim($name))])
+                ->firstOrFail();
+        }
+
+        return $company;
+    }
+
     protected function firstOrCreateGoZambiaCompany(array $employer): ?Company
     {
         $name = trim((string) data_get($employer, 'name'));
@@ -1499,7 +1549,7 @@ class JobCrawlerRunner
         ];
 
         if (! $company) {
-            $company = Company::query()->create($attributes);
+            $company = $this->firstOrCreateCompany($attributes, $name);
             SlugHelper::createSlug($company);
         } else {
             $company->fill(array_filter($attributes, fn ($value) => $value !== null && $value !== ''))->save();
@@ -1933,13 +1983,12 @@ class JobCrawlerRunner
                 $stats['jobs_updated']++;
             } else {
                 $newJob = new Job();
-                $newJob->forceFill($attributes)->save();
-                $this->clearConflictingCrawlerSlugs($crawler, $newJob);
-                SlugHelper::createSlug($newJob);
-                $this->assignGoZambiaCategory($newJob, ['category' => ['name' => $detail['industry'] ?? '']]);
-                $newJob->jobTypes()->syncWithoutDetaching([3]);
-                $this->dispatchNewJobEvents($newJob);
-                $stats['jobs_created']++;
+                $newJob->forceFill($attributes);
+                $this->persistNewJob($newJob, $crawler, $stats, function (Job $j) use ($detail): void {
+                    $this->assignGoZambiaCategory($j, ['category' => ['name' => $detail['industry'] ?? '']]);
+                    $j->jobTypes()->syncWithoutDetaching([3]);
+                    $this->dispatchNewJobEvents($j);
+                });
             }
 
             $this->saveNewImportProgress($index + 1, $newTotal, $stats);
@@ -2104,12 +2153,12 @@ class JobCrawlerRunner
         $company = $this->findGoZambiaCompany($name, null);
 
         if (! $company) {
-            $company = Company::query()->create([
+            $company = $this->firstOrCreateCompany([
                 'name'        => $this->limitGoZambiaField($name, 110),
                 'country_id'  => $countryId,
                 'status'      => BaseStatusEnum::PUBLISHED,
                 'is_verified' => false,
-            ]);
+            ], $name);
             SlugHelper::createSlug($company);
         }
 
@@ -2342,13 +2391,12 @@ class JobCrawlerRunner
                 $stats['jobs_updated']++;
             } else {
                 $newJob = new Job();
-                $newJob->forceFill($attrs)->save();
-                $this->clearConflictingCrawlerSlugs($crawler, $newJob);
-                SlugHelper::createSlug($newJob);
-                $this->assignGoZambiaCategory($newJob, ['category' => ['name' => $item['category']['name'] ?? '']]);
-                $newJob->jobTypes()->syncWithoutDetaching([3]);
-                $this->dispatchNewJobEvents($newJob);
-                $stats['jobs_created']++;
+                $newJob->forceFill($attrs);
+                $this->persistNewJob($newJob, $crawler, $stats, function (Job $j) use ($item): void {
+                    $this->assignGoZambiaCategory($j, ['category' => ['name' => $item['category']['name'] ?? '']]);
+                    $j->jobTypes()->syncWithoutDetaching([3]);
+                    $this->dispatchNewJobEvents($j);
+                });
             }
 
             $this->saveNewImportProgress($index + 1, $newTotal, $stats);
@@ -2553,13 +2601,12 @@ class JobCrawlerRunner
                 $stats['jobs_updated']++;
             } else {
                 $newJob = new Job();
-                $newJob->forceFill($attrs)->save();
-                $this->clearConflictingCrawlerSlugs($crawler, $newJob);
-                SlugHelper::createSlug($newJob);
-                $this->assignGoZambiaCategory($newJob, ['category' => ['name' => $detail['industry'] ?? '']]);
-                $newJob->jobTypes()->syncWithoutDetaching([3]);
-                $this->dispatchNewJobEvents($newJob);
-                $stats['jobs_created']++;
+                $newJob->forceFill($attrs);
+                $this->persistNewJob($newJob, $crawler, $stats, function (Job $j) use ($detail): void {
+                    $this->assignGoZambiaCategory($j, ['category' => ['name' => $detail['industry'] ?? '']]);
+                    $j->jobTypes()->syncWithoutDetaching([3]);
+                    $this->dispatchNewJobEvents($j);
+                });
             }
 
             $this->saveNewImportProgress($index + 1, $newTotal, $stats);
@@ -2790,12 +2837,11 @@ class JobCrawlerRunner
                 $stats['jobs_updated']++;
             } else {
                 $newJob = new Job();
-                $newJob->forceFill($attrs)->save();
-                $this->clearConflictingCrawlerSlugs($crawler, $newJob);
-                SlugHelper::createSlug($newJob);
-                $newJob->jobTypes()->syncWithoutDetaching([3]);
-                $this->dispatchNewJobEvents($newJob);
-                $stats['jobs_created']++;
+                $newJob->forceFill($attrs);
+                $this->persistNewJob($newJob, $crawler, $stats, function (Job $j): void {
+                    $j->jobTypes()->syncWithoutDetaching([3]);
+                    $this->dispatchNewJobEvents($j);
+                });
             }
 
             $this->saveNewImportProgress($index + 1, $newTotal, $stats);
@@ -3063,12 +3109,11 @@ class JobCrawlerRunner
                 $stats['jobs_updated']++;
             } else {
                 $newJob = new Job();
-                $newJob->forceFill($attrs)->save();
-                $this->clearConflictingCrawlerSlugs($crawler, $newJob);
-                SlugHelper::createSlug($newJob);
-                $newJob->jobTypes()->syncWithoutDetaching([3]);
-                $this->dispatchNewJobEvents($newJob);
-                $stats['jobs_created']++;
+                $newJob->forceFill($attrs);
+                $this->persistNewJob($newJob, $crawler, $stats, function (Job $j): void {
+                    $j->jobTypes()->syncWithoutDetaching([3]);
+                    $this->dispatchNewJobEvents($j);
+                });
             }
 
             $this->saveNewImportProgress($index + 1, $newTotal, $stats);
@@ -3278,12 +3323,11 @@ class JobCrawlerRunner
                 $stats['jobs_updated']++;
             } else {
                 $newJob = new Job();
-                $newJob->forceFill($attrs)->save();
-                $this->clearConflictingCrawlerSlugs($crawler, $newJob);
-                SlugHelper::createSlug($newJob);
-                $newJob->jobTypes()->syncWithoutDetaching([3]);
-                $this->dispatchNewJobEvents($newJob);
-                $stats['jobs_created']++;
+                $newJob->forceFill($attrs);
+                $this->persistNewJob($newJob, $crawler, $stats, function (Job $j): void {
+                    $j->jobTypes()->syncWithoutDetaching([3]);
+                    $this->dispatchNewJobEvents($j);
+                });
             }
 
             $this->saveNewImportProgress($index + 1, $newTotal, $stats);

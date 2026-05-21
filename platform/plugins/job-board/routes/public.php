@@ -77,16 +77,46 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middlew
             sprintf('%s/%s/{slug?}', SlugHelper::getPrefix(Job::class, 'jobs'), SlugHelper::getPrefix(State::class, 'state')),
             'JobByLocationController@state'
         )->name('public.jobs-by-state');
+
+        // Stores account type in session then redirects to social OAuth provider
+        Route::get('social-register/{provider}', function (string $provider, \Illuminate\Http\Request $request) {
+            $type = in_array($request->input('type'), ['employer', 'job-seeker']) ? $request->input('type') : 'job-seeker';
+
+            // Verify reCAPTCHA if enabled
+            if (setting('captcha_site_key') && setting('captcha_secret_key')) {
+                $token = $request->input('g-recaptcha-response');
+                if (! $token) {
+                    return redirect()->route('public.account.register')
+                        ->with('auth_error_message', __('Please complete the CAPTCHA.'));
+                }
+                $response = \Illuminate\Support\Facades\Http::asForm()->post(
+                    'https://www.google.com/recaptcha/api/siteverify',
+                    ['secret' => setting('captcha_secret_key'), 'response' => $token, 'remoteip' => $request->ip()]
+                );
+                if (! ($response->json('success') ?? false)) {
+                    return redirect()->route('public.account.register')
+                        ->with('auth_error_message', __('CAPTCHA verification failed. Please try again.'));
+                }
+            }
+
+            session(['social_login_account_type' => $type]);
+            return redirect()->route('auth.social', ['provider' => $provider]);
+        })->name('public.social-register');
+
+        Route::group(['prefix' => 'career-services', 'as' => 'public.career-service.'], function (): void {
+            Route::get('cv-score', 'CareerServiceController@getCvScore')->name('cv-score');
+            Route::post('cv-score', 'CareerServiceController@postCvScore')->name('cv-score.submit');
+            Route::post('cv-score/profile', 'CareerServiceController@scoreProfileCv')->middleware('account')->name('cv-score.profile');
+            Route::get('{service}/checkout', 'CareerServiceController@getCheckout')->name('checkout');
+            Route::get('{order}/callback', 'CareerServiceController@getCallback')->name('callback');
+            Route::get('{order}/thanks', 'CareerServiceController@getThanks')->name('thanks');
+            Route::post('{order}/upload-cv', 'CareerServiceController@postUploadCandidateCv')->name('upload-cv');
+            Route::get('{order}/download-reviewed-cv', 'CareerServiceController@downloadReviewedCv')->middleware('account')->name('download-reviewed-cv');
+        });
     });
 
     Route::group(['prefix' => 'payments'], function (): void {
         Route::post('checkout', 'CheckoutController@postCheckout')->name('payments.checkout');
-    });
-
-    Route::group(['prefix' => 'career-services', 'as' => 'public.career-service.'], function (): void {
-        Route::get('{service}/checkout', 'CareerServiceController@getCheckout')->name('checkout');
-        Route::get('{order}/callback', 'CareerServiceController@getCallback')->name('callback');
-        Route::get('{order}/thanks', 'CareerServiceController@getThanks')->name('thanks');
     });
 });
 

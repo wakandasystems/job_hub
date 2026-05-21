@@ -40,6 +40,8 @@ class SettingRequest extends Request
                 'available_for_hiring' => Rule::in([0, 1]),
                 'resume' => 'nullable|file|mimes:pdf,doc,docx,ppt,pptx',
                 'cover_letter' => 'nullable|file|mimes:pdf,doc,docx,ppt,pptx',
+                'whatsapp_number' => 'nullable|string|max:30',
+                'telegram_chat_id' => 'nullable|string|max:100',
             ]);
         }
 

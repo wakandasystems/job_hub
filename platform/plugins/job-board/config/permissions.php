@@ -66,6 +66,16 @@ return [
         'parent_flag' => 'plugins.job-board',
     ],
     [
+        'name' => 'Career Service Orders',
+        'flag' => 'career-service-orders.index',
+        'parent_flag' => 'plugins.job-board',
+    ],
+    [
+        'name' => 'Edit',
+        'flag' => 'career-service-orders.edit',
+        'parent_flag' => 'career-service-orders.index',
+    ],
+    [
         'name' => 'Job Applications',
         'flag' => 'job-applications.index',
         'parent_flag' => 'plugins.job-board',

@@ -10,35 +10,22 @@
 
                 <br>
                 @if (session()->has('status'))
-                    <div role="alert" class="alert alert-success">
-                        {{ session('status') }}
-                    </div>
+                    <div role="alert" class="alert alert-success">{{ session('status') }}</div>
                 @elseif (session()->has('auth_error_message'))
-                    <div role="alert" class="alert alert-danger">
-                        {{ session('auth_error_message') }}
-                    </div>
+                    <div role="alert" class="alert alert-danger">{{ session('auth_error_message') }}</div>
                 @elseif (session()->has('auth_success_message'))
-                    <div role="alert" class="alert alert-success">
-                        {{ session('auth_success_message') }}
-                    </div>
+                    <div role="alert" class="alert alert-success">{{ session('auth_success_message') }}</div>
                 @elseif (session()->has('auth_warning_message'))
-                    <div role="alert" class="alert alert-warning">
-                        {{ session('auth_warning_message') }}
-                    </div>
+                    <div role="alert" class="alert alert-warning">{{ session('auth_warning_message') }}</div>
                 @endif
 
                 {!!
                     $form
                         ->formClass('login-register text-start mt-20 auth-form')
                         ->when(setting('job_board_enabled_register_as_employer', 1), function ($form) {
-                            return $form
-                                ->modify('is_employer', 'html', ['html' => sprintf('<div class="mb-3 position-relative"><label class="cb-container">
-                                    <input type="checkbox" name="is_employer" value="1">
-                                    <span class="text-small">%s</span>
-                                    <span class="checkmark"></span>
-                                </label></div>', __('Is Employer?'))], true);
+                            return $form->modify('is_employer', 'html', ['html' => ''], true);
                         })
-                         ->modify('agree_terms_and_policy', 'html', ['html' => sprintf('<div class="mb-3 position-relative"><label class="cb-container">
+                        ->modify('agree_terms_and_policy', 'html', ['html' => sprintf('<div class="mb-3 position-relative"><label class="cb-container">
                                     <input type="checkbox" name="agree_terms_and_policy" value="1">
                                     <span class="text-small">%s</span>
                                     <span class="checkmark"></span>

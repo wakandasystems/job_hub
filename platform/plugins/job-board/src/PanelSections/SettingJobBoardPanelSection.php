@@ -38,6 +38,12 @@ class SettingJobBoardPanelSection extends PanelSection
                     ->withPriority(40)
                     ->withDescription(trans('plugins/job-board::settings.invoice_template.description'))
                     ->withRoute('job-board.settings.invoice-template'),
+                PanelSectionItem::make('settings.job-board.career_services')
+                    ->setTitle('Career Service & Alert Settings')
+                    ->withIcon('ti ti-briefcase')
+                    ->withPriority(50)
+                    ->withDescription('Configure career service prices, free alert limit, and Telegram bot token.')
+                    ->withRoute('job-board.settings.career-services'),
             ]);
     }
 }

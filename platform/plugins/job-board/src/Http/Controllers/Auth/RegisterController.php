@@ -170,7 +170,7 @@ class RegisterController extends BaseController
         $this->registered($request, $account);
 
         if ($account->isEmployer()) {
-            $this->redirectTo = route('public.account.dashboard');
+            $this->redirectTo = route('public.account.employer.settings.edit');
         }
 
         return $this

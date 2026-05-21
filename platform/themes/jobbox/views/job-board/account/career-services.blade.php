@@ -11,6 +11,63 @@
         delivered by vetted career coaches within 24–72 hrs.
     </p>
 
+    <div class="card border-0 shadow-sm mb-30">
+        <div class="card-body p-4 d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <h5 class="mb-1 fw-semibold">{{ __('Free AI CV Score') }}</h5>
+                <p class="mb-0 color-text-paragraph-2 font-sm">{{ __('Score your CV first, then book a human review only if it needs work.') }}</p>
+            </div>
+            @if($account->resume)
+                <button type="button" class="btn btn-apply px-4"
+                    data-bs-toggle="modal" data-bs-target="#cvScoreModal">
+                    {{ __('Score My CV') }}
+                </button>
+            @else
+                <a href="{{ route('public.career-service.cv-score') }}" class="btn btn-apply px-4">
+                    {{ __('Score My CV') }}
+                </a>
+            @endif
+        </div>
+    </div>
+
+    {{-- CV source modal --}}
+    @if($account->resume)
+        <div class="modal fade" id="cvScoreModal" tabindex="-1" aria-labelledby="cvScoreModalTitle" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header border-0 pb-0">
+                        <h5 class="modal-title fw-semibold" id="cvScoreModalTitle">{{ __('Which CV should we score?') }}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body pt-2 pb-4 px-4">
+                        <p class="text-muted font-sm mb-4">{{ __('We found a CV on your profile. Score it instantly, or upload a different one.') }}</p>
+                        <div class="d-flex flex-column gap-3">
+                            <form method="POST" action="{{ route('public.career-service.cv-score.profile') }}">
+                                @csrf
+                                <button type="submit" class="btn btn-apply w-100 text-start d-flex align-items-center gap-3 px-4 py-3">
+                                    <i class="fi-rr-document fs-4 flex-shrink-0"></i>
+                                    <div>
+                                        <div class="fw-semibold">{{ __('Score my profile CV') }}</div>
+                                        <div class="font-xs opacity-75">{{ $account->resumeName }}</div>
+                                    </div>
+                                </button>
+                            </form>
+                            <a href="{{ route('public.career-service.cv-score') }}"
+                               class="btn btn-outline-primary w-100 text-start d-flex align-items-center gap-3 px-4 py-3"
+                               data-bs-dismiss="modal">
+                                <i class="fi-rr-upload fs-4 flex-shrink-0"></i>
+                                <div>
+                                    <div class="fw-semibold">{{ __('Upload or paste a different CV') }}</div>
+                                    <div class="font-xs opacity-75">{{ __('Choose a file or paste CV text') }}</div>
+                                </div>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
     {{-- Service cards --}}
     <div class="row g-3 mb-40">
         @foreach($services as $key => $svc)
@@ -64,8 +121,10 @@
                             <th class="font-sm fw-semibold">Ref</th>
                             <th class="font-sm fw-semibold">Service</th>
                             <th class="font-sm fw-semibold">Amount</th>
-                            <th class="font-sm fw-semibold">Status</th>
+                            <th class="font-sm fw-semibold">Payment</th>
+                            <th class="font-sm fw-semibold">Delivery</th>
                             <th class="font-sm fw-semibold">Date</th>
+                            <th class="font-sm fw-semibold"></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -77,17 +136,51 @@
                                 <td>
                                     @php
                                         $badge = match($order->status) {
-                                            'paid'        => 'bg-success',
-                                            'in_progress' => 'bg-primary',
-                                            'delivered'   => 'bg-info',
-                                            'completed'   => 'bg-success',
-                                            'cancelled'   => 'bg-danger',
-                                            default       => 'bg-secondary',
+                                            'paid'      => 'bg-success',
+                                            'cancelled' => 'bg-danger',
+                                            'refunded'  => 'bg-warning',
+                                            default     => 'bg-secondary',
                                         };
                                     @endphp
-                                    <span class="badge {{ $badge }}">{{ ucfirst(str_replace('_', ' ', $order->status)) }}</span>
+                                    <span class="badge {{ $badge }}">{{ ucfirst($order->status) }}</span>
+                                </td>
+                                <td>
+                                    @php
+                                        $deliveryBadge = match($order->delivery_status) {
+                                            'delivered'          => 'bg-success',
+                                            'in_progress'        => 'bg-primary',
+                                            'assigned'           => 'bg-info',
+                                            'revision_requested' => 'bg-warning',
+                                            'cancelled'          => 'bg-danger',
+                                            default              => 'bg-secondary',
+                                        };
+                                        $deliveryLabels = [
+                                            'unassigned'         => 'Pending',
+                                            'assigned'           => 'Assigned',
+                                            'in_progress'        => 'In Progress',
+                                            'delivered'          => 'Delivered',
+                                            'revision_requested' => 'Revision',
+                                            'cancelled'          => 'Cancelled',
+                                        ];
+                                    @endphp
+                                    <span class="badge {{ $deliveryBadge }}">{{ $deliveryLabels[$order->delivery_status] ?? ucfirst($order->delivery_status) }}</span>
                                 </td>
                                 <td class="font-xs text-muted">{{ $order->created_at->format('d M Y') }}</td>
+                                <td>
+                                    @if($order->reviewed_cv_path && $order->delivery_status === 'delivered')
+                                        <a href="{{ route('public.career-service.download-reviewed-cv', ['order' => $order->id]) }}"
+                                           class="btn btn-outline-success btn-sm py-1 px-2 font-xs"
+                                           title="Download your reviewed CV">
+                                            <i class="fi-rr-download me-1"></i>Download Reviewed CV
+                                        </a>
+                                    @elseif($order->status === 'paid' && !$order->candidate_cv_path && $order->service_type !== 'interview_coaching')
+                                        <a href="{{ route('public.career-service.thanks', ['order' => $order->id]) }}"
+                                           class="btn btn-outline-warning btn-sm py-1 px-2 font-xs"
+                                           title="Upload your CV to get started">
+                                            <i class="fi-rr-upload me-1"></i>Upload CV
+                                        </a>
+                                    @endif
+                                </td>
                             </tr>
                         @endforeach
                     </tbody>

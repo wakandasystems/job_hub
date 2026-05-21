@@ -1,2 +1,15 @@
 User-agent: *
 Disallow:
+Crawl-delay: 10
+
+User-agent: GPTBot
+Crawl-delay: 30
+
+User-agent: ClaudeBot
+Crawl-delay: 30
+
+User-agent: anthropic-ai
+Crawl-delay: 30
+
+User-agent: Google-Extended
+Crawl-delay: 30

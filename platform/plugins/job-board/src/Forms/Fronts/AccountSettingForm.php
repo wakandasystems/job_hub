@@ -184,6 +184,21 @@ class AccountSettingForm extends FormAbstract
                         OnOffField::class,
                         OnOffFieldOption::make()
                             ->label(trans('plugins/job-board::messages.available_for_hiring'))
+                    )
+                    ->add(
+                        'whatsapp_number',
+                        TextField::class,
+                        TextFieldOption::make()
+                            ->label(__('WhatsApp Number (for job alerts)'))
+                            ->placeholder('+260 97x xxx xxx')
+                    )
+                    ->add(
+                        'telegram_chat_id',
+                        TextField::class,
+                        TextFieldOption::make()
+                            ->label(__('Telegram Chat ID (for job alerts)'))
+                            ->placeholder('e.g. 123456789')
+                            ->helperText(__('Message @userinfobot on Telegram to get your chat ID.'))
                     );
             })
             ->when($isJobSeeker, function (AccountSettingForm $form) use ($account): void {
@@ -202,6 +217,61 @@ class AccountSettingForm extends FormAbstract
                             ->allowedShortcodes(false)
                             ->label(trans('plugins/job-board::messages.bio'))
                     )
+                    ->when($account->resume && $account->cv_score, function ($form) use ($account) {
+                        $score    = (int) $account->cv_score;
+                        $feedback = (array) (($account->cv_score_data['feedback'] ?? null) ?: []);
+                        $scoredAt = $account->cv_score_data['scored_at'] ?? null;
+
+                        [$color, $label] = match (true) {
+                            $score >= 88 => ['#22c55e', 'Excellent'],
+                            $score >= 75 => ['#3b82f6', 'Good'],
+                            $score >= 60 => ['#f59e0b', 'Fair'],
+                            default      => ['#ef4444', 'Needs improvement'],
+                        };
+
+                        $dash      = round($score * 100 / 100);
+                        $timeAgo   = $scoredAt ? \Carbon\Carbon::parse($scoredAt)->diffForHumans() : '';
+                        $feedbackHtml = '';
+                        foreach ($feedback as $item) {
+                            $escaped = e($item);
+                            $feedbackHtml .= "<div class=\"color-text-paragraph-2 font-xs mb-1\"><i class=\"fi-rr-angle-right me-1\"></i>{$escaped}</div>";
+                        }
+
+                        $upsell = $score < 75
+                            ? '<div class="alert alert-warning d-flex align-items-center gap-3 py-2 px-3 mb-0 mt-3"><i class="fi-rr-star fs-5 text-warning flex-shrink-0"></i><div class="font-sm"><strong>Boost your chances</strong> — have a career coach professionally review and rewrite your CV. <a href="' . route('public.account.career-services') . '" class="fw-semibold ms-1">View Career Services →</a></div></div>'
+                            : '';
+
+                        $html = <<<HTML
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body p-4">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h5 class="fw-semibold mb-0">Your CV Score</h5>
+      <span class="color-text-paragraph-2 font-xs">{$timeAgo}</span>
+    </div>
+    <div class="d-flex align-items-center gap-4 mb-0">
+      <div style="position:relative;width:80px;height:80px;flex-shrink:0;">
+        <svg viewBox="0 0 36 36" width="80" height="80">
+          <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e5e7eb" stroke-width="3"></circle>
+          <circle cx="18" cy="18" r="15.9" fill="none" stroke="{$color}" stroke-width="3"
+            stroke-dasharray="{$dash}, 100" stroke-linecap="round" transform="rotate(-90 18 18)"></circle>
+        </svg>
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;">
+          <span class="fw-bold" style="font-size:16px;color:{$color}">{$score}</span>
+          <span style="font-size:9px;color:#6b7280">/ 100</span>
+        </div>
+      </div>
+      <div class="flex-grow-1">
+        <div class="fw-semibold mb-1" style="color:{$color}">{$label}</div>
+        {$feedbackHtml}
+      </div>
+    </div>
+    {$upsell}
+  </div>
+</div>
+HTML;
+
+                        return $form->add('cv_score_display', HtmlField::class, HtmlFieldOption::make()->content($html));
+                    })
                     ->add(
                         'resume',
                         'file',
