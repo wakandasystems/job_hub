@@ -96,7 +96,8 @@
                                     </div>
                                 @endforeach
                             </div>
-                            <div class="swiper-pagination swiper-pagination-style-border"></div>
+                            <div class="swiper-button-next"></div>
+                            <div class="swiper-button-prev"></div>
                         </div>
                     </div>
                 </div>
