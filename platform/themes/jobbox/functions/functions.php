@@ -80,6 +80,75 @@ if (! function_exists('wakanda_country_flag')) {
     }
 }
 
+if (! function_exists('wakanda_currency_meta')) {
+    function wakanda_currency_meta(?string $currencyCode): array
+    {
+        $currencyCode = strtoupper((string) $currencyCode);
+
+        $currencies = [
+            'AOA' => ['country' => 'Angola', 'country_code' => 'AO', 'name' => 'Angolan kwanza'],
+            'BIF' => ['country' => 'Burundi', 'country_code' => 'BI', 'name' => 'Burundian franc'],
+            'BWP' => ['country' => 'Botswana', 'country_code' => 'BW', 'name' => 'Botswana pula'],
+            'CDF' => ['country' => 'Democratic Republic of the Congo', 'country_code' => 'CD', 'name' => 'Congolese franc'],
+            'CVE' => ['country' => 'Cabo Verde', 'country_code' => 'CV', 'name' => 'Cape Verdean escudo'],
+            'DJF' => ['country' => 'Djibouti', 'country_code' => 'DJ', 'name' => 'Djiboutian franc'],
+            'DKK' => ['country' => 'Denmark', 'country_code' => 'DK', 'name' => 'Danish krone'],
+            'DZD' => ['country' => 'Algeria', 'country_code' => 'DZ', 'name' => 'Algerian dinar'],
+            'EGP' => ['country' => 'Egypt', 'country_code' => 'EG', 'name' => 'Egyptian pound'],
+            'ERN' => ['country' => 'Eritrea', 'country_code' => 'ER', 'name' => 'Eritrean nakfa'],
+            'ETB' => ['country' => 'Ethiopia', 'country_code' => 'ET', 'name' => 'Ethiopian birr'],
+            'EUR' => ['country' => 'European Union', 'country_code' => null, 'flag' => '&#127466;&#127482;', 'name' => 'Euro'],
+            'GBP' => ['country' => 'United Kingdom', 'country_code' => 'GB', 'name' => 'British pound'],
+            'GHS' => ['country' => 'Ghana', 'country_code' => 'GH', 'name' => 'Ghanaian cedi'],
+            'GMD' => ['country' => 'Gambia', 'country_code' => 'GM', 'name' => 'Gambian dalasi'],
+            'GNF' => ['country' => 'Guinea', 'country_code' => 'GN', 'name' => 'Guinean franc'],
+            'KES' => ['country' => 'Kenya', 'country_code' => 'KE', 'name' => 'Kenyan shilling'],
+            'KMF' => ['country' => 'Comoros', 'country_code' => 'KM', 'name' => 'Comorian franc'],
+            'LRD' => ['country' => 'Liberia', 'country_code' => 'LR', 'name' => 'Liberian dollar'],
+            'LSL' => ['country' => 'Lesotho', 'country_code' => 'LS', 'name' => 'Lesotho loti'],
+            'LYD' => ['country' => 'Libya', 'country_code' => 'LY', 'name' => 'Libyan dinar'],
+            'MAD' => ['country' => 'Morocco', 'country_code' => 'MA', 'name' => 'Moroccan dirham'],
+            'MGA' => ['country' => 'Madagascar', 'country_code' => 'MG', 'name' => 'Malagasy ariary'],
+            'MRU' => ['country' => 'Mauritania', 'country_code' => 'MR', 'name' => 'Mauritanian ouguiya'],
+            'MUR' => ['country' => 'Mauritius', 'country_code' => 'MU', 'name' => 'Mauritian rupee'],
+            'MWK' => ['country' => 'Malawi', 'country_code' => 'MW', 'name' => 'Malawian kwacha'],
+            'MZN' => ['country' => 'Mozambique', 'country_code' => 'MZ', 'name' => 'Mozambican metical'],
+            'NAD' => ['country' => 'Namibia', 'country_code' => 'NA', 'name' => 'Namibian dollar'],
+            'NGN' => ['country' => 'Nigeria', 'country_code' => 'NG', 'name' => 'Nigerian naira'],
+            'RWF' => ['country' => 'Rwanda', 'country_code' => 'RW', 'name' => 'Rwandan franc'],
+            'SCR' => ['country' => 'Seychelles', 'country_code' => 'SC', 'name' => 'Seychellois rupee'],
+            'SDG' => ['country' => 'Sudan', 'country_code' => 'SD', 'name' => 'Sudanese pound'],
+            'SLE' => ['country' => 'Sierra Leone', 'country_code' => 'SL', 'name' => 'Sierra Leonean leone'],
+            'SOS' => ['country' => 'Somalia', 'country_code' => 'SO', 'name' => 'Somali shilling'],
+            'SSP' => ['country' => 'South Sudan', 'country_code' => 'SS', 'name' => 'South Sudanese pound'],
+            'STN' => ['country' => 'Sao Tome and Principe', 'country_code' => 'ST', 'name' => 'Sao Tome and Principe dobra'],
+            'SZL' => ['country' => 'Eswatini', 'country_code' => 'SZ', 'name' => 'Swazi lilangeni'],
+            'TND' => ['country' => 'Tunisia', 'country_code' => 'TN', 'name' => 'Tunisian dinar'],
+            'TZS' => ['country' => 'Tanzania', 'country_code' => 'TZ', 'name' => 'Tanzanian shilling'],
+            'UGX' => ['country' => 'Uganda', 'country_code' => 'UG', 'name' => 'Ugandan shilling'],
+            'USD' => ['country' => 'United States', 'country_code' => 'US', 'name' => 'United States dollar'],
+            'VND' => ['country' => 'Vietnam', 'country_code' => 'VN', 'name' => 'Vietnamese dong'],
+            'XAF' => ['country' => 'Central Africa', 'country_code' => null, 'flag' => '&#127757;', 'name' => 'Central African CFA franc'],
+            'XOF' => ['country' => 'West Africa', 'country_code' => null, 'flag' => '&#127757;', 'name' => 'West African CFA franc'],
+            'ZAR' => ['country' => 'South Africa', 'country_code' => 'ZA', 'name' => 'South African rand'],
+            'ZMW' => ['country' => 'Zambia', 'country_code' => 'ZM', 'name' => 'Zambian kwacha'],
+            'ZWL' => ['country' => 'Zimbabwe', 'country_code' => 'ZW', 'name' => 'Zimbabwean dollar'],
+        ];
+
+        $meta = $currencies[$currencyCode] ?? [
+            'country' => $currencyCode,
+            'country_code' => null,
+            'name' => $currencyCode,
+        ];
+
+        $meta['code'] = $currencyCode;
+        $meta['flag'] = $meta['flag'] ?? wakanda_country_flag($meta['country_code']);
+        $meta['label'] = trim(sprintf('%s - %s (%s)', $meta['country'], $meta['name'], $currencyCode));
+
+        return $meta;
+    }
+}
+
 if (! function_exists('wakanda_localization_countries')) {
     function wakanda_localization_countries()
     {

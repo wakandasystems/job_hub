@@ -3,13 +3,10 @@
 namespace Botble\JobBoard\Http\Controllers\Fronts;
 
 use Botble\Base\Http\Controllers\BaseController;
-use Botble\JobBoard\Facades\JobBoardHelper;
 use Botble\JobBoard\Forms\Fronts\AccountSettingForm;
 use Botble\JobBoard\Http\Requests\SettingRequest;
-use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\AccountActivityLog;
 use Botble\Optimize\Facades\OptimizerHelper;
-use Botble\SeoHelper\Facades\SeoHelper;
 
 class EmployerSettingController extends BaseController
 {
@@ -20,13 +17,7 @@ class EmployerSettingController extends BaseController
 
     public function edit()
     {
-        SeoHelper::setTitle(trans('plugins/job-board::messages.account_settings'));
-
-        /** @var Account $account */
-        $account = auth('account')->user();
-        $form    = AccountSettingForm::createFromModel($account);
-
-        return JobBoardHelper::scope('account.employer-settings', compact('account', 'form'));
+        return redirect()->route('public.account.settings');
     }
 
     public function update(SettingRequest $request)
@@ -49,7 +40,7 @@ class EmployerSettingController extends BaseController
 
         return $this
             ->httpResponse()
-            ->setNextUrl(route('public.account.employer.settings.edit'))
+            ->setNextUrl(route('public.account.settings'))
             ->setMessage(trans('plugins/job-board::messages.update_settings_successfully'));
     }
 }

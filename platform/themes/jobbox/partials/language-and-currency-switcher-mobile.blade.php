@@ -19,10 +19,14 @@
     <div class="mobile-menu-switcher">
         <ul class="mobile-menu font-heading">
             @if ($displayCurrencySwitcher)
-                @php $currencyActive = get_application_currency()->title; @endphp
+                @php
+                    $currencyActive = get_application_currency()->title;
+                    $activeCurrencyMeta = wakanda_currency_meta($currencyActive);
+                @endphp
                 <li class="has-children"><span class="menu-expand"><i class="fi-rr-angle-small-down"></i></span>
-                    <a>
-                        {{ $currencyActive }}
+                    <a title="{{ $activeCurrencyMeta['label'] }}" aria-label="{{ $activeCurrencyMeta['label'] }}">
+                        <span aria-hidden="true">{!! $activeCurrencyMeta['flag'] !!}</span>
+                        <span>{{ $currencyActive }}</span>
                         <div class="arrow-down"></div>
                     </a>
                     <ul class="sub-menu" style="display: none;">
@@ -37,9 +41,11 @@
                         </li>
                         @foreach ($currencies as $currency)
                             @if ($currency->title != $currencyActive)
-                                <li data-currency-code-mobile="{{ strtolower($currency->title) }}">
-                                    <a href="{{ route('public.change-currency', $currency->title) }}">
-                                        {{ $currency->title }}
+                                @php($currencyMeta = wakanda_currency_meta($currency->title))
+                                <li data-currency-code-mobile="{{ strtolower($currency->title . ' ' . $currencyMeta['country'] . ' ' . $currencyMeta['name']) }}">
+                                    <a href="{{ route('public.change-currency', $currency->title) }}" title="{{ $currencyMeta['label'] }}" aria-label="{{ $currencyMeta['label'] }}">
+                                        <span aria-hidden="true">{!! $currencyMeta['flag'] !!}</span>
+                                        <span>{{ $currency->title }}</span>
                                     </a>
                                 </li>
                             @endif

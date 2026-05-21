@@ -10,7 +10,7 @@
                     <p class="font-sm text-muted">{{ __('One last step — tell us how you\'ll use Wakanda Jobs.') }}</p>
                 </div>
 
-                <button type="button" class="btn btn-apply btn-apply-big" data-bs-toggle="modal" data-bs-target="#chooseAccountTypeModal">
+                <button type="button" class="btn btn-apply btn-apply-big d-block mx-auto" data-bs-toggle="modal" data-bs-target="#chooseAccountTypeModal">
                     {{ __('Choose account type') }}
                 </button>
             </div>

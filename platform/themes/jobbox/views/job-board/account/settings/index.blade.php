@@ -1,119 +1,205 @@
 @php
+    Theme::asset()->add('avatar-css', 'vendor/core/plugins/job-board/css/avatar.css');
+    Theme::asset()->add('tagify-css', 'vendor/core/core/base/libraries/tagify/tagify.css');
+    Theme::asset()->container('footer')->add('cropper-js', 'vendor/core/plugins/job-board/libraries/cropper.js', ['jquery']);
+    Theme::asset()->container('footer')->add('avatar-js', 'vendor/core/plugins/job-board/js/avatar.js');
+    Theme::asset()->container('footer')->add('editor-lib-js', config('core.base.general.editor.' . BaseHelper::getRichEditor() . '.js'));
+    Theme::asset()->container('footer')->add('editor-js', 'vendor/core/core/base/js/editor.js');
+    Theme::asset()->container('footer')->add('tagify-js', 'vendor/core/core/base/libraries/tagify/tagify.js');
+    Theme::asset()->container('footer')->add('tag-js', 'vendor/core/core/base/js/tags.js');
     Theme::asset()->container('footer')->add('location-js', asset('vendor/core/plugins/location/js/location.js'), ['jquery']);
 @endphp
 
-<style>
-    label.required::after {
-        content: ' *';
-        color: #e74c3c;
-        font-weight: bold;
-    }
+@extends(JobBoardHelper::viewPath('dashboard.layouts.master'))
 
-    /* Make Select2 match the theme's .form-select (height:53px, padding-left:20px) */
-    .select-location-fields .select2-container--default .select2-selection--single {
-        height: 53px;
-        border: 1px solid #dee2e6;
-        border-radius: 0.375rem;
-        background-color: #fff;
-        padding: 0 2.25rem 0 20px;
-        display: flex;
-        align-items: center;
-        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23343a40' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
-        background-repeat: no-repeat;
-        background-position: right 0.75rem center;
-        background-size: 16px 12px;
-    }
-    .select-location-fields .select2-container--default .select2-selection--single .select2-selection__rendered {
-        line-height: 1.5;
-        color: #212529;
-        padding: 0;
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .select-location-fields .select2-container--default .select2-selection--single .select2-selection__placeholder {
-        color: #6c757d;
-    }
-    .select-location-fields .select2-container--default .select2-selection--single .select2-selection__arrow {
-        display: none;
-    }
-    .select-location-fields .select2-container--default .select2-selection--single .select2-selection__clear {
-        margin-right: 1.5rem;
-        color: #6c757d;
-    }
-    .select-location-fields .select2-container--default.select2-container--focus .select2-selection--single,
-    .select-location-fields .select2-container--default.select2-container--open .select2-selection--single {
-        border-color: #86b7fe;
-        outline: 0;
-        box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
-    }
-    .select-location-fields .select2-container--default.select2-container--disabled .select2-selection--single {
-        background-color: #e9ecef;
-        cursor: not-allowed;
-    }
-</style>
+@section('header')
+    @include('plugins/job-board::themes.dashboard.layouts.header')
 
-@extends(Theme::getThemeNamespace('views.job-board.account.partials.layout-settings'))
+    <style>
+        label.required::after {
+            content: ' *';
+            color: #e74c3c;
+            font-weight: bold;
+        }
+
+        .select-location-fields .select2-container--default .select2-selection--single {
+            height: 53px;
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+            background-color: #fff;
+            padding: 0 2.25rem 0 20px;
+            display: flex;
+            align-items: center;
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23343a40' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            background-size: 16px 12px;
+        }
+
+        .select-location-fields .select2-container--default .select2-selection--single .select2-selection__rendered {
+            line-height: 1.5;
+            color: #212529;
+            padding: 0;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .select-location-fields .select2-container--default .select2-selection--single .select2-selection__placeholder {
+            color: #6c757d;
+        }
+
+        .select-location-fields .select2-container--default .select2-selection--single .select2-selection__arrow {
+            display: none;
+        }
+
+        .select-location-fields .select2-container--default .select2-selection--single .select2-selection__clear {
+            margin-right: 1.5rem;
+            color: #6c757d;
+        }
+
+        .select-location-fields .select2-container--default.select2-container--focus .select2-selection--single,
+        .select-location-fields .select2-container--default.select2-container--open .select2-selection--single {
+            border-color: #86b7fe;
+            outline: 0;
+            box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+        }
+
+        .select-location-fields .select2-container--default.select2-container--disabled .select2-selection--single {
+            background-color: #e9ecef;
+            cursor: not-allowed;
+        }
+    </style>
+@endsection
 
 @section('content')
-    <div>
-        <h3 class="mt-0 mb-15 color-brand-1">{{ __('My Account') }}</h3>
+    <div class="crop-avatar user-profile-section">
+        <x-core::card>
+            <x-core::card.header>
+                <x-core::card.title>{{ __('My Profile') }}</x-core::card.title>
+            </x-core::card.header>
 
-        @if ($account->avatar_id)
-            <form id="delete-avatar-form" method="POST" action="{{ route('public.account.avatar.destroy') }}">
-                @csrf
-                @method('DELETE')
-            </form>
-        @endif
-
-        {!! Form::open(['route' => 'public.account.post.settings', 'method' => 'POST', 'files' => true]) !!}
-                <div class="mt-35 mb-40 box-info-profile avatar-view d-inline-block">
-                    <div class="image-profile">
-                        <img src="{{ $account->avatar_url }}" id="profile-img" alt="{{ $account->name }}">
-                    </div>
-                    <a class="btn btn-apply">{{ __('Upload Avatar') }}</a>
-                </div>
-
+            <x-core::card.body>
                 @if ($account->avatar_id)
-                    <button class="btn btn-danger btn-remove-avatar" data-confirm="{{  __('Are you sure you want to remove this avatar?') }}">
-                        <x-core::icon name="ti ti-trash"/>
-                    </button>
+                    <form id="delete-avatar-form" method="POST" action="{{ route('public.account.avatar.destroy') }}">
+                        @csrf
+                        @method('DELETE')
+                    </form>
                 @endif
 
-            {!! $form
-                ->when($account->type->getValue() === 'job-seeker', function ($form) use ($languages, $languageForm) {
-                    return $form->addAfter('favorite_tags', 'languages', 'html', \Botble\Base\Forms\FieldOptions\HtmlFieldOption::make()->content(
-                        view(Theme::getThemeNamespace('views.job-board.account.partials.languages'), compact('languages', 'languageForm'))->render()
-                    ));
-                })
-                ->contentOnly()
-                ->renderForm(showStart: false, showEnd: false) !!}
+                {!! Form::open(['route' => 'public.account.post.settings', 'method' => 'POST', 'files' => true]) !!}
+                    <div class="avatar-view d-flex align-items-center gap-3 mb-4">
+                        <img src="{{ $account->avatar_url }}" id="profile-img" alt="{{ $account->name }}" class="avatar avatar-xl rounded-circle">
+                        <button type="button" class="btn btn-primary">{{ __('Upload Avatar') }}</button>
 
-            <div class="box-button mt-15">
-                <button type="submit" class="btn btn-apply-big font-md font-bold">{{ __('Save All Changes') }}</button>
+                        @if ($account->avatar_id)
+                            <button type="button" class="btn btn-danger btn-remove-avatar" data-confirm="{{  __('Are you sure you want to remove this avatar?') }}">
+                                <x-core::icon name="ti ti-trash"/>
+                            </button>
+                        @endif
+                    </div>
+
+                    {!! $form
+                        ->when($account->type->getValue() === 'job-seeker', function ($form) use ($languages, $languageForm) {
+                            return $form->addAfter('favorite_tags', 'languages', 'html', \Botble\Base\Forms\FieldOptions\HtmlFieldOption::make()->content(
+                                view(Theme::getThemeNamespace('views.job-board.account.partials.languages'), compact('languages', 'languageForm'))->render()
+                            ));
+                        })
+                        ->contentOnly()
+                        ->renderForm(showStart: false, showEnd: false) !!}
+
+                    <div class="text-end mt-3">
+                        <x-core::button type="submit" color="primary">{{ __('Save All Changes') }}</x-core::button>
+                    </div>
+                {!! Form::close() !!}
+            </x-core::card.body>
+        </x-core::card>
+
+        <div class="modal fade" id="addLanguageModal" tabindex="-1" aria-labelledby="addLanguageModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h1 class="modal-title fs-5" id="addLanguageModalLabel">{{ __('Add a new language') }}</h1>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        {!! $languageForm->renderForm() !!}
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ __('Close') }}</button>
+                        <button type="submit" form="account-language-form" class="btn btn-primary">{{ __('Add') }}</button>
+                    </div>
+                </div>
             </div>
-        {!! Form::close() !!}
+        </div>
 
-    </div>
+        <div class="modal fade" id="avatar-modal" tabindex="-1" role="dialog" aria-labelledby="avatar-modal-label" aria-hidden="true">
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <form class="avatar-form" method="post" action="{{ route('public.account.avatar') }}" enctype="multipart/form-data">
+                        <div class="modal-header">
+                            <h4 class="modal-title" id="avatar-modal-label">
+                                <strong>{{ __('Profile Image') }}</strong>
+                            </h4>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="avatar-body">
+                                <div class="avatar-upload">
+                                    <input class="avatar-src" name="avatar_src" type="hidden">
+                                    <input class="avatar-data" name="avatar_data" type="hidden">
+                                    @csrf
+                                    <label for="avatarInput">{{ __('New image') }}</label>
+                                    <input class="avatar-input" id="avatarInput" name="avatar_file" type="file">
+                                </div>
 
-    <div class="modal fade" id="addLanguageModal" tabindex="-1" aria-labelledby="addLanguageModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h1 class="modal-title fs-5" id="addLanguageModalLabel">{{ __('Add a new language') }}</h1>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    {!! $languageForm->renderForm() !!}
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ __('Close') }}</button>
-                    <button type="submit" form="account-language-form" class="btn btn-primary">{{ __('Add') }}</button>
+                                <div class="loading" tabindex="-1" role="img" aria-label="{{ __('Loading') }}"></div>
+
+                                <div class="row">
+                                    <div class="col-md-9">
+                                        <div class="avatar-wrapper"></div>
+                                        <div class="error-message text-danger" style="display: none"></div>
+                                    </div>
+                                    <div class="col-md-3 avatar-preview-wrapper">
+                                        <div class="avatar-preview preview-lg"></div>
+                                        <div class="avatar-preview preview-md"></div>
+                                        <div class="avatar-preview preview-sm"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">{{ __('Close') }}</button>
+                            <button class="btn btn-outline-primary avatar-save" type="submit">{{ __('Save') }}</button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
     </div>
+
+    <script>
+        'use strict';
+
+        var RV_MEDIA_URL = {
+            base: '{{ url('') }}',
+            filebrowserImageBrowseUrl: false,
+            media_upload_from_editor: '{{ route('public.account.upload-from-editor') }}'
+        }
+
+        function setImageValue(file) {
+            $('.mce-btn.mce-open').parent().find('.mce-textbox').val(file);
+        }
+    </script>
+
+    <iframe id="form_target" name="form_target" style="display:none"></iframe>
+    <form id="tinymce_form" action="{{ route('public.account.upload-from-editor') }}" target="form_target" method="post" enctype="multipart/form-data"
+          style="width:0; height:0; overflow:hidden; display: none;">
+        @csrf
+        <input name="upload" id="upload_file" type="file" onchange="$('#tinymce_form').submit();this.value='';">
+        <input type="hidden" value="tinymce" name="upload_type">
+    </form>
 
     <script>
         (function () {

@@ -26,12 +26,15 @@
             </div>
             <div class="currency-switch-list" data-currency-list>
                 @foreach ($currencies as $currency)
+                    @php($currencyMeta = wakanda_currency_meta($currency->title))
                     <a
                         class="dropdown-item notify-item language"
                         href="{{ route('public.change-currency', $currency->title) }}"
+                        title="{{ $currencyMeta['label'] }}"
+                        aria-label="{{ $currencyMeta['label'] }}"
                         data-currency-item
-                        data-currency-code="{{ $currency->title }}"
-                    ><span>{{ $currency->title }}</span></a>
+                        data-currency-code="{{ $currency->title }} {{ $currencyMeta['country'] }} {{ $currencyMeta['name'] }}"
+                    ><span class="me-1" aria-hidden="true">{!! $currencyMeta['flag'] !!}</span><span>{{ $currency->title }}</span></a>
                 @endforeach
             </div>
             <div class="currency-switch-empty" data-currency-empty hidden>{{ __('No currencies found') }}</div>

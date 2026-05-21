@@ -129,7 +129,8 @@ class DashboardController extends BaseController
 
         $packages = Package::query()
             ->wherePublished()
-            ->latest('order')
+            ->orderByRaw('(price - (price * percent_save / 100)) asc')
+            ->oldest('order')
             ->withCount([
                 'accounts' => function ($query) use ($account): void {
                     $query->where('account_id', $account->getKey());
@@ -167,6 +168,8 @@ class DashboardController extends BaseController
 
         $packages = Package::query()
             ->wherePublished()
+            ->orderByRaw('(price - (price * percent_save / 100)) asc')
+            ->oldest('order')
             ->get();
 
         if (is_plugin_active('language') && is_plugin_active('language-advanced')) {

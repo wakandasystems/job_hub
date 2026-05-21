@@ -1,70 +1,95 @@
-@extends(Theme::getThemeNamespace('views.job-board.account.partials.layout-settings'))
+@extends(JobBoardHelper::viewPath('dashboard.layouts.master'))
 
 @section('content')
-    <div class="col-lg-12">
-        <div class="card profile-content-page mt-4 mt-lg-0">
-            <ul class="profile-content-nav nav nav-pills border-bottom mb-50" id="pills-tab"
-                role="tablist">
-                <li class="nav-item" role="presentation">
-                    <h3 class="mt-0 mb-15 mt-15 color-brand-1">{{ __('Overview') }}</h3>
-                </li>
-            </ul>
-            <div class="card-body p-4">
-                <div class="tab-content" id="pills-tabContent">
-                    <h5 class="fs-18 fw-bold">{{ __('About') }}</h5>
-                    <p class="text-muted mt-4">{!! BaseHelper::clean($account->description) !!}</p>
-                    <div>
-                        @if($countEducation = $educations->count())
-                            <div class="candidate-education-details mt-4 pt-3">
-                                <h4 class="fs-17 fw-bold mb-0">{{ __('Education') }}</h4>
-                                @foreach($educations as $education)
-                                    <div class="candidate-education-content mt-4 d-flex">
-                                        <div class="circle flex-shrink-0 bg-soft-primary">{{ $education->specialized ? strtoupper(substr($education->specialized, 0, 1)) : 'E' }}</div>
-                                        <div class="ms-4">
-                                            @if ($education->specialized)
-                                                <h6 class="fs-16 mb-1">{{ $education->specialized }}</h6>
-                                            @endif
-                                            <p class="mb-2 text-muted">{{ $education->school }} -
-                                                ({{  $education->started_at->format('Y') }} -
-                                                {{ $education->ended_at ? $education->ended_at->format('Y'): __('Now') }})
-                                            </p>
-                                            <p class="text-muted">{!! BaseHelper::clean($education->description) !!}</p>
-                                        </div>
-                                        @if ($countEducation >= 1 && ! $loop->last)
-                                            <span class="line"></span>
-                                        @endif
-                                    </div>
-                                @endforeach
-                            </div>
-                        @endif
+    <div class="row row-cards">
+        <div class="col-lg-8">
+            <x-core::card>
+                <x-core::card.header>
+                    <x-core::card.title>{{ __('About') }}</x-core::card.title>
+                </x-core::card.header>
 
-                        @if($countExperience = $experiences->count())
-                            <div class="candidate-education-details mt-4 pt-3">
-                                <h4 class="fs-17 fw-bold mb-0">{{ __('Experience') }}</h4>
-                                @foreach( $experiences as $experience)
-                                    <div class="candidate-education-content mt-4 d-flex">
-                                        <div class="circle flex-shrink-0 bg-soft-primary"> {{ $experience->position ? strtoupper(substr($experience->position, 0, 1)) : '' }} </div>
-                                        <div class="ms-4">
-                                            @if ($experience->position)
-                                                <h6 class="fs-16 mb-1">{{ $experience->position }}</h6>
-                                            @endif
-                                            <p class="mb-2 text-muted">{{ $experience->company }} -
-                                                ({{ $experience->started_at->format('Y') }} -
-                                                {{ $experience->ended_at ? $experience->ended_at->format('Y') : __('Now') }})
-                                            </p>
-                                            <p class="text-muted">{!! BaseHelper::clean($experience->description) !!}</p>
-                                        </div>
-                                        @if ($countExperience >= 1 && ! $loop->last)
-                                            <span class="line"></span>
-                                        @endif
-                                    </div>
-                                @endforeach
-                            </div>
-                        @endif
+                <x-core::card.body>
+                    @if ($account->description)
+                        <p class="text-muted mb-0">{!! BaseHelper::clean($account->description) !!}</p>
+                    @else
+                        <x-core::empty-state
+                            :title="__('No overview yet')"
+                            :subtitle="__('Add a profile description from My Profile.')"
+                        />
+                    @endif
+                </x-core::card.body>
+            </x-core::card>
+        </div>
+
+        <div class="col-lg-4">
+            <x-core::card>
+                <x-core::card.header>
+                    <x-core::card.title>{{ __('Profile') }}</x-core::card.title>
+                </x-core::card.header>
+
+                <div class="list-group list-group-flush">
+                    <div class="list-group-item">
+                        <div class="text-secondary">{{ __('Name') }}</div>
+                        <div class="fw-medium">{{ $account->name }}</div>
+                    </div>
+                    <div class="list-group-item">
+                        <div class="text-secondary">{{ __('Email') }}</div>
+                        <div class="fw-medium">{{ $account->email }}</div>
                     </div>
                 </div>
-            </div>
+            </x-core::card>
         </div>
     </div>
-@endsection
 
+    @if($countEducation = $educations->count())
+        <x-core::card class="mt-3">
+            <x-core::card.header>
+                <x-core::card.title>{{ __('Education') }}</x-core::card.title>
+            </x-core::card.header>
+
+            <div class="list-group list-group-flush">
+                @foreach($educations as $education)
+                    <div class="list-group-item">
+                        @if ($education->specialized)
+                            <div class="fw-bold">{{ $education->specialized }}</div>
+                        @endif
+                        <div class="text-secondary">
+                            {{ $education->school }} -
+                            {{ $education->started_at->format('Y') }} -
+                            {{ $education->ended_at ? $education->ended_at->format('Y'): __('Now') }}
+                        </div>
+                        @if ($education->description)
+                            <p class="text-muted mb-0 mt-2">{!! BaseHelper::clean($education->description) !!}</p>
+                        @endif
+                    </div>
+                @endforeach
+            </div>
+        </x-core::card>
+    @endif
+
+    @if($countExperience = $experiences->count())
+        <x-core::card class="mt-3">
+            <x-core::card.header>
+                <x-core::card.title>{{ __('Experience') }}</x-core::card.title>
+            </x-core::card.header>
+
+            <div class="list-group list-group-flush">
+                @foreach($experiences as $experience)
+                    <div class="list-group-item">
+                        @if ($experience->position)
+                            <div class="fw-bold">{{ $experience->position }}</div>
+                        @endif
+                        <div class="text-secondary">
+                            {{ $experience->company }} -
+                            {{ $experience->started_at->format('Y') }} -
+                            {{ $experience->ended_at ? $experience->ended_at->format('Y') : __('Now') }}
+                        </div>
+                        @if ($experience->description)
+                            <p class="text-muted mb-0 mt-2">{!! BaseHelper::clean($experience->description) !!}</p>
+                        @endif
+                    </div>
+                @endforeach
+            </div>
+        </x-core::card>
+    @endif
+@endsection

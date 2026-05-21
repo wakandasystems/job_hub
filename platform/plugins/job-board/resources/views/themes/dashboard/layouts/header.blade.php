@@ -6,7 +6,7 @@
 
 @include('plugins/job-board::themes.dashboard.layouts.header-meta')
 
-<link href="{{ asset('vendor/core/plugins/job-board/css/dashboard/style.css') }}" rel="stylesheet">
+<link href="{{ asset('vendor/core/plugins/job-board/css/dashboard/style.css') }}?v={{ filemtime(public_path('vendor/core/plugins/job-board/css/dashboard/style.css')) }}" rel="stylesheet">
 
 @if (session('locale_direction', 'ltr') == 'rtl')
     <link href="{{ asset('vendor/core/core/base/css/core.rtl.css') }}" rel="stylesheet">

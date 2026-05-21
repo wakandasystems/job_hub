@@ -29,6 +29,7 @@ use Botble\JobBoard\Models\JobSkill;
 use Botble\JobBoard\Models\Tag;
 use Botble\Location\Fields\Options\SelectLocationFieldOption;
 use Botble\Location\Fields\SelectLocationField;
+use Botble\Location\Models\Country;
 use Botble\Media\Facades\RvMedia;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\App;
@@ -46,6 +47,8 @@ class AccountSettingForm extends FormAbstract
          * @var Account $account
          */
         $account = $this->getModel();
+
+        $this->fillDefaultCountryFromSelectedCountry($account);
 
         $isJobSeeker = $account->isJobSeeker();
 
@@ -327,5 +330,68 @@ HTML;
                     });
             })
             ->when(! $isJobSeeker, fn (AccountSettingForm $form) => $form->disablePermalinkField());
+    }
+
+    protected function fillDefaultCountryFromSelectedCountry(Account $account): void
+    {
+        if (old('country_id')) {
+            return;
+        }
+
+        $selectedCountry = $this->resolveSelectedCountryForDefault();
+
+        if (! $selectedCountry || ! $selectedCountry->id) {
+            return;
+        }
+
+        $countryId = (int) $account->country_id;
+
+        if (! $countryId) {
+            $account->country_id = $selectedCountry->id;
+
+            return;
+        }
+
+        if ((int) $selectedCountry->id === $countryId || $account->state_id || $account->city_id) {
+            return;
+        }
+
+        $country = Country::query()
+            ->whereKey($countryId)
+            ->first(['id', 'name', 'is_default']);
+
+        if ($country && ($country->is_default || $country->name === 'France')) {
+            $account->country_id = $selectedCountry->id;
+        }
+    }
+
+    protected function resolveSelectedCountryForDefault(): ?Country
+    {
+        $countries = Country::query()
+            ->select(['id', 'name', 'code', 'is_default'])
+            ->get();
+
+        if ($countries->isEmpty()) {
+            return null;
+        }
+
+        $countryId = function_exists('wakanda_decode_country_token') ? wakanda_decode_country_token(request()->query('c')) : null;
+        $countryId = $countryId ?: (int) session('wakanda_country_id') ?: (int) request()->cookie('wakanda_country_id');
+
+        if ($countryId && $country = $countries->firstWhere('id', $countryId)) {
+            return $country;
+        }
+
+        if (function_exists('wakanda_country_from_host') && $country = wakanda_country_from_host()) {
+            return $country;
+        }
+
+        if (function_exists('wakanda_detect_country_code') && $countryCode = wakanda_detect_country_code()) {
+            if ($country = $countries->firstWhere('code', strtoupper($countryCode))) {
+                return $country;
+            }
+        }
+
+        return $countries->firstWhere('is_default', true) ?: $countries->first();
     }
 }

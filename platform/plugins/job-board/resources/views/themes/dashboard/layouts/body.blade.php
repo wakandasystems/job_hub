@@ -62,7 +62,7 @@
                                 <img
                                     src="{{ RvMedia::getImageUrl($logo) }}"
                                     alt="{{ $siteTitle }}"
-                                    style="max-height: 80px;"
+                                    style="max-height: 48px;"
                                 >
                             </a>
                         @endif

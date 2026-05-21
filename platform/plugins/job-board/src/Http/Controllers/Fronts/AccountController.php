@@ -44,7 +44,7 @@ class AccountController extends BaseController
          */
         $account = auth('account')->user();
 
-        SeoHelper::setTitle($account->name);
+        SeoHelper::setTitle(__('Overview'));
         Theme::breadcrumb()
             ->add(trans('plugins/job-board::messages.my_profile'), route('public.account.overview'))
             ->add($account->name);
@@ -59,7 +59,7 @@ class AccountController extends BaseController
 
         $data = compact('account', 'educations', 'experiences');
 
-        return JobBoardHelper::scope('account.overview', $data);
+        return view(JobBoardHelper::viewPath('account.overview'), $data);
     }
 
     public function getCareerServices()
@@ -81,7 +81,7 @@ class AccountController extends BaseController
 
     public function getSettings()
     {
-        SeoHelper::setTitle(trans('plugins/job-board::messages.account_settings'));
+        SeoHelper::setTitle(trans('plugins/job-board::messages.my_profile'));
         /**
          * @var Account $account
          */
@@ -93,8 +93,8 @@ class AccountController extends BaseController
 
         $languageForm = AccountLanguageForm::create();
 
-        return JobBoardHelper::scope(
-            'account.settings.index',
+        return view(
+            JobBoardHelper::viewPath('account.settings.index'),
             compact('account', 'languages', 'form', 'languageForm')
         );
     }
@@ -169,9 +169,6 @@ class AccountController extends BaseController
 
         // Already has a confirmed type, so skip the chooser.
         if (in_array($account->type?->getValue(), [AccountTypeEnum::JOB_SEEKER, AccountTypeEnum::EMPLOYER], true)) {
-            if ($account->isEmployer()) {
-                return redirect()->route('public.account.employer.settings.edit');
-            }
             return redirect()->route('public.account.dashboard');
         }
 
@@ -191,8 +188,8 @@ class AccountController extends BaseController
         $account->update(['type' => $request->input('type') === 'employer' ? AccountTypeEnum::EMPLOYER : AccountTypeEnum::JOB_SEEKER]);
 
         if ($account->isEmployer()) {
-            return redirect()->route('public.account.employer.settings.edit')
-                ->with('success_msg', __('Welcome! Please complete your employer profile.'));
+            return redirect()->route('public.account.dashboard')
+                ->with('success_msg', __('Welcome! You can now manage your employer account.'));
         }
 
         return redirect()->route('public.account.dashboard')
@@ -208,7 +205,7 @@ class AccountController extends BaseController
          */
         $account = auth('account')->user();
 
-        return JobBoardHelper::scope('account.settings.security', compact('account'));
+        return view(JobBoardHelper::viewPath('account.settings.security'), compact('account'));
     }
 
     public function postSecurity(UpdatePasswordRequest $request)

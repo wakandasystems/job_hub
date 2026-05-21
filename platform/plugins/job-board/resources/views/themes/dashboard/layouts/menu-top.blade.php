@@ -31,7 +31,7 @@
         <div class="ps-block--earning-count">
             <small>{{ trans('plugins/job-board::dashboard.credits') }}</small>
             <h3 class="my-2">{{ number_format(auth('account')->user()->credits) }}</h3>
-            <a href="{{ route('public.account.packages') }}" target="_blank">
+            <a href="{{ route('public.account.packages') }}">
                 {{ trans('plugins/job-board::dashboard.buy_credits') }}
             </a>
         </div>

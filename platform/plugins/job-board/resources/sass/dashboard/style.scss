@@ -872,6 +872,8 @@ a, a:hover, a:focus, a:active {
 }
 
 .ps-copyright p {
+    font-size: 11px;
+    line-height: 1.4;
     margin-bottom: 0;
 }
 
@@ -998,21 +1000,21 @@ a, a:hover, a:focus, a:active {
 }
 
 .ps-sidebar .ps-block--earning-count {
-    padding-bottom: 50px;
+    padding-bottom: 2px;
     border-bottom: 1px solid #ddd;
 }
 
 .ps-sidebar .ps-sidebar__top {
     padding-right: 30px;
-    margin-bottom: 70px;
+    margin-bottom: 30px;
 }
 
 .ps-sidebar .ps-sidebar__top  {
-    margin-bottom: 80px;
+    margin-bottom: 30px;
 }
 
 .ps-block--user-wellcome, .ps-block--user-id {
-    margin-bottom: 40px;
+    margin-bottom: 24px;
 }
 
 .ps-block--user-id {

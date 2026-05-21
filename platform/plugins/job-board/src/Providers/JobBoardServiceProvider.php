@@ -628,7 +628,7 @@ class JobBoardServiceProvider extends ServiceProvider
                 ])
                 ->registerItem([
                     'id' => 'cms-account-jobs',
-                    'priority' => 2,
+                    'priority' => 4,
                     'parent_id' => null,
                     'name' => 'plugins/job-board::dashboard.menu.jobs',
                     'url' => fn () => route('public.account.jobs.index'),
@@ -638,7 +638,7 @@ class JobBoardServiceProvider extends ServiceProvider
                     $dashboardMenu
                         ->registerItem([
                             'id' => 'cms-account-companies',
-                            'priority' => 3,
+                            'priority' => 5,
                             'parent_id' => null,
                             'name' => 'plugins/job-board::dashboard.menu.companies',
                             'url' => fn () => route('public.account.companies.index'),
@@ -649,7 +649,7 @@ class JobBoardServiceProvider extends ServiceProvider
                     $dashboardMenu
                         ->registerItem([
                             'id' => 'cms-account-reviews',
-                            'priority' => 4,
+                            'priority' => 6,
                             'parent_id' => null,
                             'name' => 'plugins/job-board::dashboard.menu.reviews',
                             'url' => fn () => route('public.account.reviews.index'),
@@ -658,7 +658,7 @@ class JobBoardServiceProvider extends ServiceProvider
                 })
                 ->registerItem([
                     'id' => 'cms-account-applicants',
-                    'priority' => 5,
+                    'priority' => 8,
                     'parent_id' => null,
                     'name' => 'plugins/job-board::dashboard.menu.applicants',
                     'url' => fn () => route('public.account.applicants.index'),
@@ -668,7 +668,7 @@ class JobBoardServiceProvider extends ServiceProvider
                     $dashboardMenu
                         ->registerItem([
                             'id' => 'cms-account-invoices',
-                            'priority' => 6,
+                            'priority' => 9,
                             'parent_id' => null,
                             'name' => 'plugins/job-board::dashboard.menu.invoices',
                             'url' => fn () => route('public.account.invoices.index'),
@@ -676,18 +676,34 @@ class JobBoardServiceProvider extends ServiceProvider
                         ]);
                 })
                 ->registerItem([
-                    'id' => 'cms-account-settings',
-                    'priority' => 7,
+                    'id' => 'cms-account-my-profile',
+                    'priority' => 3,
                     'parent_id' => null,
-                    'name' => 'plugins/job-board::dashboard.menu.settings',
-                    'url' => fn () => route('public.account.employer.settings.edit'),
-                    'icon' => 'ti ti-settings',
+                    'name' => 'plugins/job-board::messages.my_profile',
+                    'url' => fn () => route('public.account.settings'),
+                    'icon' => 'ti ti-user',
+                ])
+                ->registerItem([
+                    'id' => 'cms-account-security',
+                    'priority' => 10,
+                    'parent_id' => null,
+                    'name' => 'plugins/job-board::messages.security',
+                    'url' => fn () => route('public.account.security'),
+                    'icon' => 'ti ti-shield-lock',
+                ])
+                ->registerItem([
+                    'id' => 'cms-account-overview',
+                    'priority' => 2,
+                    'parent_id' => null,
+                    'name' => 'Overview',
+                    'url' => fn () => route('public.account.overview'),
+                    'icon' => 'ti ti-id',
                 ])
                 ->when(JobBoardHelper::isEnabledCreditsSystem(), function (DashboardMenuSupport $dashboardMenu): void {
                     $dashboardMenu
                         ->registerItem([
                             'id' => 'cms-account-packages',
-                            'priority' => 4,
+                            'priority' => 7,
                             'parent_id' => null,
                             'name' => 'plugins/job-board::dashboard.menu.packages',
                             'url' => fn () => route('public.account.packages'),
