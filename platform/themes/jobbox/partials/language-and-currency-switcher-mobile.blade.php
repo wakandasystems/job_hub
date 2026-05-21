@@ -41,7 +41,9 @@
                         </li>
                         @foreach ($currencies as $currency)
                             @if ($currency->title != $currencyActive)
-                                @php($currencyMeta = wakanda_currency_meta($currency->title))
+                                @php
+                                    $currencyMeta = wakanda_currency_meta($currency->title);
+                                @endphp
                                 <li data-currency-code-mobile="{{ strtolower($currency->title . ' ' . $currencyMeta['country'] . ' ' . $currencyMeta['name']) }}">
                                     <a href="{{ route('public.change-currency', $currency->title) }}" title="{{ $currencyMeta['label'] }}" aria-label="{{ $currencyMeta['label'] }}">
                                         <span aria-hidden="true">{!! $currencyMeta['flag'] !!}</span>
