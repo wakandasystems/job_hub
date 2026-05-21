@@ -281,8 +281,10 @@
                 prevEl: '.swiper-button-prev',
             },
             pagination: {
-                el: '.swiper-pagination',
+                el: $(this).find('.swiper-pagination')[0],
                 clickable: true,
+                dynamicBullets: true,
+                dynamicMainBullets: 2,
             },
             autoplay: {
                 delay: 10000,
@@ -318,8 +320,10 @@
                 prevEl: '.swiper-button-prev-border',
             },
             pagination: {
-                el: '.swiper-pagination',
+                el: $(this).find('.swiper-pagination')[0],
                 clickable: true,
+                dynamicBullets: true,
+                dynamicMainBullets: 2,
             },
             autoplay: {
                 delay: 10000,
@@ -496,8 +500,10 @@
         new Swiper('#testimonial-slider', {
             loop: true,
             pagination: {
-                el: '.swiper-pagination',
+                el: '#testimonial-slider .swiper-pagination',
                 clickable: true,
+                dynamicBullets: true,
+                dynamicMainBullets: 2,
             },
             autoplay: {
                 delay: 2500,
@@ -520,8 +526,10 @@
         new Swiper('#testimonial-slider-2', {
             loop: true,
             pagination: {
-                el: '.swiper-pagination',
+                el: '#testimonial-slider-2 .swiper-pagination',
                 clickable: true,
+                dynamicBullets: true,
+                dynamicMainBullets: 2,
             },
             autoplay: {
                 delay: 2500,
