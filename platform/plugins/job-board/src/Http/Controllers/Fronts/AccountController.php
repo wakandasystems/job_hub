@@ -146,6 +146,9 @@ class AccountController extends BaseController
             }
         }
 
+        // Touch profile_updated_at so staleness tracking resets
+        $data['profile_updated_at'] = now();
+
         AccountSettingForm::createFromModel($account)
             ->saving(function (AccountSettingForm $form) use ($data): void {
                 $model = $form->getModel();
@@ -169,6 +172,10 @@ class AccountController extends BaseController
 
         // Already has a confirmed type, so skip the chooser.
         if (in_array($account->type?->getValue(), [AccountTypeEnum::JOB_SEEKER, AccountTypeEnum::EMPLOYER], true)) {
+            if ($account->isEmployer()) {
+                return redirect()->route('public.account.dashboard');
+            }
+
             return redirect()->route('public.account.dashboard');
         }
 

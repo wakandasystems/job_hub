@@ -31,7 +31,15 @@ class RedirectIfNotAccount
         }
 
         if ($type && $account->type != $type) {
-            return redirect(route('public.index'));
+            if ($account->isJobSeeker()) {
+                return redirect()->route('public.account.dashboard');
+            }
+
+            if ($account->isEmployer()) {
+                return redirect()->route('public.account.dashboard');
+            }
+
+            return redirect()->route('public.account.choose-type');
         }
 
         AdminBar::setIsDisplay(false);

@@ -157,3 +157,14 @@ Route::group([
         });
     }
 });
+
+// Salary Benchmark API — authenticated via X-API-Key header
+Route::group([
+    'middleware' => ['api', \Botble\JobBoard\Http\Middleware\SalaryApiKeyMiddleware::class],
+    'prefix' => 'api/v1/salary',
+    'namespace' => 'Botble\JobBoard\Http\Controllers\API',
+], function (): void {
+    Route::get('benchmarks', 'SalaryBenchmarkController@benchmarks');
+    Route::get('categories', 'SalaryBenchmarkController@categories');
+    Route::get('top-titles', 'SalaryBenchmarkController@topTitles');
+});

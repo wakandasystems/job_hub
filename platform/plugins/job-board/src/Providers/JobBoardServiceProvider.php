@@ -125,6 +125,9 @@ class JobBoardServiceProvider extends ServiceProvider
 
     public function register(): void
     {
+        $this->app->singleton(\Botble\JobBoard\Supports\SubscriptionService::class);
+        $this->app->singleton(\Botble\JobBoard\Supports\CvRevealService::class);
+
         $this->app->singleton(JobInterface::class, function () {
             return new JobRepository(new Job());
         });
@@ -467,6 +470,33 @@ class JobBoardServiceProvider extends ServiceProvider
                     'url' => route('job-alert-orders.index'),
                     'permissions' => ['job-alert-orders.index'],
                 ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-featured-orders',
+                    'priority' => 7,
+                    'parent_id' => 'cms-plugins-job-board-main',
+                    'name' => 'Featured Job Orders',
+                    'icon' => 'ti ti-star',
+                    'url' => route('featured-orders.index'),
+                    'permissions' => ['featured-orders.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-featured-packages',
+                    'priority' => 4,
+                    'parent_id' => 'cms-plugins-job-board-main',
+                    'name' => 'Featured Packages',
+                    'icon' => 'ti ti-star-half',
+                    'url' => route('featured-packages.index'),
+                    'permissions' => ['featured-packages.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-employer-subscriptions',
+                    'priority' => 7,
+                    'parent_id' => 'cms-plugins-job-board-main',
+                    'name' => 'Employer Subscriptions',
+                    'icon' => 'ti ti-credit-card',
+                    'url' => route('employer-subscriptions.index'),
+                    'permissions' => ['employer-subscriptions.index'],
+                ])
                 ->when(JobBoardHelper::isEnabledCreditsSystem(), static function (DashboardMenuSupport $dashboardMenu): void {
                     $dashboardMenu
                         ->registerItem([
@@ -479,6 +509,33 @@ class JobBoardServiceProvider extends ServiceProvider
                             'permissions' => ['invoice.index'],
                         ]);
                 })
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-salary-analytics',
+                    'priority' => 15,
+                    'parent_id' => 'cms-plugins-job-board-main',
+                    'name' => 'Salary Analytics',
+                    'icon' => 'ti ti-chart-bar',
+                    'url' => route('salary-analytics.index'),
+                    'permissions' => ['salary-analytics.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-salary-reports',
+                    'priority' => 16,
+                    'parent_id' => 'cms-plugins-job-board-main',
+                    'name' => 'Salary Reports',
+                    'icon' => 'ti ti-file-type-pdf',
+                    'url' => route('salary-reports.index'),
+                    'permissions' => ['salary-reports.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-salary-api-keys',
+                    'priority' => 17,
+                    'parent_id' => 'cms-plugins-job-board-main',
+                    'name' => 'Salary API Keys',
+                    'icon' => 'ti ti-key',
+                    'url' => route('salary-api-keys.index'),
+                    'permissions' => ['salary-api-keys.index'],
+                ])
                 ->registerItem([
                     'id' => 'cms-plugins-job-board-reports',
                     'priority' => 999,
@@ -617,64 +674,187 @@ class JobBoardServiceProvider extends ServiceProvider
         });
 
         DashboardMenu::for('account')->beforeRetrieving(function (): void {
-            DashboardMenu::make()
-                ->registerItem([
-                    'id' => 'cms-account-dashboard',
-                    'priority' => 1,
-                    'parent_id' => null,
-                    'name' => 'plugins/job-board::dashboard.menu.dashboard',
-                    'url' => fn () => route('public.account.dashboard'),
-                    'icon' => 'ti ti-home',
-                ])
-                ->registerItem([
-                    'id' => 'cms-account-jobs',
-                    'priority' => 4,
-                    'parent_id' => null,
-                    'name' => 'plugins/job-board::dashboard.menu.jobs',
-                    'url' => fn () => route('public.account.jobs.index'),
-                    'icon' => 'ti ti-briefcase',
-                ])
-                ->when(JobBoardHelper::employerManageCompanyInfo(), function (DashboardMenuSupport $dashboardMenu): void {
-                    $dashboardMenu
-                        ->registerItem([
-                            'id' => 'cms-account-companies',
-                            'priority' => 5,
-                            'parent_id' => null,
-                            'name' => 'plugins/job-board::dashboard.menu.companies',
-                            'url' => fn () => route('public.account.companies.index'),
-                            'icon' => 'ti ti-building',
-                        ]);
-                })
-                ->when(JobBoardHelper::isEnabledReview(), function (DashboardMenuSupport $dashboardMenu): void {
-                    $dashboardMenu
-                        ->registerItem([
-                            'id' => 'cms-account-reviews',
-                            'priority' => 6,
-                            'parent_id' => null,
-                            'name' => 'plugins/job-board::dashboard.menu.reviews',
-                            'url' => fn () => route('public.account.reviews.index'),
-                            'icon' => 'ti ti-star',
-                        ]);
-                })
-                ->registerItem([
-                    'id' => 'cms-account-applicants',
-                    'priority' => 8,
-                    'parent_id' => null,
-                    'name' => 'plugins/job-board::dashboard.menu.applicants',
-                    'url' => fn () => route('public.account.applicants.index'),
-                    'icon' => 'ti ti-users-group',
-                ])
-                ->when(JobBoardHelper::isEnabledCreditsSystem(), static function (DashboardMenuSupport $dashboardMenu): void {
-                    $dashboardMenu
-                        ->registerItem([
-                            'id' => 'cms-account-invoices',
-                            'priority' => 9,
-                            'parent_id' => null,
-                            'name' => 'plugins/job-board::dashboard.menu.invoices',
-                            'url' => fn () => route('public.account.invoices.index'),
-                            'icon' => 'ti ti-file-invoice',
-                        ]);
-                })
+            /** @var Account|null $account */
+            $account = auth('account')->user();
+
+            $dashboardMenu = DashboardMenu::make();
+
+            if ($account?->isEmployer()) {
+                $dashboardMenu
+                    ->registerItem([
+                        'id' => 'cms-account-dashboard',
+                        'priority' => 1,
+                        'parent_id' => null,
+                        'name' => 'plugins/job-board::dashboard.menu.dashboard',
+                        'url' => fn () => route('public.account.dashboard'),
+                        'icon' => 'ti ti-home',
+                    ])
+                    ->registerItem([
+                        'id' => 'cms-account-jobs',
+                        'priority' => 4,
+                        'parent_id' => null,
+                        'name' => 'plugins/job-board::dashboard.menu.jobs',
+                        'url' => fn () => route('public.account.jobs.index'),
+                        'icon' => 'ti ti-briefcase',
+                    ])
+                    ->when(JobBoardHelper::employerManageCompanyInfo(), function (DashboardMenuSupport $dashboardMenu): void {
+                        $dashboardMenu
+                            ->registerItem([
+                                'id' => 'cms-account-companies',
+                                'priority' => 5,
+                                'parent_id' => null,
+                                'name' => 'plugins/job-board::dashboard.menu.companies',
+                                'url' => fn () => route('public.account.companies.index'),
+                                'icon' => 'ti ti-building',
+                            ]);
+                    })
+                    ->when(JobBoardHelper::isEnabledReview(), function (DashboardMenuSupport $dashboardMenu): void {
+                        $dashboardMenu
+                            ->registerItem([
+                                'id' => 'cms-account-reviews',
+                                'priority' => 6,
+                                'parent_id' => null,
+                                'name' => 'plugins/job-board::dashboard.menu.reviews',
+                                'url' => fn () => route('public.account.reviews.index'),
+                                'icon' => 'ti ti-star',
+                            ]);
+                    })
+                    ->registerItem([
+                        'id' => 'cms-account-applicants',
+                        'priority' => 8,
+                        'parent_id' => null,
+                        'name' => 'plugins/job-board::dashboard.menu.applicants',
+                        'url' => fn () => route('public.account.applicants.index'),
+                        'icon' => 'ti ti-users-group',
+                    ])
+                    ->when(JobBoardHelper::isEnabledCreditsSystem(), static function (DashboardMenuSupport $dashboardMenu): void {
+                        $dashboardMenu
+                            ->registerItem([
+                                'id' => 'cms-account-invoices',
+                                'priority' => 9,
+                                'parent_id' => null,
+                                'name' => 'plugins/job-board::dashboard.menu.invoices',
+                                'url' => fn () => route('public.account.invoices.index'),
+                                'icon' => 'ti ti-file-invoice',
+                            ])
+                            ->registerItem([
+                                'id' => 'cms-account-packages',
+                                'priority' => 7,
+                                'parent_id' => null,
+                                'name' => 'plugins/job-board::dashboard.menu.packages',
+                                'url' => fn () => route('public.account.packages'),
+                                'icon' => 'ti ti-packages',
+                            ]);
+                    })
+                    ->registerItem([
+                        'id' => 'cms-account-featured-jobs',
+                        'priority' => 75,
+                        'parent_id' => null,
+                        'name' => 'Feature a Job',
+                        'url' => fn () => route('public.account.featured-jobs.index'),
+                        'icon' => 'ti ti-star',
+                    ])
+                    ->registerItem([
+                        'id' => 'cms-account-subscription',
+                        'priority' => 72,
+                        'parent_id' => null,
+                        'name' => 'Subscription',
+                        'url' => fn () => route('public.account.subscription.index'),
+                        'icon' => 'ti ti-crown',
+                    ])
+                    ->registerItem([
+                        'id' => 'cms-account-candidates',
+                        'priority' => 80,
+                        'parent_id' => null,
+                        'name' => 'Find Candidates',
+                        'url' => fn () => route('public.account.candidates.search'),
+                        'icon' => 'ti ti-users-group',
+                    ]);
+            } else {
+                $dashboardMenu
+                    ->registerItem([
+                        'id' => 'cms-account-dashboard',
+                        'priority' => 1,
+                        'parent_id' => null,
+                        'name' => 'plugins/job-board::dashboard.menu.dashboard',
+                        'url' => fn () => route('public.account.dashboard'),
+                        'icon' => 'ti ti-home',
+                    ])
+                    ->registerItem([
+                        'id' => 'cms-account-overview',
+                        'priority' => 2,
+                        'parent_id' => null,
+                        'name' => 'Overview',
+                        'url' => fn () => route('public.account.overview'),
+                        'icon' => 'ti ti-id',
+                    ])
+                    ->registerItem([
+                        'id' => 'cms-account-applied-jobs',
+                        'priority' => 4,
+                        'parent_id' => null,
+                        'name' => 'Applied Jobs',
+                        'url' => fn () => route('public.account.jobs.applied-jobs'),
+                        'icon' => 'ti ti-briefcase',
+                    ])
+                    ->registerItem([
+                        'id' => 'cms-account-saved-jobs',
+                        'priority' => 5,
+                        'parent_id' => null,
+                        'name' => 'Saved Jobs',
+                        'url' => fn () => route('public.account.jobs.saved'),
+                        'icon' => 'ti ti-bookmark',
+                    ])
+                    ->registerItem([
+                        'id' => 'cms-account-experiences',
+                        'priority' => 6,
+                        'parent_id' => null,
+                        'name' => 'Experiences',
+                        'url' => fn () => route('public.account.experiences.index'),
+                        'icon' => 'ti ti-briefcase-2',
+                    ])
+                    ->registerItem([
+                        'id' => 'cms-account-educations',
+                        'priority' => 7,
+                        'parent_id' => null,
+                        'name' => 'Educations',
+                        'url' => fn () => route('public.account.educations.index'),
+                        'icon' => 'ti ti-school',
+                    ])
+                    ->registerItem([
+                        'id' => 'cms-account-career-services',
+                        'priority' => 8,
+                        'parent_id' => null,
+                        'name' => 'Career Services',
+                        'url' => fn () => route('public.account.career-services'),
+                        'icon' => 'ti ti-writing-sign',
+                    ])
+                    ->registerItem([
+                        'id' => 'cms-account-cv-score',
+                        'priority' => 9,
+                        'parent_id' => null,
+                        'name' => 'AI CV Score',
+                        'url' => fn () => route('public.career-service.cv-score'),
+                        'icon' => 'ti ti-sparkles',
+                    ])
+                    ->registerItem([
+                        'id' => 'cms-account-job-alerts',
+                        'priority' => 10,
+                        'parent_id' => null,
+                        'name' => 'Job Alerts',
+                        'url' => fn () => route('public.account.job-alerts.index'),
+                        'icon' => 'ti ti-bell',
+                    ])
+                    ->registerItem([
+                        'id' => 'cms-account-alert-packages',
+                        'priority' => 11,
+                        'parent_id' => null,
+                        'name' => 'Alert Packages',
+                        'url' => fn () => route('public.account.job-alert.packages.index'),
+                        'icon' => 'ti ti-package',
+                    ]);
+            }
+
+            $dashboardMenu
                 ->registerItem([
                     'id' => 'cms-account-my-profile',
                     'priority' => 3,
@@ -690,26 +870,7 @@ class JobBoardServiceProvider extends ServiceProvider
                     'name' => 'plugins/job-board::messages.security',
                     'url' => fn () => route('public.account.security'),
                     'icon' => 'ti ti-shield-lock',
-                ])
-                ->registerItem([
-                    'id' => 'cms-account-overview',
-                    'priority' => 2,
-                    'parent_id' => null,
-                    'name' => 'Overview',
-                    'url' => fn () => route('public.account.overview'),
-                    'icon' => 'ti ti-id',
-                ])
-                ->when(JobBoardHelper::isEnabledCreditsSystem(), function (DashboardMenuSupport $dashboardMenu): void {
-                    $dashboardMenu
-                        ->registerItem([
-                            'id' => 'cms-account-packages',
-                            'priority' => 7,
-                            'parent_id' => null,
-                            'name' => 'plugins/job-board::dashboard.menu.packages',
-                            'url' => fn () => route('public.account.packages'),
-                            'icon' => 'ti ti-packages',
-                        ]);
-                });
+                ]);
         });
 
         DashboardMenu::default();
@@ -937,7 +1098,7 @@ class JobBoardServiceProvider extends ServiceProvider
                     'guard' => 'account',
                     'model' => Account::class,
                     'login_url' => route('public.account.login'),
-                    'redirect_url' => route('public.account.dashboard'),
+                    'redirect_url' => route('public.account.choose-type'),
                 ]);
             }
 

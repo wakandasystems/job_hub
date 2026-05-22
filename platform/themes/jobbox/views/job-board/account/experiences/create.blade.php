@@ -1,4 +1,4 @@
-@extends(Theme::getThemeNamespace('views.job-board.account.partials.layout-settings'))
+@extends(JobBoardHelper::viewPath('dashboard.layouts.master'))
 
 @section('content')
     <form action="{{ route('public.account.experiences.store') }}" method="POST">

@@ -6,10 +6,13 @@ use Botble\Base\Http\Controllers\BaseController;
 use Botble\JobBoard\Facades\JobBoardHelper;
 use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\Category;
+use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\JobAlert;
+use Botble\JobBoard\Models\JobAlertQuota;
 use Botble\SeoHelper\Facades\SeoHelper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class JobAlertController extends BaseController
 {
@@ -35,7 +38,28 @@ class JobAlertController extends BaseController
             $countries = \Botble\Location\Models\Country::query()->orderBy('name')->pluck('name', 'id');
         }
 
-        return JobBoardHelper::scope('account.job-alerts', compact('account', 'alerts', 'categories', 'countries'));
+        $alertStats = $alerts
+            ->mapWithKeys(function (JobAlert $alert): array {
+                $matches = $this->matchedJobsForAlert($alert, 2);
+
+                return [
+                    $alert->getKey() => [
+                        'matches_last_two_days' => $matches->count(),
+                        'latest_match' => $matches->first(),
+                    ],
+                ];
+            });
+
+        $period = JobAlertQuota::currentPeriod();
+        $sentThisMonth = (int) JobAlertQuota::query()
+            ->where('account_id', $account->getKey())
+            ->where('period', $period)
+            ->sum('alerts_sent');
+
+        return JobBoardHelper::scope(
+            'account.job-alerts',
+            compact('account', 'alerts', 'categories', 'countries', 'alertStats', 'sentThisMonth', 'period')
+        );
     }
 
     public function store(Request $request)
@@ -127,4 +151,46 @@ class JobAlertController extends BaseController
             'is_active'        => 'nullable|boolean',
         ];
     }
+
+    protected function matchedJobsForAlert(JobAlert $alert, int $days = 2)
+    {
+        return Job::query()
+            ->where('created_at', '>=', now()->subDays($days))
+            ->with(['categories', 'company', 'slugable'])
+            ->latest('created_at')
+            ->get()
+            ->filter(fn (Job $job): bool => $this->jobMatchesAlert($job, $alert))
+            ->values();
+    }
+
+    protected function jobMatchesAlert(Job $job, JobAlert $alert): bool
+    {
+        $jobText = Str::lower($job->name . ' ' . strip_tags((string) ($job->content ?? '')));
+
+        if ($alert->keyword !== null && $alert->keyword !== '' && ! Str::contains($jobText, Str::lower($alert->keyword))) {
+            return false;
+        }
+
+        $jobCategoryIds = $job->categories->pluck('id');
+        $categoryIds = array_filter((array) ($alert->category_ids ?: ($alert->category_id ? [$alert->category_id] : [])));
+
+        if ($categoryIds && ! collect($categoryIds)->contains(fn ($id): bool => $jobCategoryIds->contains((int) $id))) {
+            return false;
+        }
+
+        if ($alert->country_id !== null && $job->country_id != $alert->country_id) {
+            return false;
+        }
+
+        if ($alert->state_id !== null && $job->state_id != $alert->state_id) {
+            return false;
+        }
+
+        if ($alert->city_id !== null && $job->city_id != $alert->city_id) {
+            return false;
+        }
+
+        return true;
+    }
+
 }

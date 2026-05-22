@@ -12,6 +12,15 @@ use Botble\Theme\Facades\Theme;
 use Illuminate\Support\Facades\Route;
 
 Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middleware' => ['web', 'core']], function (): void {
+    Route::get('salary-checker', 'PublicSalaryController@index')->name('salary-checker');
+    Route::get('ajax/salary-checker', 'PublicSalaryController@results')->name('salary-checker.results');
+
+    Route::group(['prefix' => 'salary-reports', 'as' => 'salary-reports.public.'], function (): void {
+        Route::get('', 'PublicSalaryReportController@index')->name('index');
+        Route::get('access/{token}', 'PublicSalaryReportController@download')->name('download');
+        Route::get('{slug}', 'PublicSalaryReportController@show')->name('show');
+    });
+
     Route::post('jobs/apply/{id?}', [
         'as' => 'public.job.apply',
         'uses' => 'PublicController@postApplyJob',

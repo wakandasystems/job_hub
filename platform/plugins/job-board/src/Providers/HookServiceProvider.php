@@ -20,6 +20,8 @@ use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\Category;
 use Botble\JobBoard\Models\CareerServiceOrder;
 use Botble\JobBoard\Models\Company;
+use Botble\JobBoard\Models\EmployerSubscription;
+use Botble\JobBoard\Models\FeaturedOrder;
 use Botble\JobBoard\Models\JobAlertOrder;
 use Botble\JobBoard\Models\JobAlertQuota;
 use Botble\JobBoard\Models\Invoice;
@@ -29,6 +31,8 @@ use Botble\JobBoard\Models\JobExperience;
 use Botble\JobBoard\Models\JobSkill;
 use Botble\JobBoard\Models\JobType;
 use Botble\JobBoard\Models\Package;
+use Botble\JobBoard\Models\SalaryReport;
+use Botble\JobBoard\Models\SalaryReportPurchase;
 use Botble\JobBoard\Services\CouponService;
 use Botble\JobBoard\Supports\InvoiceHelper;
 use Botble\JobBoard\Supports\TwigExtension;
@@ -119,7 +123,92 @@ class HookServiceProvider extends ServiceProvider
                     return;
                 }
 
+                // Handle employer subscription orders
+                if ($subscriptionOrderId = session('subscription_order_id')) {
+                    $sub = EmployerSubscription::query()->with('package')->find($subscriptionOrderId);
+                    if ($sub && $sub->status === 'pending') {
+                        $sub->update([
+                            'charge_id'      => $data['charge_id'],
+                            'payment_method' => $data['payment_channel'],
+                        ]);
+
+                        $isManual = in_array($data['payment_channel'], [
+                            PaymentMethodEnum::BANK_TRANSFER,
+                            PaymentMethodEnum::COD,
+                        ]);
+
+                        if (! $isManual) {
+                            $sub->activate();
+                        }
+
+                        $this->sendSubscriptionAdminEmail($sub->fresh(['package', 'account']), $isManual);
+                    }
+
+                    return;
+                }
+
+                // Handle featured job orders
+                if ($featuredOrderId = session('featured_order_id')) {
+                    $featuredOrder = FeaturedOrder::query()->with('package')->find($featuredOrderId);
+                    if ($featuredOrder && $featuredOrder->status === 'pending') {
+                        $featuredOrder->update([
+                            'charge_id'      => $data['charge_id'],
+                            'payment_method' => $data['payment_channel'],
+                        ]);
+
+                        $isManual = in_array($data['payment_channel'], [
+                            PaymentMethodEnum::BANK_TRANSFER,
+                            PaymentMethodEnum::COD,
+                        ]);
+
+                        if (! $isManual) {
+                            $featuredOrder->approve();
+                        }
+
+                        $this->sendFeaturedOrderAdminEmail($featuredOrder->fresh(['package', 'account', 'job']), $isManual);
+                    }
+
+                    return;
+                }
+
                 if (session('career_service_order_id') || request()->input('career_service_order_id')) {
+                    return;
+                }
+
+                // Handle salary report purchases
+                if ($salaryReportId = session('salary_report_id')) {
+                    $report = SalaryReport::query()->find($salaryReportId);
+                    if ($report) {
+                        $accessToken = (string) \Illuminate\Support\Str::uuid();
+                        $purchase = SalaryReportPurchase::query()->create([
+                            'report_id'       => $report->getKey(),
+                            'buyer_name'      => session('salary_report_buyer_name', ''),
+                            'buyer_email'     => session('salary_report_buyer_email', ''),
+                            'buyer_company'   => session('salary_report_buyer_company'),
+                            'amount_paid'     => $report->price,
+                            'currency_code'   => $report->currency_code,
+                            'payment_channel' => $data['payment_channel'] ?? null,
+                            'charge_id'       => $data['charge_id'] ?? null,
+                            'access_token'    => $accessToken,
+                            'expires_at'      => now()->addYear(),
+                        ]);
+
+                        $downloadUrl = route('salary-reports.public.download', $accessToken);
+
+                        try {
+                            \Illuminate\Support\Facades\Mail::raw(
+                                "Thank you for purchasing \"{$report->title}\".\n\nDownload your report here (valid for 12 months):\n{$downloadUrl}\n\nWakanda Jobs",
+                                function ($message) use ($purchase, $report) {
+                                    $message->to($purchase->buyer_email, $purchase->buyer_name)
+                                        ->subject("Your Salary Report: {$report->title}");
+                                }
+                            );
+                        } catch (\Throwable) {
+                        }
+
+                        session()->forget(['salary_report_id', 'salary_report_callback_url', 'salary_report_return_url', 'salary_report_buyer_name', 'salary_report_buyer_email', 'salary_report_buyer_company']);
+                    }
+
                     return;
                 }
 
@@ -180,6 +269,16 @@ class HookServiceProvider extends ServiceProvider
 
         if (defined('PAYMENT_FILTER_REDIRECT_URL')) {
             add_filter(PAYMENT_FILTER_REDIRECT_URL, function ($checkoutToken) {
+                if ($subCallbackUrl = session('subscription_callback_url')) {
+                    session()->forget(['subscription_order_id', 'subscription_callback_url', 'subscription_return_url']);
+                    return $subCallbackUrl;
+                }
+
+                if ($featuredCallbackUrl = session('featured_callback_url')) {
+                    session()->forget(['featured_order_id', 'featured_callback_url', 'featured_return_url']);
+                    return $featuredCallbackUrl;
+                }
+
                 if ($jobAlertCallbackUrl = session('job_alert_callback_url')) {
                     session()->forget(['job_alert_order_id', 'job_alert_callback_url', 'job_alert_return_url']);
                     return $jobAlertCallbackUrl;
@@ -187,6 +286,11 @@ class HookServiceProvider extends ServiceProvider
 
                 if ($careerServiceCallbackUrl = session('career_service_callback_url')) {
                     return $careerServiceCallbackUrl;
+                }
+
+                if ($salaryReportCallbackUrl = session('salary_report_callback_url')) {
+                    session()->forget(['salary_report_id', 'salary_report_callback_url', 'salary_report_return_url', 'salary_report_buyer_name', 'salary_report_buyer_email', 'salary_report_buyer_company']);
+                    return $salaryReportCallbackUrl;
                 }
 
                 $checkoutToken = $checkoutToken ?: session('subscribed_packaged_id');
@@ -205,6 +309,16 @@ class HookServiceProvider extends ServiceProvider
 
         if (defined('PAYMENT_FILTER_CANCEL_URL')) {
             add_filter(PAYMENT_FILTER_CANCEL_URL, function ($checkoutToken) {
+                if ($subReturnUrl = session('subscription_return_url')) {
+                    session()->forget(['subscription_order_id', 'subscription_callback_url', 'subscription_return_url']);
+                    return $subReturnUrl;
+                }
+
+                if ($featuredReturnUrl = session('featured_return_url')) {
+                    session()->forget(['featured_order_id', 'featured_callback_url', 'featured_return_url']);
+                    return $featuredReturnUrl;
+                }
+
                 if ($jobAlertReturnUrl = session('job_alert_return_url')) {
                     session()->forget(['job_alert_order_id', 'job_alert_callback_url', 'job_alert_return_url']);
                     return $jobAlertReturnUrl;
@@ -212,6 +326,11 @@ class HookServiceProvider extends ServiceProvider
 
                 if ($careerServiceReturnUrl = session('career_service_return_url')) {
                     return $careerServiceReturnUrl;
+                }
+
+                if ($salaryReportReturnUrl = session('salary_report_return_url')) {
+                    session()->forget(['salary_report_id', 'salary_report_callback_url', 'salary_report_return_url', 'salary_report_buyer_name', 'salary_report_buyer_email', 'salary_report_buyer_company']);
+                    return $salaryReportReturnUrl;
                 }
 
                 $checkoutToken = $checkoutToken ?: session('subscribed_packaged_id');
@@ -242,6 +361,24 @@ class HookServiceProvider extends ServiceProvider
 
                         if ($alertOrder) {
                             $alertOrder->approve();
+                        }
+
+                        $featuredOrder = FeaturedOrder::query()
+                            ->where('charge_id', $payment->charge_id)
+                            ->where('status', 'pending')
+                            ->first();
+
+                        if ($featuredOrder) {
+                            $featuredOrder->approve();
+                        }
+
+                        $pendingSub = EmployerSubscription::query()
+                            ->where('charge_id', $payment->charge_id)
+                            ->where('status', 'pending')
+                            ->first();
+
+                        if ($pendingSub) {
+                            $pendingSub->activate();
                         }
                     }
 
@@ -281,6 +418,118 @@ class HookServiceProvider extends ServiceProvider
 
         if (defined('PAYMENT_FILTER_PAYMENT_DATA')) {
             add_filter(PAYMENT_FILTER_PAYMENT_DATA, function (array $data, Request $request) {
+                if ($subscriptionOrderId = $request->input('subscription_order_id')) {
+                    $sub = EmployerSubscription::query()->with('package')->find($subscriptionOrderId);
+
+                    if (! $sub || ! $sub->package?->is_active) {
+                        return $data;
+                    }
+
+                    /** @var Account $account */
+                    $account = auth('account')->user();
+                    $package = $sub->package;
+
+                    session([
+                        'subscription_order_id'    => $sub->getKey(),
+                        'subscription_callback_url' => $request->input('callback_url'),
+                        'subscription_return_url'  => $request->input('return_url'),
+                    ]);
+
+                    $cycleName = $sub->billing_cycle === 'annual' ? 'Annual' : 'Monthly';
+
+                    return [
+                        'amount'          => (float) $sub->amount,
+                        'shipping_amount' => 0,
+                        'shipping_method' => null,
+                        'tax_amount'      => 0,
+                        'currency'        => strtoupper($sub->currency),
+                        'order_id'        => [$sub->getKey()],
+                        'description'     => trans('plugins/payment::payment.payment_description', [
+                            'order_id' => $sub->getKey(),
+                            'site_url' => $request->getHost(),
+                        ]),
+                        'customer_id'     => $account?->getKey(),
+                        'customer_type'   => $account ? Account::class : null,
+                        'email'           => $request->input('customer_email') ?: $account?->email,
+                        'return_url'      => $request->input('return_url'),
+                        'callback_url'    => $request->input('callback_url'),
+                        'products'        => [
+                            [
+                                'id'              => $package->getKey(),
+                                'name'            => $package->name . " — {$cycleName} Subscription",
+                                'price'           => (float) $sub->amount,
+                                'price_per_order' => (float) $sub->amount,
+                                'qty'             => 1,
+                            ],
+                        ],
+                        'orders'          => [$sub],
+                        'address'         => [
+                            'name'    => $request->input('customer_name') ?: $account?->name,
+                            'email'   => $request->input('customer_email') ?: $account?->email,
+                            'phone'   => $account?->phone,
+                            'country' => null, 'state' => null, 'city' => null, 'address' => null, 'zip' => null,
+                        ],
+                        'checkout_token'  => $request->input('callback_url'),
+                    ];
+                }
+
+                if ($featuredOrderId = $request->input('featured_order_id')) {
+                    $order = FeaturedOrder::query()->with(['package', 'job'])->find($featuredOrderId);
+
+                    if (! $order || ! $order->package?->is_active) {
+                        return $data;
+                    }
+
+                    /** @var Account $account */
+                    $account = auth('account')->user();
+                    $package = $order->package;
+
+                    session([
+                        'featured_order_id'    => $order->getKey(),
+                        'featured_callback_url' => $request->input('callback_url'),
+                        'featured_return_url'  => $request->input('return_url'),
+                    ]);
+
+                    return [
+                        'amount'          => (float) $order->amount,
+                        'shipping_amount' => 0,
+                        'shipping_method' => null,
+                        'tax_amount'      => 0,
+                        'currency'        => strtoupper($order->currency),
+                        'order_id'        => [$order->getKey()],
+                        'description'     => trans('plugins/payment::payment.payment_description', [
+                            'order_id' => $order->getKey(),
+                            'site_url' => $request->getHost(),
+                        ]),
+                        'customer_id'     => $account?->getKey(),
+                        'customer_type'   => $account ? Account::class : null,
+                        'email'           => $request->input('customer_email') ?: $account?->email,
+                        'return_url'      => $request->input('return_url'),
+                        'callback_url'    => $request->input('callback_url'),
+                        'products'        => [
+                            [
+                                'id'              => $package->getKey(),
+                                'name'            => $package->name . ' — ' . ($order->job?->name ?? 'Featured Job'),
+                                'price'           => (float) $order->amount,
+                                'price_per_order' => (float) $order->amount,
+                                'qty'             => 1,
+                            ],
+                        ],
+                        'orders'          => [$order],
+                        'address'         => [
+                            'name'    => $request->input('customer_name') ?: $account?->name,
+                            'email'   => $request->input('customer_email') ?: $account?->email,
+                            'phone'   => $account?->phone,
+                            'country' => null,
+                            'state'   => null,
+                            'city'    => null,
+                            'address' => null,
+                            'zip'     => null,
+                        ],
+                        'checkout_token'  => $request->input('callback_url'),
+                    ];
+                }
+
                 if ($jobAlertOrderId = $request->input('job_alert_order_id')) {
                     $order = JobAlertOrder::query()->with('package')->find($jobAlertOrderId);
 
@@ -401,6 +650,64 @@ class HookServiceProvider extends ServiceProvider
                             'zip' => null,
                         ],
                         'checkout_token' => $request->input('callback_url'),
+                    ];
+                }
+
+                // Handle salary report purchase checkout
+                if ($salaryReportId = $request->input('salary_report_id')) {
+                    $report = SalaryReport::query()->find($salaryReportId);
+
+                    if (! $report || ! $report->is_published) {
+                        return $data;
+                    }
+
+                    $buyerName    = $request->input('buyer_name', '');
+                    $buyerEmail   = $request->input('buyer_email', '');
+                    $buyerCompany = $request->input('buyer_company');
+
+                    session([
+                        'salary_report_id'           => $report->getKey(),
+                        'salary_report_buyer_name'   => $buyerName,
+                        'salary_report_buyer_email'  => $buyerEmail,
+                        'salary_report_buyer_company'=> $buyerCompany,
+                        'salary_report_callback_url' => $request->input('callback_url', route('salary-reports.public.index')),
+                        'salary_report_return_url'   => $request->input('return_url', route('salary-reports.public.show', $report->slug)),
+                    ]);
+
+                    return [
+                        'amount'          => (float) $report->price,
+                        'shipping_amount' => 0,
+                        'shipping_method' => null,
+                        'tax_amount'      => 0,
+                        'currency'        => strtoupper($report->currency_code),
+                        'order_id'        => [$report->getKey()],
+                        'description'     => "Purchase: {$report->title}",
+                        'customer_id'     => null,
+                        'customer_type'   => null,
+                        'email'           => $buyerEmail,
+                        'return_url'      => $request->input('return_url', route('salary-reports.public.show', $report->slug)),
+                        'callback_url'    => $request->input('callback_url', route('salary-reports.public.index')),
+                        'products'        => [
+                            [
+                                'id'              => $report->getKey(),
+                                'name'            => $report->title,
+                                'price'           => (float) $report->price,
+                                'price_per_order' => (float) $report->price,
+                                'qty'             => 1,
+                            ],
+                        ],
+                        'orders'   => [$report],
+                        'address'  => [
+                            'name'    => $buyerName,
+                            'email'   => $buyerEmail,
+                            'phone'   => null,
+                            'country' => null,
+                            'state'   => null,
+                            'city'    => null,
+                            'address' => null,
+                            'zip'     => null,
+                        ],
+                        'checkout_token' => $request->input('callback_url', route('salary-reports.public.index')),
                     ];
                 }
 
@@ -696,6 +1003,8 @@ class HookServiceProvider extends ServiceProvider
                 'cms-plugins-job-board-accounts' => 'pending-accounts',
                 'cms-plugins-job-board-career-service-orders' => 'pending-career-services',
                 'cms-plugins-job-board-job-alert-orders' => 'pending-job-alert-orders',
+                'cms-plugins-job-board-featured-orders'           => 'pending-featured-orders',
+                'cms-plugins-job-board-employer-subscriptions'    => 'pending-employer-subscriptions',
                 default => null,
             };
         }
@@ -760,9 +1069,27 @@ class HookServiceProvider extends ServiceProvider
                 'value' => $pendingJobAlertOrders,
             ];
 
+            $pendingFeaturedOrders = Auth::user()->hasPermission('featured-orders.index')
+                ? FeaturedOrder::query()->where('status', 'pending')->count()
+                : 0;
+
             $data[] = [
-                'key' => 'job-board-count',
-                'value' => $pendingApplications + $pendingCompanies + $pendingJobs + $pendingAccounts + $pendingCareerServices + $pendingJobAlertOrders,
+                'key'   => 'pending-featured-orders',
+                'value' => $pendingFeaturedOrders,
+            ];
+
+            $pendingSubscriptions = Auth::user()->hasPermission('employer-subscriptions.index')
+                ? EmployerSubscription::query()->where('status', 'pending')->count()
+                : 0;
+
+            $data[] = [
+                'key'   => 'pending-employer-subscriptions',
+                'value' => $pendingSubscriptions,
+            ];
+
+            $data[] = [
+                'key'   => 'job-board-count',
+                'value' => $pendingApplications + $pendingCompanies + $pendingJobs + $pendingAccounts + $pendingCareerServices + $pendingJobAlertOrders + $pendingFeaturedOrders + $pendingSubscriptions,
             ];
         }
 
@@ -940,6 +1267,81 @@ class HookServiceProvider extends ServiceProvider
         }
 
         return (float) format_price($amount * $currentCurrency->exchange_rate, $currentCurrency, true);
+    }
+
+    protected function sendSubscriptionAdminEmail(EmployerSubscription $sub, bool $isManual): void
+    {
+        $adminEmail = setting('admin_email') ?: config('mail.from.address');
+        if (! $adminEmail) {
+            return;
+        }
+
+        $packageName   = $sub->package?->name ?? 'Unknown plan';
+        $customerName  = $sub->account?->name ?? 'Unknown';
+        $customerEmail = $sub->account?->email ?? '';
+        $cycle         = ucfirst($sub->billing_cycle);
+        $status        = $isManual ? 'Pending manual verification' : 'Auto-activated';
+        $adminUrl      = url('/admin/employer-subscriptions');
+
+        try {
+            Mail::raw(
+                "New Employer Subscription\n\n" .
+                "Subscription #: {$sub->id}\n" .
+                "Plan: {$packageName} ({$cycle})\n" .
+                "Amount: {$sub->currency} {$sub->amount}\n" .
+                "Customer: {$customerName} ({$customerEmail})\n" .
+                "Payment method: " . ucwords(str_replace('_', ' ', $sub->payment_method ?? '')) . "\n" .
+                "Charge ID: {$sub->charge_id}\n" .
+                "Status: {$status}\n\n" .
+                ($isManual ? "Action required — verify payment and activate at:\n{$adminUrl}" : "No action required."),
+                function ($msg) use ($adminEmail, $packageName, $isManual): void {
+                    $subject = $isManual
+                        ? "Subscription Pending Approval: {$packageName}"
+                        : "New Subscription Activated: {$packageName}";
+                    $msg->to($adminEmail)->subject($subject);
+                }
+            );
+        } catch (\Throwable) {
+        }
+    }
+
+    protected function sendFeaturedOrderAdminEmail(FeaturedOrder $order, bool $isManual): void
+    {
+        $adminEmail = setting('admin_email') ?: config('mail.from.address');
+        if (! $adminEmail) {
+            return;
+        }
+
+        $packageName   = $order->package?->name ?? 'Unknown package';
+        $jobName       = $order->job?->name ?? 'Unknown job';
+        $customerName  = $order->account?->name ?? 'Unknown';
+        $customerEmail = $order->account?->email ?? '';
+        $paymentMethod = ucwords(str_replace('_', ' ', $order->payment_method ?? ''));
+        $status        = $isManual ? 'Pending — awaiting manual payment verification' : 'Auto-approved';
+        $adminUrl      = url('/admin/featured-orders');
+
+        try {
+            Mail::raw(
+                "New Featured Job Order\n\n" .
+                "Order #: {$order->id}\n" .
+                "Package: {$packageName}\n" .
+                "Job: {$jobName}\n" .
+                "Amount: {$order->currency} {$order->amount}\n" .
+                "Customer: {$customerName} ({$customerEmail})\n" .
+                "Payment method: {$paymentMethod}\n" .
+                "Charge ID: {$order->charge_id}\n" .
+                "Status: {$status}\n\n" .
+                ($isManual ? "Action required — verify payment and approve at:\n{$adminUrl}" : "No action required."),
+                function ($msg) use ($adminEmail, $packageName, $isManual): void {
+                    $subject = $isManual
+                        ? "Featured Job Order Pending Approval: {$packageName}"
+                        : "Featured Job Order Received: {$packageName}";
+                    $msg->to($adminEmail)->subject($subject);
+                }
+            );
+        } catch (\Throwable) {
+            // Non-fatal
+        }
     }
 
     protected function sendJobAlertOrderAdminEmail(JobAlertOrder $order, bool $isManual): void

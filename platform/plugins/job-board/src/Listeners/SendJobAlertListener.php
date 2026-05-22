@@ -42,12 +42,7 @@ class SendJobAlertListener
 
         foreach ($legacyAccounts as $account) {
             EmailHandler::setModule(JOB_BOARD_MODULE_SCREEN_NAME)
-                ->setVariableValues([
-                    'job_name'     => $job->name,
-                    'job_url'      => $job->url,
-                    'company_name' => $job->hide_company ? $job->company->name : '',
-                    'account_name' => $account->name,
-                ])
+                ->setVariableValues($this->jobAlertEmailVariables($account, $job, false))
                 ->sendUsingTemplate('job-seeker-job-alert', $account->email);
         }
 
@@ -84,12 +79,7 @@ class SendJobAlertListener
             if ($alert->notify_email) {
                 try {
                     EmailHandler::setModule(JOB_BOARD_MODULE_SCREEN_NAME)
-                        ->setVariableValues([
-                            'job_name'     => $job->name,
-                            'job_url'      => $job->url,
-                            'company_name' => ($job->hide_company ?? false) ? $job->company->name : '',
-                            'account_name' => $account->name,
-                        ])
+                        ->setVariableValues($this->jobAlertEmailVariables($account, $job))
                         ->sendUsingTemplate('job-seeker-job-alert', $account->email);
                 } catch (Throwable) {
                     // Silently continue
@@ -247,5 +237,66 @@ class SendJobAlertListener
                 ['account_id' => $accountId, 'period' => $period, 'package_id' => null],
                 ['alerts_allowed' => (int) setting('job_alert_free_monthly_limit', 3), 'alerts_sent' => DB::raw('COALESCE(alerts_sent, 0) + 1'), 'updated_at' => now(), 'created_at' => now()]
             );
+    }
+
+    protected function jobAlertEmailVariables(Account $account, $job, bool $includeQuota = true): array
+    {
+        return [
+            'job_name' => $job->name,
+            'job_url' => $job->url,
+            'company_name' => ($job->hide_company ?? false) ? $job->company->name : '',
+            'account_name' => $account->name,
+            'job_alert_source_message' => 'This email was sent from your Wakanda Jobs Job Alerts.',
+            'job_alert_quota_message' => $includeQuota ? $this->lowQuotaMessage($account->id) : '',
+            'job_alert_packages_url' => route('public.account.job-alert.packages.index'),
+        ];
+    }
+
+    protected function lowQuotaMessage(int $accountId): string
+    {
+        $remaining = $this->remainingAlertQuota($accountId);
+
+        if ($remaining === null || $remaining > 2) {
+            return '';
+        }
+
+        if ($remaining === 0) {
+            return 'You have no job alerts remaining for this month. Buy more alerts to keep receiving matching jobs.';
+        }
+
+        return "You have {$remaining} job alert" . ($remaining === 1 ? '' : 's') . ' remaining this month. Buy more alerts before you run out.';
+    }
+
+    protected function remainingAlertQuota(int $accountId): ?int
+    {
+        $period = JobAlertQuota::currentPeriod();
+
+        $hasUnlimited = JobAlertQuota::query()
+            ->activePaid()
+            ->where('account_id', $accountId)
+            ->where('period', $period)
+            ->where('alerts_allowed', -1)
+            ->exists();
+
+        if ($hasUnlimited) {
+            return null;
+        }
+
+        $paidRemaining = (int) JobAlertQuota::query()
+            ->activePaid()
+            ->where('account_id', $accountId)
+            ->where('period', $period)
+            ->where('alerts_allowed', '>', 0)
+            ->selectRaw('COALESCE(SUM(GREATEST(alerts_allowed - alerts_sent, 0)), 0) as remaining')
+            ->value('remaining');
+
+        $freeLimit = (int) setting('job_alert_free_monthly_limit', 3);
+        $freeSent = (int) (JobAlertQuota::query()
+            ->where('account_id', $accountId)
+            ->where('period', $period)
+            ->whereNull('package_id')
+            ->value('alerts_sent') ?? 0);
+
+        return $paidRemaining + max($freeLimit - $freeSent, 0);
     }
 }

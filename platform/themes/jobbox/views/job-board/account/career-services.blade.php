@@ -1,4 +1,4 @@
-@extends(Theme::getThemeNamespace('views.job-board.account.partials.layout-settings'))
+@extends(JobBoardHelper::viewPath('dashboard.layouts.master'))
 
 @section('content')
 <div>

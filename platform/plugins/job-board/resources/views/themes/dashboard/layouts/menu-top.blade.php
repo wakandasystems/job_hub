@@ -27,7 +27,7 @@
         </div>
     </div>
 
-    @if (JobBoardHelper::isEnabledCreditsSystem())
+    @if (auth('account')->user()->isEmployer() && JobBoardHelper::isEnabledCreditsSystem())
         <div class="ps-block--earning-count">
             <small>{{ trans('plugins/job-board::dashboard.credits') }}</small>
             <h3 class="my-2">{{ number_format(auth('account')->user()->credits) }}</h3>

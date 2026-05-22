@@ -94,6 +94,23 @@ class CareerServiceOrderController extends BaseController
             ->setMessage('Career service order updated successfully.');
     }
 
+    public function destroy(CareerServiceOrder $careerServiceOrder, BaseHttpResponse $response)
+    {
+        if ($careerServiceOrder->candidate_cv_path) {
+            Storage::disk('local')->delete($careerServiceOrder->candidate_cv_path);
+        }
+
+        if ($careerServiceOrder->reviewed_cv_path) {
+            Storage::disk('local')->delete($careerServiceOrder->reviewed_cv_path);
+        }
+
+        $careerServiceOrder->delete();
+
+        return $response
+            ->setNextUrl(route('career-service-orders.index'))
+            ->setMessage('Career service order deleted.');
+    }
+
     public function uploadReviewedCv(CareerServiceOrder $careerServiceOrder, Request $request, BaseHttpResponse $response)
     {
         $request->validate([

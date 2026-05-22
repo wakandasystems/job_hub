@@ -4,6 +4,9 @@ use Botble\Base\Facades\AdminHelper;
 use Botble\JobBoard\Http\Controllers\AccountEducationController;
 use Botble\JobBoard\Http\Controllers\AccountExperienceController;
 use Botble\JobBoard\Http\Controllers\CareerServiceOrderController;
+use Botble\JobBoard\Http\Controllers\EmployerSubscriptionController;
+use Botble\JobBoard\Http\Controllers\FeaturedOrderController;
+use Botble\JobBoard\Http\Controllers\FeaturedPackageController;
 use Botble\JobBoard\Http\Controllers\JobAlertOrderController;
 use Botble\JobBoard\Http\Controllers\JobAlertPackageController;
 use Botble\JobBoard\Http\Controllers\Settings\CareerServiceSettingController;
@@ -16,13 +19,53 @@ use Botble\JobBoard\Http\Controllers\ImportAccountController;
 use Botble\JobBoard\Http\Controllers\ImportCompanyController;
 use Botble\JobBoard\Http\Controllers\ImportJobController;
 use Botble\JobBoard\Http\Controllers\ReportController;
+use Botble\JobBoard\Http\Controllers\SalaryAnalyticsController;
+use Botble\JobBoard\Http\Controllers\SalaryApiKeyController;
+use Botble\JobBoard\Http\Controllers\SalaryReportController;
 use Illuminate\Support\Facades\Route;
 
 AdminHelper::registerRoutes(function (): void {
+    Route::group(['prefix' => 'salary-analytics', 'as' => 'salary-analytics.', 'middleware' => 'auth'], function (): void {
+        Route::get('', [SalaryAnalyticsController::class, 'index'])->name('index');
+    });
+
+    Route::group(['prefix' => 'salary-reports', 'as' => 'salary-reports.', 'middleware' => 'auth'], function (): void {
+        Route::resource('', SalaryReportController::class)
+            ->parameters(['' => 'salaryReport'])
+            ->except('show');
+        Route::post('{salaryReport}/generate-pdf', [SalaryReportController::class, 'generatePdf'])->name('generate-pdf');
+        Route::post('{salaryReport}/toggle-published', [SalaryReportController::class, 'togglePublished'])->name('toggle-published');
+        Route::get('{salaryReport}/download-pdf', [SalaryReportController::class, 'downloadPdf'])->name('download-pdf');
+    });
+
+    Route::group(['prefix' => 'salary-api-keys', 'as' => 'salary-api-keys.', 'middleware' => 'auth'], function (): void {
+        Route::resource('', SalaryApiKeyController::class)
+            ->parameters(['' => 'salaryApiKey'])
+            ->except('show');
+    });
+
     Route::group(['prefix' => 'career-alert-packages', 'as' => 'career-alert-packages.', 'middleware' => 'auth'], function (): void {
         Route::resource('', JobAlertPackageController::class)
             ->parameters(['' => 'careerAlertPackage'])
             ->except('show');
+    });
+
+    Route::group(['prefix' => 'featured-packages', 'as' => 'featured-packages.', 'middleware' => 'auth'], function (): void {
+        Route::resource('', FeaturedPackageController::class)
+            ->parameters(['' => 'featuredPackage'])
+            ->except('show');
+    });
+
+    Route::group(['prefix' => 'featured-orders', 'as' => 'featured-orders.', 'middleware' => 'auth'], function (): void {
+        Route::get('', [FeaturedOrderController::class, 'index'])->name('index');
+        Route::post('{featuredOrder}/approve', [FeaturedOrderController::class, 'approve'])->name('approve');
+        Route::post('{featuredOrder}/reject', [FeaturedOrderController::class, 'reject'])->name('reject');
+    });
+
+    Route::group(['prefix' => 'employer-subscriptions', 'as' => 'employer-subscriptions.', 'middleware' => 'auth'], function (): void {
+        Route::get('', [EmployerSubscriptionController::class, 'index'])->name('index');
+        Route::post('{employerSubscription}/activate', [EmployerSubscriptionController::class, 'activate'])->name('activate');
+        Route::post('{employerSubscription}/cancel', [EmployerSubscriptionController::class, 'cancel'])->name('cancel');
     });
 
     Route::group(['prefix' => 'job-board/settings', 'as' => 'job-board.settings.', 'middleware' => 'auth'], function (): void {
@@ -39,7 +82,7 @@ AdminHelper::registerRoutes(function (): void {
     Route::group(['prefix' => 'career-service-orders', 'as' => 'career-service-orders.', 'middleware' => 'auth'], function (): void {
         Route::resource('', CareerServiceOrderController::class)
             ->parameters(['' => 'career-service-order'])
-            ->only(['index', 'edit', 'update']);
+            ->only(['index', 'edit', 'update', 'destroy']);
         Route::post('{career_service_order}/upload-reviewed-cv', [CareerServiceOrderController::class, 'uploadReviewedCv'])->name('upload-reviewed-cv');
         Route::get('{career_service_order}/download-candidate-cv', [CareerServiceOrderController::class, 'downloadCandidateCv'])->name('download-candidate-cv');
         Route::get('{career_service_order}/download-reviewed-cv', [CareerServiceOrderController::class, 'downloadReviewedCv'])->name('download-reviewed-cv');

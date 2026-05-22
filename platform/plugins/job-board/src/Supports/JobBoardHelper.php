@@ -313,11 +313,22 @@ class JobBoardHelper
     public function filterCandidates(array $params): LengthAwarePaginator
     {
         $data = Validator::validate($params, [
-            'keyword' => ['nullable', 'string', 'max:200'],
-            'sort_by' => ['nullable', Rule::in(array_keys($this->getSortByParams()))],
-            'order_by' => ['nullable', Rule::in(array_keys($this->getSortByParams()))],
-            'page' => ['nullable', 'numeric', 'min:1'],
-            'per_page' => ['nullable', 'numeric', 'min:1'],
+            'keyword'         => ['nullable', 'string', 'max:200'],
+            'sort_by'         => ['nullable', Rule::in(array_keys($this->getSortByParams()))],
+            'order_by'        => ['nullable', Rule::in(array_keys($this->getSortByParams()))],
+            'page'            => ['nullable', 'numeric', 'min:1'],
+            'per_page'        => ['nullable', 'numeric', 'min:1'],
+            'skill'           => ['nullable'],
+            'skill.*'         => ['nullable', 'integer'],
+            'city_id'         => ['nullable', 'array'],
+            'city_id.*'       => ['nullable', 'integer'],
+            'location'        => ['nullable', 'string', 'max:100'],
+            'open_to_work'    => ['nullable'],
+            'experience_years'=> ['nullable', 'integer'],
+            'education_level' => ['nullable', 'string'],
+            'availability'    => ['nullable', 'string'],
+            'salary_min'      => ['nullable', 'integer'],
+            'salary_max'      => ['nullable', 'integer'],
         ]);
 
         $with = [
@@ -341,6 +352,10 @@ class JobBoardHelper
                 'type' => AccountTypeEnum::JOB_SEEKER,
             ])
             ->with($with);
+
+        if (setting('talent_hub_require_consent', true)) {
+            $candidates->where('talent_hub_consent', true);
+        }
 
         $sortBy = match ($data['sort_by'] ?? $data['order_by'] ?? 'newest') {
             'oldest' => [
@@ -371,6 +386,62 @@ class JobBoardHelper
                         ->addSearch('last_name', $keyword, false);
                 });
             }
+        }
+
+        if (! empty($data['skill'])) {
+            $skill = $data['skill'];
+            if (is_array($skill)) {
+                $skillIds = array_filter($skill);
+                if (! empty($skillIds)) {
+                    $candidates->whereHas('favoriteSkills', fn ($q) => $q->whereIn('jb_job_skills.id', $skillIds));
+                }
+            } else {
+                $candidates->whereHas('favoriteSkills', function ($q) use ($skill): void {
+                    $q->where('jb_job_skills.name', 'like', "%{$skill}%");
+                });
+            }
+        }
+
+        if (! empty($data['city_id'])) {
+            $cityIds = array_filter((array) $data['city_id']);
+            if (! empty($cityIds)) {
+                $candidates->whereIn('city_id', $cityIds);
+            }
+        }
+
+        if (! empty($data['location'])) {
+            $loc = $data['location'];
+            $candidates->where(function ($q) use ($loc): void {
+                $q->where('jb_accounts.address', 'like', "%{$loc}%");
+                if (is_plugin_active('location')) {
+                    $q->orWhereHas('city', fn ($c) => $c->where('name', 'like', "%{$loc}%"))
+                      ->orWhereHas('state', fn ($s) => $s->where('name', 'like', "%{$loc}%"));
+                }
+            });
+        }
+
+        if (! empty($data['open_to_work'])) {
+            $candidates->where('available_for_hiring', 1);
+        }
+
+        if (isset($data['experience_years']) && $data['experience_years'] !== '') {
+            $candidates->where('experience_years', $data['experience_years']);
+        }
+
+        if (! empty($data['education_level'])) {
+            $candidates->where('education_level', $data['education_level']);
+        }
+
+        if (! empty($data['availability']) && $data['availability'] !== 'not_looking') {
+            $candidates->where('availability', $data['availability']);
+        }
+
+        if (! empty($data['salary_min'])) {
+            $candidates->where('desired_salary_to', '>=', (int) $data['salary_min']);
+        }
+
+        if (! empty($data['salary_max'])) {
+            $candidates->where('desired_salary_from', '<=', (int) $data['salary_max']);
         }
 
         if (self::isEnabledReview()) {

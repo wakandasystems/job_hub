@@ -186,8 +186,52 @@ class AccountSettingForm extends FormAbstract
                         'available_for_hiring',
                         OnOffField::class,
                         OnOffFieldOption::make()
-                            ->label(trans('plugins/job-board::messages.available_for_hiring'))
+                            ->label(__('Open to Work — I am actively looking for new opportunities'))
                     )
+                    ->add(
+                        'talent_hub_consent',
+                        OnOffField::class,
+                        OnOffFieldOption::make()
+                            ->label(__('Allow employers to find me in the Talent Hub'))
+                            ->helperText(__('Your profile, skills and contact details may be shared with verified employers on our platform. You can turn this off at any time.'))
+                    )
+                    ->add('career_prefs_heading', HtmlField::class,
+                        HtmlFieldOption::make()->content('<h5 class="fs-17 fw-semibold mb-2 mt-3">' . __('Career Preferences') . '</h5>')
+                    )
+                    ->add('career_prefs_row_open', HtmlField::class, HtmlFieldOption::make()->content('<div class="row">'))
+                    ->add('experience_years', SelectField::class,
+                        SelectFieldOption::make()
+                            ->label(__('Years of Experience'))
+                            ->choices(Account::experienceYearsOptions())
+                            ->wrapperAttributes(['class' => 'form-group col-md-4'])
+                    )
+                    ->add('education_level', SelectField::class,
+                        SelectFieldOption::make()
+                            ->label(__('Highest Education Level'))
+                            ->choices(Account::educationLevelOptions())
+                            ->wrapperAttributes(['class' => 'form-group col-md-4'])
+                    )
+                    ->add('availability', SelectField::class,
+                        SelectFieldOption::make()
+                            ->label(__('Availability'))
+                            ->choices(Account::availabilityOptions())
+                            ->wrapperAttributes(['class' => 'form-group col-md-4'])
+                    )
+                    ->add('career_prefs_row_close', HtmlField::class, HtmlFieldOption::make()->content('</div>'))
+                    ->add('salary_row_open', HtmlField::class, HtmlFieldOption::make()->content('<div class="row">'))
+                    ->add('desired_salary_from', TextField::class,
+                        TextFieldOption::make()
+                            ->label(__('Desired Salary (From)'))
+                            ->placeholder('e.g. 1500')
+                            ->wrapperAttributes(['class' => 'form-group col-md-6'])
+                    )
+                    ->add('desired_salary_to', TextField::class,
+                        TextFieldOption::make()
+                            ->label(__('Desired Salary (To)'))
+                            ->placeholder('e.g. 3000')
+                            ->wrapperAttributes(['class' => 'form-group col-md-6'])
+                    )
+                    ->add('salary_row_close', HtmlField::class, HtmlFieldOption::make()->content('</div>'))
                     ->add(
                         'whatsapp_number',
                         TextField::class,

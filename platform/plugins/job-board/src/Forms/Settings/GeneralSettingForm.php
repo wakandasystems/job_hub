@@ -414,7 +414,35 @@ class GeneralSettingForm extends SettingForm
                     ->value(setting('job_board_hide_unique_id_field_in_front_form', false))
                     ->helperText(trans('plugins/job-board::settings.general.hide_unique_id_field_in_front_form_helper'))
             )
-            ->addCloseCollapsible('job_board_auto_generate_unique_id', '1');
+            ->addCloseCollapsible('job_board_auto_generate_unique_id', '1')
+            ->addHtml('<fieldset class="form-fieldset mt-4"><legend>Talent Hub Settings</legend>')
+            ->add(
+                'cv_reveal_credit_cost',
+                NumberField::class,
+                NumberFieldOption::make()
+                    ->label('CV Reveal Credit Cost')
+                    ->value(setting('cv_reveal_credit_cost', 1))
+                    ->helperText('Number of employer credits deducted per contact reveal (0 = free for all employers).')
+                    ->attributes(['min' => 0])
+            )
+            ->add(
+                'talent_hub_require_consent',
+                OnOffCheckboxField::class,
+                OnOffFieldOption::make()
+                    ->label('Require Candidate Consent for Talent Hub')
+                    ->value(setting('talent_hub_require_consent', true))
+                    ->helperText('When enabled, only candidates who have opted in (talent_hub_consent = true) appear in employer searches.')
+            )
+            ->add(
+                'talent_hub_profile_stale_days',
+                NumberField::class,
+                NumberFieldOption::make()
+                    ->label('Profile Stale After (days)')
+                    ->value(setting('talent_hub_profile_stale_days', 90))
+                    ->helperText('Candidates are marked as inactive if their profile has not been updated in this many days.')
+                    ->attributes(['min' => 30, 'max' => 365])
+            )
+            ->addHtml('</fieldset>');
         ;
     }
 }

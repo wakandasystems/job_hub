@@ -1,4 +1,4 @@
-@extends(Theme::getThemeNamespace('views.job-board.account.partials.layout-settings'))
+@extends(JobBoardHelper::viewPath('dashboard.layouts.master'))
 
 @section('content')
 <div>
@@ -12,7 +12,7 @@
 
     {{-- Quota status banner --}}
     @php
-        $period    = \Botble\JobBoard\Models\JobAlertQuota::currentPeriod();
+        $period    = $period ?? \Botble\JobBoard\Models\JobAlertQuota::currentPeriod();
         $freeLimit = (int) setting('job_alert_free_monthly_limit', 3);
         $freeSent  = (int) \Botble\JobBoard\Models\JobAlertQuota::query()
             ->where('account_id', $account->id)->where('period', $period)->whereNull('package_id')
@@ -28,6 +28,10 @@
     <div class="card border-0 shadow-sm mb-20">
         <div class="card-body p-3 d-flex flex-wrap align-items-center justify-content-between gap-3">
             <div class="d-flex flex-wrap gap-4">
+                <div>
+                    <span class="color-text-paragraph-2 font-xs d-block">{{ __('Total sent this month') }}</span>
+                    <span class="fw-semibold text-primary">{{ $sentThisMonth ?? ($freeSent + $paidRows->sum('alerts_sent')) }}</span>
+                </div>
                 <div>
                     <span class="color-text-paragraph-2 font-xs d-block">{{ __('Free alerts this month') }}</span>
                     <span class="fw-semibold {{ $freeSent >= $freeLimit ? 'text-danger' : 'text-success' }}">
@@ -184,6 +188,8 @@
                         <th class="font-sm fw-semibold">{{ __('Category') }}</th>
                         <th class="font-sm fw-semibold">{{ __('Location') }}</th>
                         <th class="font-sm fw-semibold">{{ __('Channels') }}</th>
+                        <th class="font-sm fw-semibold">{{ __('Last 2 days') }}</th>
+                        <th class="font-sm fw-semibold">{{ __('Sent') }}</th>
                         <th class="font-sm fw-semibold">{{ __('Active') }}</th>
                         <th class="font-sm fw-semibold"></th>
                     </tr>
@@ -224,6 +230,20 @@
                                     @endif
                                 </div>
                             </td>
+                            <td class="font-sm">
+                                @php($stats = $alertStats[$alert->id] ?? ['matches_last_two_days' => 0, 'latest_match' => null])
+                                <div class="fw-semibold">{{ $stats['matches_last_two_days'] }}</div>
+                                @if($stats['latest_match'])
+                                    <a href="{{ $stats['latest_match']->url }}" target="_blank" class="font-xs text-muted">
+                                        {{ \Illuminate\Support\Str::limit($stats['latest_match']->name, 36) }}
+                                    </a>
+                                @else
+                                    <span class="font-xs text-muted">{{ __('No recent matches') }}</span>
+                                @endif
+                            </td>
+                            <td class="font-sm">
+                                {{ $sentThisMonth ?? ($freeSent + $paidRows->sum('alerts_sent')) }}
+                            </td>
                             <td>
                                 <form method="POST" action="{{ route('public.account.job-alerts.update', $alert->id) }}" class="d-inline">
                                     @csrf
@@ -235,13 +255,15 @@
                                 </form>
                             </td>
                             <td>
-                                <button type="button"
-                                        class="btn btn-sm btn-outline-danger py-1 px-2 font-xs btn-delete-alert"
-                                        data-delete-url="{{ route('public.account.job-alerts.destroy', $alert->id) }}"
-                                        data-bs-toggle="modal"
-                                        data-bs-target="#deleteAlertModal">
-                                    <i class="fi-rr-trash"></i>
-                                </button>
+                                <div class="d-flex gap-1 justify-content-end">
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-danger py-1 px-2 font-xs btn-delete-alert"
+                                            data-delete-url="{{ route('public.account.job-alerts.destroy', $alert->id) }}"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#deleteAlertModal">
+                                        <i class="fi-rr-trash"></i>
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                     @endforeach

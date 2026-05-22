@@ -68,9 +68,9 @@ return [
             'subject' => 'Payment received from {{ account_name }} on {{ site_title }}',
         ],
         'job-seeker-job-alert' => [
-            'title' => 'New job posted',
-            'description' => 'Send email to job seeker when a new job posted',
-            'subject' => 'Hiring {{ job_name }} at {{ company_name }}',
+            'title' => 'Job alert: new matching job',
+            'description' => 'Send email to job seeker when a new matching job alert is posted',
+            'subject' => 'Job Alert: Hiring {{ job_name }} at {{ company_name }}',
         ],
         'job-approved' => [
             'title' => 'Job approved',
@@ -117,6 +117,9 @@ return [
         'reset_link' => 'Reset link',
         'invoice_code' => 'Invoice Code',
         'invoice_link' => 'Invoice Link',
+        'job_alert_source_message' => 'Job alert source message',
+        'job_alert_quota_message' => 'Job alert quota message',
+        'job_alert_packages_url' => 'Job alert packages URL',
     ],
     'email_templates' => [
         // Account registered email template
@@ -257,6 +260,8 @@ return [
         'job_alert_job_info' => 'Job: :job_name',
         'job_alert_company_info' => 'Company: :company_name',
         'job_alert_view_job' => 'View Job',
+        'job_alert_source_label' => 'Job Alert:',
+        'job_alert_buy_more' => 'Buy more job alerts',
 
         // Job seeker applied job email template
         'job_application_confirmation_title' => 'Job Application Confirmation',

@@ -841,15 +841,16 @@ class ThemeSupport
                 continue;
             }
 
+            $shareTitle = strip_tags($title);
+
             $encodedTitle = match ($social) {
-                'linkedin' => rawurldecode(strip_tags($title)),
-                'email' => $title,
-                'x' => Str::limit(strip_tags($title), 200),
-                default => strip_tags($title),
+                'linkedin', 'email' => rawurlencode($shareTitle),
+                'x' => rawurlencode(Str::limit($shareTitle, 200)),
+                default => rawurlencode($shareTitle),
             };
 
             $encodedUrl = match ($social) {
-                'x', 'whatsapp' => $url,
+                'x', 'whatsapp', 'telegram' => rawurlencode($url),
                 default => urlencode($url),
             };
 
@@ -868,7 +869,7 @@ class ThemeSupport
                 'url' => match ($social) {
                     'facebook' => sprintf('https://www.facebook.com/sharer.php?u=%s', $encodedUrl),
                     'x' => sprintf('https://x.com/intent/tweet?url=%s&text=%s', $encodedUrl, $encodedTitle),
-                    'linkedin' => sprintf('https://www.linkedin.com/sharing/share-offsite?url=%s&sumary=%s', $encodedUrl, $encodedTitle),
+                    'linkedin' => sprintf('https://www.linkedin.com/sharing/share-offsite?url=%s&summary=%s', $encodedUrl, $encodedTitle),
                     'pinterest' => sprintf(
                         'https://pinterest.com/pin/create/button/?url=%s&description=%s&media=%s',
                         $encodedUrl,
@@ -877,7 +878,7 @@ class ThemeSupport
                     ),
                     'whatsapp' => sprintf('https://api.whatsapp.com/send?text=%s %s', $encodedTitle, $encodedUrl),
                     'telegram' => sprintf('https://t.me/share/url?url=%s&text=%s', $encodedUrl, $encodedTitle),
-                    'email' => sprintf('mailto:?subject=%s&body=%s', $encodedTitle, $encodedUrl),
+                    'email' => sprintf('mailto:?subject=%s&body=%s', rawurlencode($shareTitle), rawurlencode($shareTitle . PHP_EOL . $url)),
                     default => $encodedUrl,
                 },
                 'color' => $color === 'transparent' ? null : $color,

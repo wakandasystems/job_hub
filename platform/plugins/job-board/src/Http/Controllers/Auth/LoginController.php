@@ -7,6 +7,7 @@ use Botble\ACL\Traits\AuthenticatesUsers;
 use Botble\ACL\Traits\LogoutGuardTrait;
 use Botble\JobBoard\Forms\Fronts\Auth\LoginForm;
 use Botble\JobBoard\Http\Requests\Fronts\Auth\LoginRequest;
+use Botble\JobBoard\Models\Account;
 use Botble\JsValidation\Facades\JsValidator;
 use Botble\SeoHelper\Facades\SeoHelper;
 use Botble\Theme\Facades\Theme;
@@ -57,9 +58,9 @@ class LoginController extends Controller
         }
 
         if ($this->attemptLogin($request)) {
-            if (auth('account')->user()->isEmployer()) {
-                $this->redirectTo = route('public.account.employer.settings.edit');
-            }
+            $account = auth('account')->user();
+            $this->redirectTo = $this->redirectPathForAccount($account);
+            $request->session()->forget('url.intended');
 
             return $this->sendLoginResponse($request);
         }
@@ -94,6 +95,19 @@ class LoginController extends Controller
         }
 
         return false;
+    }
+
+    protected function redirectPathForAccount(Account $account): string
+    {
+        if ($account->isEmployer()) {
+            return route('public.account.dashboard');
+        }
+
+        if ($account->isJobSeeker()) {
+            return route('public.account.dashboard');
+        }
+
+        return route('public.account.choose-type');
     }
 
     public function logout(Request $request)

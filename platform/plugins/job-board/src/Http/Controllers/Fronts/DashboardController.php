@@ -14,6 +14,7 @@ use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\AccountActivityLog;
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\JobApplication;
+use Botble\JobBoard\Models\JobAlert;
 use Botble\JobBoard\Models\Package;
 use Botble\JobBoard\Models\Transaction;
 use Botble\JobBoard\Services\CouponService;
@@ -44,6 +45,10 @@ class DashboardController extends BaseController
 
         Theme::breadcrumb()
             ->add(trans('plugins/job-board::messages.dashboard'));
+
+        if ($account->isJobSeeker()) {
+            return $this->jobSeekerDashboard($account);
+        }
 
         $totalCompanies = $account->companies()->count();
 
@@ -110,6 +115,58 @@ class DashboardController extends BaseController
         $data = compact('totalJobs', 'totalCompanies', 'totalApplicants', 'expiredJobs', 'newApplicants', 'activities');
 
         return JobBoardHelper::view('dashboard.index', $data);
+    }
+
+    protected function jobSeekerDashboard(Account $account)
+    {
+        $totalApplications = JobApplication::query()
+            ->where('account_id', $account->getKey())
+            ->count();
+
+        $savedJobs = $account->savedJobs()->count();
+
+        $activeAlerts = JobAlert::query()
+            ->where('account_id', $account->getKey())
+            ->where('is_active', true)
+            ->count();
+
+        $recentApplications = JobApplication::query()
+            ->where('account_id', $account->getKey())
+            ->whereHas('job')
+            ->with(['job', 'job.slugable', 'job.company'])
+            ->latest()
+            ->limit(5)
+            ->get();
+
+        $recentSavedJobs = Job::query()
+            ->select(['jb_jobs.*'])
+            ->active()
+            ->whereHas('savedJobs', function ($query) use ($account): void {
+                $query->where('jb_saved_jobs.account_id', $account->getKey());
+            })
+            ->with(['slugable', 'company'])
+            ->latest('jb_jobs.created_at')
+            ->limit(5)
+            ->get();
+
+        $activities = AccountActivityLog::query()
+            ->where('account_id', $account->getKey())
+            ->latest('created_at')
+            ->limit(5)
+            ->get();
+
+        $profileScore = (int) ($account->cv_score ?: 0);
+
+        return JobBoardHelper::view('dashboard.job-seeker', compact(
+            'account',
+            'totalApplications',
+            'savedJobs',
+            'activeAlerts',
+            'recentApplications',
+            'recentSavedJobs',
+            'activities',
+            'profileScore'
+        ));
     }
 
     public function getPackages()

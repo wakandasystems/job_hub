@@ -86,7 +86,7 @@
         </header>
 
         <div id="app">
-            @if (JobBoardHelper::isEnabledCreditsSystem())
+            @if (auth('account')->user()->isEmployer() && JobBoardHelper::isEnabledCreditsSystem())
                 <x-core::alert>
                     {{ trans('plugins/job-board::package.add_credit_warning') }}
                     <a href="{{ route('public.account.packages') }}">

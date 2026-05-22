@@ -16,7 +16,11 @@ class RedirectIfAccount
                 return redirect(route('public.account.dashboard'));
             }
 
-            return redirect()->route('public.index');
+            if (Auth::guard('account')->user()->isJobSeeker()) {
+                return redirect()->route('public.account.dashboard');
+            }
+
+            return redirect()->route('public.account.choose-type');
         }
 
         AdminBar::setIsDisplay(false);

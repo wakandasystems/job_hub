@@ -69,9 +69,9 @@ class ResetPasswordController extends Controller
          */
         $account = request()->user('account');
 
-        if (! $account->isEmployer()) {
-            $this->redirectTo = route('public.index');
-        }
+        $this->redirectTo = $account->isEmployer()
+            ? route('public.account.dashboard')
+            : route('public.account.dashboard');
 
         return $this->redirectTo;
     }

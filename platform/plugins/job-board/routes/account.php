@@ -107,6 +107,12 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
                 Route::get('choose-type', ['as' => 'choose-type', 'uses' => 'AccountController@getChooseType']);
                 Route::post('choose-type', ['as' => 'choose-type.save', 'uses' => 'AccountController@postChooseType']);
 
+                Route::get('dashboard', [
+                    'as' => 'dashboard',
+                    'uses' => 'DashboardController@index',
+                    'middleware' => [LocaleMiddleware::class],
+                ]);
+
                 Route::prefix('custom-fields')->name('custom-fields.')->group(function (): void {
                     Route::get('info', [CustomFieldController::class, 'getInfo'])->name('get-info');
                 });
@@ -216,11 +222,6 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
             'prefix' => 'account',
             'middleware' => ['account:' . AccountTypeEnum::EMPLOYER, LocaleMiddleware::class],
         ], function (): void {
-            Route::get('dashboard', [
-                'as' => 'dashboard',
-                'uses' => 'DashboardController@index',
-            ]);
-
             Route::get('employer/settings', [
                 'as' => 'employer.settings.edit',
                 'uses' => 'EmployerSettingController@edit',
@@ -257,6 +258,31 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
 
             Route::get('applicants/download-cv/{application}', [JobApplicationController::class, 'downloadCv'])
                 ->name('applicants.download-cv')->wherePrimaryKey('application');
+
+            Route::controller('SubscriptionCheckoutController')->prefix('subscription')->name('subscription.')->group(function (): void {
+                Route::get('', ['as' => 'index', 'uses' => 'index']);
+                Route::get('{package}/checkout', ['as' => 'checkout', 'uses' => 'checkout']);
+                Route::get('{subscription}/callback', ['as' => 'callback', 'uses' => 'callback']);
+                Route::get('{subscription}/thanks', ['as' => 'thanks', 'uses' => 'thanks']);
+                Route::get('{subscription}/pending', ['as' => 'pending', 'uses' => 'pending']);
+                Route::post('cancel', ['as' => 'cancel', 'uses' => 'cancel']);
+            });
+
+            Route::controller('CandidateSearchController')->prefix('candidates')->name('candidates.')->group(function (): void {
+                Route::get('', ['as' => 'search', 'uses' => 'index']);
+            });
+
+            Route::controller('CvRevealController')->prefix('cv-reveal')->name('cv-reveal.')->group(function (): void {
+                Route::post('{candidate}', ['as' => 'reveal', 'uses' => 'reveal']);
+            });
+
+            Route::controller('FeaturedJobCheckoutController')->prefix('featured-jobs')->name('featured-jobs.')->group(function (): void {
+                Route::get('', ['as' => 'index', 'uses' => 'index']);
+                Route::get('{package}/checkout', ['as' => 'checkout', 'uses' => 'checkout']);
+                Route::get('{order}/callback', ['as' => 'callback', 'uses' => 'callback']);
+                Route::get('{order}/thanks', ['as' => 'thanks', 'uses' => 'thanks']);
+                Route::get('{order}/pending', ['as' => 'pending', 'uses' => 'pending']);
+            });
 
             Route::group([
                 'prefix' => 'jobs',

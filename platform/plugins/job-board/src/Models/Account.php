@@ -72,6 +72,13 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
         'telegram_chat_id',
         'cv_score',
         'cv_score_data',
+        'desired_salary_from',
+        'desired_salary_to',
+        'experience_years',
+        'education_level',
+        'availability',
+        'talent_hub_consent',
+        'profile_updated_at',
     ];
 
     protected $hidden = [
@@ -80,10 +87,55 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
     ];
 
     protected $casts = [
-        'type'          => AccountTypeEnum::class,
-        'dob'           => 'datetime',
-        'cv_score_data' => 'array',
+        'type'               => AccountTypeEnum::class,
+        'dob'                => 'datetime',
+        'cv_score_data'      => 'array',
+        'talent_hub_consent' => 'boolean',
+        'profile_updated_at' => 'datetime',
     ];
+
+    public static function experienceYearsOptions(): array
+    {
+        return [
+            ''   => '— Any —',
+            '0'  => 'No experience',
+            '1'  => 'Less than 1 year',
+            '2'  => '1–2 years',
+            '3'  => '3–5 years',
+            '5'  => '5–10 years',
+            '10' => '10+ years',
+        ];
+    }
+
+    public static function educationLevelOptions(): array
+    {
+        return [
+            ''           => '— Any —',
+            'high_school'=> 'High School',
+            'diploma'    => 'Diploma / Certificate',
+            'bachelor'   => "Bachelor's Degree",
+            'masters'    => "Master's Degree",
+            'phd'        => 'PhD / Doctorate',
+        ];
+    }
+
+    public static function availabilityOptions(): array
+    {
+        return [
+            ''           => '— Any —',
+            'immediate'  => 'Immediately',
+            'one_week'   => 'Within 1 week',
+            'two_weeks'  => 'Within 2 weeks',
+            'one_month'  => 'Within 1 month',
+            'not_looking'=> 'Not actively looking',
+        ];
+    }
+
+    public function isProfileStale(int $days = 90): bool
+    {
+        $lastUpdated = $this->profile_updated_at ?? $this->updated_at;
+        return $lastUpdated !== null && $lastUpdated->lt(now()->subDays($days));
+    }
 
     public function sendPasswordResetNotification($token): void
     {

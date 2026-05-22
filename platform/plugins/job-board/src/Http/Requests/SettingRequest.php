@@ -35,13 +35,19 @@ class SettingRequest extends Request
 
         if ($account && $account->isJobSeeker()) {
             $rules = array_merge($rules, [
-                'is_public_profile' => Rule::in([0, 1]),
-                'hide_cv' => Rule::in([0, 1]),
+                'is_public_profile'    => Rule::in([0, 1]),
+                'hide_cv'              => Rule::in([0, 1]),
                 'available_for_hiring' => Rule::in([0, 1]),
-                'resume' => 'nullable|file|mimes:pdf,doc,docx,ppt,pptx',
-                'cover_letter' => 'nullable|file|mimes:pdf,doc,docx,ppt,pptx',
-                'whatsapp_number' => 'nullable|string|max:30',
-                'telegram_chat_id' => 'nullable|string|max:100',
+                'talent_hub_consent'   => Rule::in([0, 1]),
+                'resume'               => 'nullable|file|mimes:pdf,doc,docx,ppt,pptx',
+                'cover_letter'         => 'nullable|file|mimes:pdf,doc,docx,ppt,pptx',
+                'whatsapp_number'      => 'nullable|string|max:30',
+                'telegram_chat_id'     => 'nullable|string|max:100',
+                'experience_years'     => 'nullable|integer|in:0,1,2,3,5,10',
+                'education_level'      => ['nullable', Rule::in(['high_school','diploma','bachelor','masters','phd'])],
+                'availability'         => ['nullable', Rule::in(['immediate','one_week','two_weeks','one_month','not_looking'])],
+                'desired_salary_from'  => 'nullable|integer|min:0',
+                'desired_salary_to'    => 'nullable|integer|min:0',
             ]);
         }
 

@@ -191,6 +191,9 @@ return [
                 'job_url' => 'plugins/job-board::email.variables.job_url',
                 'company_name' => 'plugins/job-board::email.variables.company_name',
                 'account_name' => 'plugins/job-board::email.variables.account_name',
+                'job_alert_source_message' => 'plugins/job-board::email.variables.job_alert_source_message',
+                'job_alert_quota_message' => 'plugins/job-board::email.variables.job_alert_quota_message',
+                'job_alert_packages_url' => 'plugins/job-board::email.variables.job_alert_packages_url',
             ],
         ],
         'job-approved' => [

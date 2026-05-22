@@ -27,8 +27,11 @@ return [
     'sender' => 'Sender',
     'sender_email' => 'Email',
     'statuses' => [
-        'pending' => 'Pending',
-        'checked' => 'Checked',
+        'pending'     => 'Pending',
+        'checked'     => 'Reviewed',
+        'shortlisted' => 'Shortlisted',
+        'interviewed' => 'Interviewed',
+        'offered'     => 'Offered',
     ],
     'notifications' => [
         'title' => 'New job application',

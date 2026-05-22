@@ -25,13 +25,34 @@ class Package extends BaseModel
         'is_default',
         'features',
         'status',
+        'billing_cycle',
+        'posts_per_cycle',
+        'can_search_candidates',
+        'is_recruiter_plan',
     ];
 
     protected $casts = [
-        'status' => BaseStatusEnum::class,
-        'name' => SafeContent::class,
-        'features' => 'json',
+        'status'                => BaseStatusEnum::class,
+        'name'                  => SafeContent::class,
+        'features'              => 'json',
+        'can_search_candidates' => 'boolean',
+        'is_recruiter_plan'     => 'boolean',
+        'posts_per_cycle'       => 'integer',
     ];
+
+    public function isSubscription(): bool
+    {
+        return in_array($this->billing_cycle, ['monthly', 'annual']);
+    }
+
+    public function billingCycleLabel(): string
+    {
+        return match ($this->billing_cycle) {
+            'monthly' => 'Monthly',
+            'annual'  => 'Annual',
+            default   => 'One-time',
+        };
+    }
 
     public function currency(): BelongsTo
     {

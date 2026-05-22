@@ -53,6 +53,9 @@ class GeneralSettingRequest extends Request
             'job_board_require_resume_in_apply_job' => $onOffRule,
             'job_board_require_cover_letter_in_apply_job' => $onOffRule,
             'job_board_external_apply_url_behavior' => ['required', 'in:disabled,new_tab,current_tab'],
+            'cv_reveal_credit_cost'              => ['nullable', 'integer', 'min:0'],
+            'talent_hub_require_consent'         => $onOffRule,
+            'talent_hub_profile_stale_days'      => ['nullable', 'integer', 'min:30', 'max:365'],
         ];
     }
 }

@@ -71,7 +71,7 @@ class RegisterController extends BaseController
 
         return $this
             ->httpResponse()
-            ->setNextUrl(route('public.account.dashboard'))
+            ->setNextUrl($this->redirectPathForAccount($account))
             ->setMessage(trans('plugins/job-board::account.confirmation_successful'));
     }
 
@@ -169,12 +169,23 @@ class RegisterController extends BaseController
 
         $this->registered($request, $account);
 
-        if ($account->isEmployer()) {
-            $this->redirectTo = route('public.account.employer.settings.edit');
-        }
+        $this->redirectTo = $this->redirectPathForAccount($account);
 
         return $this
             ->httpResponse()->setNextUrl($this->redirectPath());
+    }
+
+    protected function redirectPathForAccount(Account $account): string
+    {
+        if ($account->isEmployer()) {
+            return route('public.account.dashboard');
+        }
+
+        if ($account->isJobSeeker()) {
+            return route('public.account.dashboard');
+        }
+
+        return route('public.account.choose-type');
     }
 
     protected function create(array $data)
