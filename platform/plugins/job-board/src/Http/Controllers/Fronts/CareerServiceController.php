@@ -5,6 +5,7 @@ namespace Botble\JobBoard\Http\Controllers\Fronts;
 use Botble\Base\Http\Controllers\BaseController;
 use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\CareerServiceOrder;
+use Botble\JobBoard\Models\Currency;
 use Botble\JobBoard\Services\CvScoringService;
 use Botble\Payment\Services\Gateways\BankTransferPaymentService;
 use Botble\Payment\Services\Gateways\CodPaymentService;
@@ -38,14 +39,16 @@ class CareerServiceController extends BaseController
 
         SeoHelper::setTitle('Book: ' . $service['name']);
 
-        $currency = strtoupper(cms_currency()->getDefaultCurrency()->title ?? 'USD');
+        $pricing = $this->careerServicePricing($service);
+        $currency = $pricing['currency_code'];
+        $amount = $pricing['amount'];
         $orderId = null;
 
         // Create a pending order so we have an ID for the callback URL
         $order = CareerServiceOrder::create([
             'service_type'  => $serviceType,
             'service_name'  => $service['name'],
-            'amount'        => $service['price'],
+            'amount'        => $amount,
             'currency'      => $currency,
             'customer_name' => auth('account')->user()?->name ?? '',
             'customer_email'=> auth('account')->user()?->email ?? '',
@@ -59,8 +62,28 @@ class CareerServiceController extends BaseController
         $returnUrl   = route('public.career-service.checkout', ['service' => $serviceType]);
 
         return Theme::scope('job-board.career-services.checkout', compact(
-            'service', 'serviceType', 'order', 'candidate', 'callbackUrl', 'returnUrl', 'currency'
+            'service', 'serviceType', 'order', 'candidate', 'callbackUrl', 'returnUrl', 'currency', 'amount', 'pricing'
         ))->render();
+    }
+
+    protected function careerServicePricing(array $service): array
+    {
+        $originCode = strtoupper((string) ($service['currency'] ?? setting('career_service_currency', 'USD')));
+        $originCurrency = Currency::query()->where('title', $originCode)->first();
+        $targetCurrency = get_application_currency();
+        $amount = round((float) format_price($service['price'], $originCurrency, true, true, true), (int) ($targetCurrency->decimals ?? 2));
+        $originMeta = function_exists('wakanda_currency_meta') ? wakanda_currency_meta($originCode) : null;
+        $targetMeta = $targetCurrency && function_exists('wakanda_currency_meta') ? wakanda_currency_meta($targetCurrency->title) : null;
+
+        return [
+            'amount' => $amount,
+            'display' => $originCurrency ? format_price($service['price'], $originCurrency, fullNumber: true) : number_format($service['price'], 2) . ' ' . $originCode,
+            'currency_code' => strtoupper((string) ($targetCurrency->title ?? $originCode)),
+            'target_country' => $targetMeta['country'] ?? null,
+            'origin_country' => $originMeta['country'] ?? null,
+            'origin_currency_code' => $originCode,
+            'origin_display' => number_format($service['price'], 2) . ' ' . $originCode,
+        ];
     }
 
     public function getCallback(int $orderId, Request $request)

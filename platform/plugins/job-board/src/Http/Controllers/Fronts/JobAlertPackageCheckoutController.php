@@ -5,6 +5,7 @@ namespace Botble\JobBoard\Http\Controllers\Fronts;
 use Botble\Base\Http\Controllers\BaseController;
 use Botble\JobBoard\Facades\JobBoardHelper;
 use Botble\JobBoard\Models\Account;
+use Botble\JobBoard\Models\Currency;
 use Botble\JobBoard\Models\JobAlertOrder;
 use Botble\JobBoard\Models\JobAlertPackage;
 use Botble\JobBoard\Models\JobAlertQuota;
@@ -21,6 +22,8 @@ class JobAlertPackageCheckoutController extends BaseController
         /** @var Account $account */
         $account  = auth('account')->user();
         $packages = JobAlertPackage::query()->where('is_active', true)->orderBy('sort_order')->orderBy('price')->get();
+        $packagePrices = $packages
+            ->mapWithKeys(fn (JobAlertPackage $package): array => [$package->getKey() => $this->packagePricing($package)]);
 
         $period   = JobAlertQuota::currentPeriod();
         $sentFree = (int) JobAlertQuota::query()
@@ -38,7 +41,7 @@ class JobAlertPackageCheckoutController extends BaseController
             ->latest()
             ->get();
 
-        return JobBoardHelper::scope('account.job-alert-packages', compact('account', 'packages', 'sentFree', 'paidQuota', 'freeLimit', 'period', 'myOrders'));
+        return JobBoardHelper::scope('account.job-alert-packages', compact('account', 'packages', 'packagePrices', 'sentFree', 'paidQuota', 'freeLimit', 'period', 'myOrders'));
     }
 
     public function checkout(JobAlertPackage $package)
@@ -49,13 +52,15 @@ class JobAlertPackageCheckoutController extends BaseController
 
         /** @var Account $account */
         $account  = auth('account')->user();
-        $currency = strtoupper(cms_currency()->getDefaultCurrency()->title ?? 'USD');
+        $pricing = $this->packagePricing($package);
+        $currency = $pricing['currency_code'];
+        $amount = $pricing['amount'];
 
         // Create a pending order to track this purchase
         $order = JobAlertOrder::create([
             'account_id' => $account->getKey(),
             'package_id' => $package->getKey(),
-            'amount'     => $package->price,
+            'amount'     => $amount,
             'currency'   => $currency,
             'status'     => 'pending',
         ]);
@@ -63,10 +68,9 @@ class JobAlertPackageCheckoutController extends BaseController
         $callbackUrl = route('public.account.job-alert.packages.callback', ['order' => $order->id]);
         $returnUrl   = route('public.account.job-alert.packages.index');
         $name        = $package->name . ' — Job Alerts';
-        $amount      = $package->price;
 
         return Theme::scope('job-board.job-alert-packages.checkout', compact(
-            'package', 'order', 'account', 'callbackUrl', 'returnUrl', 'currency', 'name', 'amount'
+            'package', 'order', 'account', 'callbackUrl', 'returnUrl', 'currency', 'name', 'amount', 'pricing'
         ))->render();
     }
 
@@ -126,5 +130,25 @@ class JobAlertPackageCheckoutController extends BaseController
         $package = $order->package;
 
         return Theme::scope('job-board.job-alert-packages.pending', compact('package', 'order', 'account'))->render();
+    }
+
+    protected function packagePricing(JobAlertPackage $package): array
+    {
+        $originCode = strtoupper((string) $package->currency);
+        $originCurrency = Currency::query()->where('title', $originCode)->first();
+        $targetCurrency = get_application_currency();
+        $amount = round((float) format_price($package->price, $originCurrency, true, true, true), (int) ($targetCurrency->decimals ?? 2));
+        $originMeta = function_exists('wakanda_currency_meta') ? wakanda_currency_meta($originCode) : null;
+        $targetMeta = $targetCurrency && function_exists('wakanda_currency_meta') ? wakanda_currency_meta($targetCurrency->title) : null;
+
+        return [
+            'amount' => $amount,
+            'display' => $originCurrency ? format_price($package->price, $originCurrency, fullNumber: true) : number_format($package->price, 2) . ' ' . $originCode,
+            'currency_code' => strtoupper((string) ($targetCurrency->title ?? $originCode)),
+            'target_country' => $targetMeta['country'] ?? null,
+            'origin_country' => $originMeta['country'] ?? null,
+            'origin_currency_code' => $originCode,
+            'origin_display' => number_format($package->price, 2) . ' ' . $originCode,
+        ];
     }
 }

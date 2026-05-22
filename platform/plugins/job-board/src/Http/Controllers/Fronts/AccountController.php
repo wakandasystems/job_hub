@@ -16,6 +16,8 @@ use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\AccountActivityLog;
 use Botble\JobBoard\Models\AccountEducation;
 use Botble\JobBoard\Models\AccountExperience;
+use Botble\JobBoard\Models\CareerServiceOrder;
+use Botble\JobBoard\Models\Currency;
 use Botble\JobBoard\Services\CvScoringService;
 use Botble\Media\Facades\RvMedia;
 use Botble\Media\Models\MediaFile;
@@ -69,14 +71,36 @@ class AccountController extends BaseController
         /** @var Account $account */
         $account = auth('account')->user();
 
-        $services = \Botble\JobBoard\Models\CareerServiceOrder::services();
+        $services = CareerServiceOrder::services();
+        $servicePrices = collect($services)
+            ->mapWithKeys(fn (array $service, string $key): array => [$key => $this->careerServicePricing($service)]);
 
-        $myOrders = \Botble\JobBoard\Models\CareerServiceOrder::where('customer_email', $account->email)
+        $myOrders = CareerServiceOrder::where('customer_email', $account->email)
             ->latest()
             ->limit(10)
             ->get();
 
-        return JobBoardHelper::scope('account.career-services', compact('account', 'services', 'myOrders'));
+        return JobBoardHelper::scope('account.career-services', compact('account', 'services', 'servicePrices', 'myOrders'));
+    }
+
+    protected function careerServicePricing(array $service): array
+    {
+        $originCode = strtoupper((string) ($service['currency'] ?? setting('career_service_currency', 'USD')));
+        $originCurrency = Currency::query()->where('title', $originCode)->first();
+        $targetCurrency = get_application_currency();
+        $amount = round((float) format_price($service['price'], $originCurrency, true, true, true), (int) ($targetCurrency->decimals ?? 2));
+        $originMeta = function_exists('wakanda_currency_meta') ? wakanda_currency_meta($originCode) : null;
+        $targetMeta = $targetCurrency && function_exists('wakanda_currency_meta') ? wakanda_currency_meta($targetCurrency->title) : null;
+
+        return [
+            'amount' => $amount,
+            'display' => $originCurrency ? format_price($service['price'], $originCurrency, fullNumber: true) : number_format($service['price'], 2) . ' ' . $originCode,
+            'currency_code' => strtoupper((string) ($targetCurrency->title ?? $originCode)),
+            'target_country' => $targetMeta['country'] ?? null,
+            'origin_country' => $originMeta['country'] ?? null,
+            'origin_currency_code' => $originCode,
+            'origin_display' => number_format($service['price'], 2) . ' ' . $originCode,
+        ];
     }
 
     public function getSettings()

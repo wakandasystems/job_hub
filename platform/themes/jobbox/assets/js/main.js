@@ -309,6 +309,50 @@
             },
         })
     })
+    $('.swiper-group-latest-jobs').each(function () {
+        var $latestJobsSwiper = $(this).closest('.box-swiper')
+        var swiper_latest_jobs = new Swiper(this, {
+            speed: 850,
+            spaceBetween: 16,
+            slidesPerView: 6,
+            slidesPerGroup: 1,
+            loop: true,
+            navigation: {
+                nextEl: $latestJobsSwiper.find('.swiper-button-next-latest-jobs')[0],
+                prevEl: $latestJobsSwiper.find('.swiper-button-prev-latest-jobs')[0],
+            },
+            pagination: {
+                el: $(this).find('.swiper-pagination')[0],
+                clickable: true,
+                dynamicBullets: true,
+                dynamicMainBullets: 2,
+            },
+            autoplay: {
+                delay: 4500,
+                disableOnInteraction: false,
+            },
+            breakpoints: {
+                1360: {
+                    slidesPerView: 6,
+                },
+                1199: {
+                    slidesPerView: 6,
+                },
+                992: {
+                    slidesPerView: 6,
+                },
+                600: {
+                    slidesPerView: 3,
+                },
+                350: {
+                    slidesPerView: 2,
+                },
+                150: {
+                    slidesPerView: 1,
+                },
+            },
+        })
+    })
     $('.swiper-group-4-border').each(function () {
         var swiper_4_items_border = new Swiper(this, {
             spaceBetween: 30,

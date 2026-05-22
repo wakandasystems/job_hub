@@ -9,8 +9,8 @@
         <x-core::card.body>
             <dl>
                 <div class="d-flex justify-content-between">
-                    <dt>{{ $package->name }}</dt>
-                    <dd>{{ format_price($package->price) }}</dd>
+                    <dt>{{ $package->name }} <span class="text-muted">({{ ucfirst($billingCycle ?? 'monthly') }})</span></dt>
+                    <dd>{{ format_price($packageAmount ?? $package->price) }}</dd>
                 </div>
             </dl>
             @if (session()->has('applied_coupon_code'))

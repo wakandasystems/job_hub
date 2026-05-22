@@ -170,7 +170,7 @@
                                             tag="a"
                                             color="primary"
                                             size="sm"
-                                            :href="route('public.account.packages')"
+                                            :href="route('public.account.credits')"
                                             data-bs-toggle="tooltip"
                                             title="{{ trans('plugins/job-board::dashboard.purchase_credits_to_renew') }}"
                                         >

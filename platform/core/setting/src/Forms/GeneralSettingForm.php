@@ -20,10 +20,7 @@ class GeneralSettingForm extends SettingForm
 
         Assets::usingVueJS()
             ->addStylesDirectly('vendor/core/core/setting/css/admin-email.css')
-            ->addScriptsDirectly([
-                'vendor/core/core/setting/js/admin-email.js',
-                'vendor/core/core/setting/js/license-component.js',
-            ]);
+            ->addScriptsDirectly('vendor/core/core/setting/js/admin-email.js');
 
         $this
             ->setSectionTitle(trans('core/setting::setting.general.title'))

@@ -105,7 +105,36 @@ app()->booted(function (): void {
                     ->limit($limit)
                     ->get();
 
-                return Theme::partial('shortcodes.featured-job-categories', compact('shortcode', 'categories'));
+                $with = [
+                    'slugable',
+                    'company',
+                    'company.slugable',
+                    'company.metadata',
+                    'currency',
+                    'jobTypes',
+                    'tags',
+                    'tags.slugable',
+                    'skills',
+                ];
+
+                if (is_plugin_active('location')) {
+                    $with = array_merge($with, array_keys(Location::getSupported(Job::class)));
+                }
+
+                $recentJobs = app(JobInterface::class)->getJobs(
+                    [
+                        'country_id' => $countryId,
+                    ],
+                    [
+                        'with' => $with,
+                        'order_by' => [
+                            'jb_jobs.created_at' => 'DESC',
+                        ],
+                        'take' => 10,
+                    ]
+                );
+
+                return Theme::partial('shortcodes.featured-job-categories', compact('shortcode', 'categories', 'recentJobs', 'selectedCountry'));
             }
         );
 

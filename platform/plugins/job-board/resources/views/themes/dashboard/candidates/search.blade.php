@@ -61,7 +61,7 @@
             <x-core::icon name="ti ti-coin" class="me-1" />
             Revealing a contact costs <strong>{{ $revealCost }} credit(s)</strong>.
             You have <strong>{{ $account->credits }}</strong> credit(s).
-            <a href="{{ route('public.account.packages') }}" class="ms-2">Buy credits</a> or
+            <a href="{{ route('public.account.credits') }}" class="ms-2">Buy credits</a> or
             <a href="{{ route('public.account.subscription.index') }}">upgrade your plan</a> for unlimited reveals.
         </x-core::alert>
     @endif

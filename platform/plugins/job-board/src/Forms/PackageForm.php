@@ -98,7 +98,7 @@ class PackageForm extends FormAbstract
             ->add('rowOpen3', 'html', ['html' => '<div class="row">'])
             ->add('billing_cycle', 'customSelect', [
                 'label' => 'Billing Cycle',
-                'wrapper' => ['class' => 'form-group col-md-4'],
+                'wrapper' => ['class' => 'form-group col-md-12'],
                 'choices' => [
                     'one_time' => 'One-time (credits)',
                     'monthly'  => 'Monthly subscription',
@@ -106,21 +106,7 @@ class PackageForm extends FormAbstract
                 ],
                 'help_block' => ['text' => 'Subscription plans are time-bound; one-time plans add credits.'],
             ])
-            ->add('posts_per_cycle', NumberField::class, [
-                'label' => 'Job Posts per Cycle',
-                'wrapper' => ['class' => 'form-group col-md-4'],
-                'attr' => ['min' => 0, 'placeholder' => '0 = unlimited'],
-                'help_block' => ['text' => '0 = unlimited. Only applies to monthly/annual.'],
-            ])
             ->add('rowClose3', 'html', ['html' => '</div>'])
-            ->add('can_search_candidates', OnOffField::class, [
-                'label' => 'Can Search Candidates',
-                'help_block' => ['text' => 'Employers on this plan can search the CV database.'],
-            ])
-            ->add('is_recruiter_plan', OnOffField::class, [
-                'label' => 'Recruiter Plan',
-                'help_block' => ['text' => 'Unlocks bulk posting and multiple employer profile management.'],
-            ])
             ->add('is_default', OnOffField::class, IsDefaultFieldOption::make())
             ->add('features', RepeaterField::class, [
                 'label' => trans('plugins/job-board::package.features'),

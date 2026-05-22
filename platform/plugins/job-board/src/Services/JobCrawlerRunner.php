@@ -1357,6 +1357,9 @@ class JobCrawlerRunner
 
     protected function deleteDuplicateCrawledJobs(JobCrawler $crawler): int
     {
+        $deleted = 0;
+
+        // Pass 1: same external_source_id (exact DB-level duplicates).
         $duplicates = DB::table('jb_jobs')
             ->select('external_source_id')
             ->where('crawler_id', $crawler->getKey())
@@ -1365,8 +1368,6 @@ class JobCrawlerRunner
             ->havingRaw('COUNT(*) > 1')
             ->pluck('external_source_id');
 
-        $deleted = 0;
-
         foreach ($duplicates as $sourceId) {
             $jobs = Job::query()
                 ->where('crawler_id', $crawler->getKey())
@@ -1374,6 +1375,32 @@ class JobCrawlerRunner
                 ->orderByRaw('CASE WHEN status = ? THEN 0 ELSE 1 END', [(string) JobStatusEnum::PUBLISHED])
                 ->latest('updated_at')
                 ->latest('id')
+                ->get();
+
+            $jobs->shift();
+
+            foreach ($jobs as $job) {
+                $job->delete();
+                $deleted++;
+            }
+        }
+
+        // Pass 2: same name + company + address (re-posts with different external IDs).
+        $contentDuplicates = DB::table('jb_jobs')
+            ->select('name', 'company_id', 'address')
+            ->where('crawler_id', $crawler->getKey())
+            ->groupBy('name', 'company_id', 'address')
+            ->havingRaw('COUNT(*) > 1')
+            ->get();
+
+        foreach ($contentDuplicates as $dup) {
+            $jobs = Job::query()
+                ->where('crawler_id', $crawler->getKey())
+                ->where('name', $dup->name)
+                ->where('company_id', $dup->company_id)
+                ->where('address', $dup->address)
+                ->orderByRaw('CASE WHEN status = ? THEN 0 ELSE 1 END', [(string) JobStatusEnum::PUBLISHED])
+                ->orderBy('id')
                 ->get();
 
             $jobs->shift();
@@ -1489,10 +1516,25 @@ class JobCrawlerRunner
     /**
      * Save a new Job, create its slug, and run $configure (category/types/events).
      * Silently skips on a unique-key violation (1062) — concurrent run already saved it.
+     * Also skips when a job with the same name+company+address already exists for this
+     * crawler — prevents importing the same listing re-posted with a new external ID.
      * Increments $stats['jobs_created'] on success, 'jobs_skipped' on duplicate.
      */
     protected function persistNewJob(Job $job, JobCrawler $crawler, array &$stats, callable $configure): void
     {
+        // Content-duplicate guard: same title + company + address = same real job.
+        $contentDupe = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->where('name', $job->name)
+            ->where('company_id', $job->company_id)
+            ->where('address', $job->address)
+            ->exists();
+
+        if ($contentDupe) {
+            $stats['jobs_skipped']++;
+            return;
+        }
+
         try {
             $job->save();
         } catch (\Illuminate\Database\QueryException $e) {

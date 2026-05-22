@@ -14,7 +14,7 @@
                                 <p class="text-muted mb-2 font-sm">{{ $package->description }}</p>
                                 <span class="badge bg-soft-primary text-primary">
                                     {{ ucfirst($billingCycle) }} subscription
-                                    @if($billingCycle === 'annual') · 2 months free @endif
+                                    @if($billingCycle === 'annual') · 20% off @endif
                                 </span>
                             </div>
                             <div class="text-end flex-shrink-0">

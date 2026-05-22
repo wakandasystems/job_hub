@@ -71,6 +71,9 @@
     {{-- Service cards --}}
     <div class="row g-3 mb-40">
         @foreach($services as $key => $svc)
+            @php
+                $pricing = $servicePrices[$key] ?? null;
+            @endphp
             <div class="col-md-6">
                 <div class="card h-100 border career-service-card" style="border-radius:12px;transition:box-shadow .2s,border-color .2s;">
                     <div class="card-body p-4">
@@ -91,8 +94,20 @@
                         </p>
                         <div class="d-flex align-items-center justify-content-between">
                             <div>
-                                <span class="fw-bold color-brand-1 fs-5">${{ $svc['price'] }}</span>
+                                <span class="fw-bold color-brand-1 fs-5">
+                                    {{ $pricing['display'] ?? ('$' . $svc['price']) }}
+                                </span>
                                 <span class="color-text-paragraph-2 ms-1 font-xs">· {{ $svc['delivery'] }}</span>
+                                @if($pricing && $pricing['origin_currency_code'] !== $pricing['currency_code'])
+                                    <div class="font-xs color-text-paragraph-2">
+                                        {{ __('Converted for :country', ['country' => $pricing['target_country'] ?? $pricing['currency_code']]) }}
+                                    </div>
+                                @endif
+                                @if($pricing)
+                                    <div class="font-xs color-text-paragraph-2">
+                                        {{ __('Original: :country :price', ['country' => $pricing['origin_country'] ?? $pricing['origin_currency_code'], 'price' => $pricing['origin_display']]) }}
+                                    </div>
+                                @endif
                             </div>
                             <a href="{{ route('public.career-service.checkout', ['service' => $key, 'candidate' => $account->slug]) }}"
                                class="btn btn-apply px-4">

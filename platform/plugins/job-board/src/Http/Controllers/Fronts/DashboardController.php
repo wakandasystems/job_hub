@@ -171,13 +171,18 @@ class DashboardController extends BaseController
 
     public function getPackages()
     {
+        return redirect()->route('public.account.subscription.index');
+    }
+
+    public function getCredits()
+    {
         /**
          * @var Account $account
          */
         $account = auth('account')->user();
 
-        $this->pageTitle(trans('plugins/job-board::messages.packages'));
-        SeoHelper::setTitle(trans('plugins/job-board::messages.packages'));
+        $this->pageTitle(trans('plugins/job-board::dashboard.buy_credits'));
+        SeoHelper::setTitle(trans('plugins/job-board::dashboard.buy_credits'));
 
         Assets::addScriptsDirectly('vendor/core/plugins/job-board/js/components.js');
         Assets::usingVueJS();
@@ -186,6 +191,8 @@ class DashboardController extends BaseController
 
         $packages = Package::query()
             ->wherePublished()
+            ->where('billing_cycle', 'one_time')
+            ->where('number_of_listings', '>', 0)
             ->orderByRaw('(price - (price * percent_save / 100)) asc')
             ->oldest('order')
             ->withCount([
@@ -202,17 +209,7 @@ class DashboardController extends BaseController
             $packages->load('translations');
         }
 
-        $paidPackages = $packages->filter(function ($package) {
-            return $package->total_price > 0;
-        });
-
-        $freePackages = $packages->filter(function ($package) {
-            return $package->total_price == 0;
-        });
-
-        $data = compact('paidPackages', 'freePackages', 'packages');
-
-        return JobBoardHelper::view('dashboard.packages', $data);
+        return JobBoardHelper::view('dashboard.credits', compact('packages'));
     }
 
     public function ajaxGetPackages()
@@ -272,8 +269,13 @@ class DashboardController extends BaseController
             $package->id
         )->count() >= $package->account_limit, 403);
 
+        $billingCycle = $this->normalizePackageBillingCycle($request->input('billing_cycle'));
+        session(['subscribed_package_billing_cycle' => $billingCycle]);
+        session(['subscribed_package_amount' => $this->getPackageBillingAmount($package, $billingCycle)]);
+
         if ((float) $package->price) {
             session(['subscribed_packaged_id' => $package->id]);
+            session(['subscribed_package_return_url' => url()->previous()]);
 
             return $this
                 ->httpResponse()
@@ -331,7 +333,7 @@ class DashboardController extends BaseController
         $account = auth('account')->user();
 
         if (($payment && $payment->status == PaymentStatusEnum::COMPLETED) || $force) {
-            $account->credits += $package->number_of_listings;
+            $account->credits += $this->getPackageCredits($package);
             $account->save();
 
             $account->packages()->attach($package);
@@ -340,11 +342,13 @@ class DashboardController extends BaseController
         Transaction::query()->create([
             'user_id' => 0,
             'account_id' => auth('account')->id(),
-            'credits' => $package->number_of_listings,
+            'credits' => $this->getPackageCredits($package),
             'payment_id' => $payment?->id,
         ]);
 
         $emailHandler = EmailHandler::setModule(JOB_BOARD_MODULE_SCREEN_NAME);
+        $packageAmount = session('subscribed_package_amount', $package->price);
+        $packageCredits = $this->getPackageCredits($package);
 
         if (! $package->price) {
             $emailHandler
@@ -359,10 +363,10 @@ class DashboardController extends BaseController
                     'account_name' => $account->name,
                     'account_email' => $account->email,
                     'package_name' => $package->name,
-                    'package_price' => $package->price ?: 0,
+                    'package_price' => $packageAmount ?: 0,
                     'package_percent_discount' => $package->percent_save,
-                    'package_number_of_listings' => $package->number_of_listings ?: 1,
-                    'package_price_per_credit' => $package->price ? $package->price / ($package->number_of_listings ?: 1) : 0,
+                    'package_number_of_listings' => $packageCredits ?: 1,
+                    'package_price_per_credit' => $packageAmount ? $packageAmount / ($packageCredits ?: 1) : 0,
                 ])
                 ->sendUsingTemplate('payment-received');
         }
@@ -372,38 +376,69 @@ class DashboardController extends BaseController
                 'account_name' => $account->name,
                 'account_email' => $account->email,
                 'package_name' => $package->name,
-                'package_price' => $package->price ?: 0,
+                'package_price' => $packageAmount ?: 0,
                 'package_percent_discount' => $package->percent_save,
-                'package_number_of_listings' => $package->number_of_listings ?: 1,
-                'package_price_per_credit' => $package->price ? $package->price / ($package->number_of_listings ?: 1) : 0,
+                'package_number_of_listings' => $packageCredits ?: 1,
+                'package_price_per_credit' => $packageAmount ? $packageAmount / ($packageCredits ?: 1) : 0,
             ])
             ->sendUsingTemplate('payment-receipt', auth('account')->user()->email);
 
         return true;
     }
 
-    public function getSubscribePackage(int|string $id, CouponService $service)
+    public function getSubscribePackage(int|string $id, CouponService $service, Request $request)
     {
         abort_unless(JobBoardHelper::isEnabledCreditsSystem(), 404);
 
         Assets::addScripts('form-validation');
 
         $package = $this->getPackageById($id);
+        $billingCycle = $this->normalizePackageBillingCycle($request->input('billing_cycle', session('subscribed_package_billing_cycle')));
+        $packageAmount = $this->getPackageBillingAmount($package, $billingCycle);
 
-        Session::put('cart_total', $package->price);
+        Session::put('cart_total', $packageAmount);
+        Session::put('subscribed_package_billing_cycle', $billingCycle);
+        Session::put('subscribed_package_amount', $packageAmount);
 
         SeoHelper::setTitle(trans('plugins/job-board::package.subscribe_package', ['name' => $package->name]));
 
-        add_filter(PAYMENT_FILTER_AFTER_PAYMENT_METHOD, function () use ($service, $package) {
+        add_filter(PAYMENT_FILTER_AFTER_PAYMENT_METHOD, function () use ($service, $package, $packageAmount, $billingCycle) {
             $totalAmount = $service->getAmountAfterDiscount(
                 Session::get('coupon_discount_amount', 0),
-                $package->price
+                $packageAmount
             );
 
-            return view('plugins/job-board::coupons.partials.form', compact('package', 'totalAmount'));
+            return view('plugins/job-board::coupons.partials.form', compact('package', 'totalAmount', 'packageAmount', 'billingCycle'));
         });
 
-        return view(JobBoardHelper::viewPath('dashboard.checkout'), compact('package'));
+        return view(JobBoardHelper::viewPath('dashboard.checkout'), compact('package', 'packageAmount', 'billingCycle'));
+    }
+
+    protected function normalizePackageBillingCycle(?string $billingCycle): string
+    {
+        return $billingCycle === 'annual' ? 'annual' : 'monthly';
+    }
+
+    protected function getPackageBillingAmount(Package $package, string $billingCycle): float
+    {
+        $amount = (float) $package->price;
+
+        if ($billingCycle === 'annual') {
+            return round($amount * 12 * 0.8, 2);
+        }
+
+        return $amount;
+    }
+
+    protected function getPackageCredits(Package $package): int
+    {
+        $credits = (int) $package->number_of_listings;
+
+        if (session('subscribed_package_billing_cycle') === 'annual') {
+            return $credits * 12;
+        }
+
+        return $credits;
     }
 
     public function getPackageSubscribeCallback(int $packageId, Request $request)
@@ -439,8 +474,7 @@ class DashboardController extends BaseController
 
                 return $this
                     ->httpResponse()
-
-                    ->setNextUrl(route('public.account.packages'))
+                    ->setNextUrl(session()->pull('subscribed_package_return_url', route('public.account.packages')))
                     ->setMessage(trans('plugins/job-board::package.add_credit_success'));
             }
 
@@ -448,7 +482,7 @@ class DashboardController extends BaseController
                 ->httpResponse()
 
                 ->setError()
-                ->setNextUrl(route('public.account.packages'))
+                ->setNextUrl(session()->pull('subscribed_package_return_url', route('public.account.packages')))
                 ->setMessage($payPalService->getErrorMessage());
         }
 
@@ -458,7 +492,7 @@ class DashboardController extends BaseController
             return $this
                 ->httpResponse()
 
-                ->setNextUrl(route('public.account.packages'))
+                ->setNextUrl(session()->pull('subscribed_package_return_url', route('public.account.packages')))
                 ->setMessage(session()->get('success_msg') ?: trans('plugins/job-board::package.add_credit_success'));
         }
 
@@ -466,7 +500,7 @@ class DashboardController extends BaseController
             ->httpResponse()
 
             ->setError()
-            ->setNextUrl(route('public.account.packages'))
+            ->setNextUrl(session()->pull('subscribed_package_return_url', route('public.account.packages')))
             ->setMessage(trans('plugins/job-board::messages.payment_failed'));
     }
 

@@ -738,12 +738,12 @@ class JobBoardServiceProvider extends ServiceProvider
                                 'icon' => 'ti ti-file-invoice',
                             ])
                             ->registerItem([
-                                'id' => 'cms-account-packages',
-                                'priority' => 7,
+                                'id' => 'cms-account-credits',
+                                'priority' => 8,
                                 'parent_id' => null,
-                                'name' => 'plugins/job-board::dashboard.menu.packages',
-                                'url' => fn () => route('public.account.packages'),
-                                'icon' => 'ti ti-packages',
+                                'name' => 'plugins/job-board::dashboard.credits',
+                                'url' => fn () => route('public.account.credits'),
+                                'icon' => 'ti ti-coins',
                             ]);
                     })
                     ->registerItem([

@@ -57,6 +57,9 @@
     .talent-hub-dropdown .select2-search--dropdown .select2-search__field {
         border: 1px solid #e0e6f7; border-radius: 6px; padding: 6px 10px; font-size: 13px; width: 100%;
     }
+    .talent-hub-multi-select {
+        min-height: 44px;
+    }
 </style>
 
 <div class="container candidates-list">
@@ -99,7 +102,7 @@
                     </div>
                     <div class="col-lg-5 col-md-8">
                         <label class="font-sm color-text-mutted mb-5 fw-semibold"><i class="fi-rr-tags me-1"></i>{{ __('Skills') }}</label>
-                        <select id="skill-select" name="skill[]" multiple class="w-100">
+                        <select id="skill-select" name="skill[]" multiple class="w-100 talent-hub-multi-select" data-placeholder="{{ __('Any skill') }}">
                             @foreach($allSkills as $id => $name)
                                 <option value="{{ $id }}" @if(!empty($selectedSkills) && in_array($id, $selectedSkills)) selected @endif>{{ $name }}</option>
                             @endforeach
@@ -108,7 +111,7 @@
                     <div class="col-lg-3 col-md-4">
                         <label class="font-sm color-text-mutted mb-5 fw-semibold"><i class="fi-rr-marker me-1"></i>{{ __('City / Region') }}</label>
                         @if($allCities->isNotEmpty())
-                            <select id="city-select" name="city_id[]" multiple class="w-100">
+                            <select id="city-select" name="city_id[]" multiple class="w-100 talent-hub-multi-select" data-placeholder="{{ __('Any city') }}">
                                 @foreach($allCities as $id => $name)
                                     <option value="{{ $id }}" @if(!empty($selectedCities) && in_array($id, $selectedCities)) selected @endif>{{ $name }}</option>
                                 @endforeach
@@ -187,9 +190,37 @@
         var $ = jQuery;
 
         // --- Select2 init ---
-        var s2opts = { multiple: true, allowClear: true, closeOnSelect: false, width: '100%', containerCssClass: 'talent-select2', dropdownCssClass: 'talent-hub-dropdown' };
-        $('#skill-select').select2(Object.assign({}, s2opts, { placeholder: '{{ __('Any skill') }}' }));
-        $('#city-select').select2(Object.assign({}, s2opts, { placeholder: '{{ __('Any city') }}' }));
+        function initTalentHubSelects(attempt) {
+            if (! $.fn.select2) {
+                if (attempt < 20) {
+                    setTimeout(function () {
+                        initTalentHubSelects(attempt + 1);
+                    }, 100);
+                }
+
+                return;
+            }
+
+            $('.talent-hub-multi-select').each(function () {
+                var $select = $(this);
+
+                if ($select.data('select2')) {
+                    return;
+                }
+
+                $select.select2({
+                    multiple: true,
+                    allowClear: true,
+                    closeOnSelect: false,
+                    width: '100%',
+                    placeholder: $select.data('placeholder'),
+                    containerCssClass: 'talent-select2',
+                    dropdownCssClass: 'talent-hub-dropdown'
+                });
+            });
+        }
+
+        initTalentHubSelects(0);
 
         // --- Sync visible filters → hidden AJAX form, then fire AJAX ---
         function syncAndSearch() {

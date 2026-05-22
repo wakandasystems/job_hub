@@ -17,7 +17,17 @@
                                 </span>
                             </div>
                             <div class="text-end flex-shrink-0">
-                                <div class="fs-3 fw-bold text-primary">{{ $currency }} {{ number_format($package->price) }}</div>
+                                <div class="fs-3 fw-bold text-primary">{{ $pricing['display'] ?? ($currency . ' ' . number_format($amount, 2)) }}</div>
+                                @if(isset($pricing) && $pricing['origin_currency_code'] !== $pricing['currency_code'])
+                                    <div class="font-xs text-muted">
+                                        {{ __('Converted for :country', ['country' => $pricing['target_country'] ?? $pricing['currency_code']]) }}
+                                    </div>
+                                @endif
+                                @if(isset($pricing))
+                                    <div class="font-xs text-muted">
+                                        {{ __('Original: :country :price', ['country' => $pricing['origin_country'] ?? $pricing['origin_currency_code'], 'price' => $pricing['origin_display']]) }}
+                                    </div>
+                                @endif
                             </div>
                         </div>
                     </div>
@@ -64,7 +74,7 @@
                             data-error-header="{{ trans('plugins/payment::payment.error') }}"
                             icon="ti ti-credit-card"
                         >
-                            Pay {{ $currency }} {{ number_format($amount) }} &amp; Activate
+                            Pay {{ $pricing['display'] ?? ($currency . ' ' . number_format($amount, 2)) }} &amp; Activate
                         </x-core::button>
                     </x-core::form>
                 </div>

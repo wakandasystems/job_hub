@@ -46,7 +46,7 @@
                     <div class="col-12 mt-3">
                         <div class="job-card-actions">
                             <a class="btn btn-view-details" href="{{ $job->url }}" aria-label="{{ __('View details for :job', ['job' => $job->name]) }}">
-                                {{ __('View Details') }}
+                                <i class="fi-rr-eye" aria-hidden="true"></i>
                             </a>
                             {!! Theme::partial('apply-button', ['job' => $job, 'wrapClass' => 'job-card-action']) !!}
                         </div>

@@ -35,6 +35,15 @@ class PackageRequest extends Request
         if (in_array($features, ['', '[]', 'null', null], true) || empty($features)) {
             $this->merge(['features' => null]);
         }
+
+        if (in_array($this->input('billing_cycle'), ['monthly', 'annual'], true)) {
+            $this->merge([
+                'number_of_listings' => 0,
+                'posts_per_cycle' => 0,
+                'can_search_candidates' => false,
+                'is_recruiter_plan' => false,
+            ]);
+        }
     }
 
     public function attributes(): array

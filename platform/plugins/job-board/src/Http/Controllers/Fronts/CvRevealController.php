@@ -41,7 +41,7 @@ class CvRevealController extends BaseController
                 'message' => $cost > 0
                     ? __('You need :cost credit(s) to reveal this contact. <a href=":url">Buy credits</a> or <a href=":sub">subscribe</a>.', [
                         'cost' => $cost,
-                        'url'  => route('public.account.packages'),
+                        'url'  => route('public.account.credits'),
                         'sub'  => route('public.account.subscription.index'),
                     ])
                     : __('A subscription is required to reveal candidate contacts. <a href=":url">View plans</a>.', [

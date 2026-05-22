@@ -59,7 +59,7 @@
                             <th>Employer</th>
                             <th>Job</th>
                             <th>Package</th>
-                            <th>Amount</th>
+                            <th>Credits Used</th>
                             <th>Payment</th>
                             <th>Status</th>
                             <th>Expires</th>
@@ -84,7 +84,7 @@
                                     @endif
                                 </td>
                                 <td>{{ $order->package?->name ?? 'N/A' }}</td>
-                                <td>{{ $order->currency }} {{ number_format($order->amount, 2) }}</td>
+                                <td>{{ number_format((int) $order->amount) }} credits</td>
                                 <td>
                                     {{ $order->payment_method ? ucwords(str_replace('_', ' ', $order->payment_method)) : '—' }}
                                     @if($order->charge_id)

@@ -1,8 +1,19 @@
 @extends(JobBoardHelper::viewPath('dashboard.layouts.master'))
 
 @section('content')
+    @if(session('success'))
+        <x-core::alert type="success">{{ session('success') }}</x-core::alert>
+    @endif
+    @if(session('error'))
+        <x-core::alert type="danger">
+            {{ session('error') }}
+            <a href="{{ route('public.account.credits') }}" class="ms-2">{{ __('Buy credits') }}</a>
+        </x-core::alert>
+    @endif
+
     <p class="text-muted mb-4">
         {{ __('Boost your job post to the top of search results and get more qualified applicants.') }}
+        {{ __('You have :credits credit(s).', ['credits' => number_format($account->credits)]) }}
     </p>
 
     @if($packages->isEmpty())
@@ -39,14 +50,15 @@
                             </div>
 
                             <div class="d-flex align-items-center justify-content-between mt-auto pt-3 border-top">
-                                <div class="h3 mb-0">{{ $pkg->currency }} {{ number_format($pkg->price, 2) }}</div>
+                                <div class="h3 mb-0">{{ number_format((int) ceil($pkg->price)) }} {{ __('credits') }}</div>
                                 <button type="button" class="btn btn-primary btn-feature-job"
                                     data-package-id="{{ $pkg->id }}"
                                     data-package-name="{{ $pkg->name }}"
+                                    data-credit-cost="{{ number_format((int) ceil($pkg->price)) }}"
                                     data-bs-toggle="modal"
                                     data-bs-target="#selectJobModal">
                                     <x-core::icon name="ti ti-star" class="me-1" />
-                                    {{ __('Feature a Job') }}
+                                    {{ __('Use Credits') }}
                                 </button>
                             </div>
                         </div>
@@ -103,7 +115,7 @@
                             <th>{{ __('Ref') }}</th>
                             <th>{{ __('Package') }}</th>
                             <th>{{ __('Job') }}</th>
-                            <th>{{ __('Amount') }}</th>
+                            <th>{{ __('Credits Used') }}</th>
                             <th>{{ __('Status') }}</th>
                             <th>{{ __('Date') }}</th>
                         </tr>
@@ -122,7 +134,7 @@
                                 <td class="text-muted">#{{ str_pad($o->id, 6, '0', STR_PAD_LEFT) }}</td>
                                 <td>{{ $o->package?->name ?? '—' }}</td>
                                 <td>{{ \Illuminate\Support\Str::limit($o->job?->name ?? '—', 35) }}</td>
-                                <td>{{ $o->currency }} {{ number_format($o->amount, 2) }}</td>
+                                <td>{{ number_format((int) $o->amount) }} {{ __('credits') }}</td>
                                 <td><span class="badge {{ $badgeColor }} text-white">{{ ucfirst($o->status) }}</span></td>
                                 <td class="text-muted">{{ $o->created_at?->format('d M Y') }}</td>
                             </tr>
@@ -141,7 +153,8 @@
                     <h5 class="modal-title">{{ __('Select a Job to Feature') }}</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <form id="featureJobForm" method="GET" action="">
+                <form id="featureJobForm" method="POST" action="">
+                    @csrf
                     <div class="modal-body">
                         <p class="text-muted mb-3" id="selectedPackageName"></p>
                         @if($myJobs->isEmpty())
@@ -179,8 +192,8 @@
                         <div class="modal-footer">
                             <button type="button" class="btn me-auto" data-bs-dismiss="modal">{{ __('Cancel') }}</button>
                             <button type="submit" class="btn btn-primary">
-                                <x-core::icon name="ti ti-arrow-right" class="me-1" />
-                                {{ __('Proceed to Checkout') }}
+                                <x-core::icon name="ti ti-coins" class="me-1" />
+                                {{ __('Use Credits') }}
                             </button>
                         </div>
                     @endif
@@ -195,9 +208,10 @@
             btn.addEventListener('click', function() {
                 var packageId = this.dataset.packageId;
                 var packageName = this.dataset.packageName;
+                var creditCost = this.dataset.creditCost;
                 var baseUrl = '{{ route('public.account.featured-jobs.checkout', ['package' => '__PKG__']) }}';
                 document.getElementById('featureJobForm').action = baseUrl.replace('__PKG__', packageId);
-                document.getElementById('selectedPackageName').textContent = '{{ __('Package') }}: ' + packageName;
+                document.getElementById('selectedPackageName').textContent = '{{ __('Package') }}: ' + packageName + ' - ' + creditCost + ' {{ __('credits') }}';
             });
         });
     </script>

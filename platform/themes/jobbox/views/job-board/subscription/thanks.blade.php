@@ -24,17 +24,11 @@
                             <div class="col-6 font-sm fw-semibold">{{ ucfirst($subscription->billing_cycle) }}</div>
                             <div class="col-6 font-sm text-muted">Expires</div>
                             <div class="col-6 font-sm fw-semibold">{{ $subscription->ends_at?->format('d M Y') ?? 'N/A' }}</div>
-                            @php $limit = (int)($subscription->package?->posts_per_cycle ?? 0); @endphp
-                            <div class="col-6 font-sm text-muted">Post quota</div>
-                            <div class="col-6 font-sm fw-semibold">{{ $limit === 0 ? 'Unlimited' : $limit . ' / cycle' }}</div>
                         </div>
                     </div>
 
                     <div class="d-flex gap-3 justify-content-center">
                         <a href="{{ route('public.account.dashboard') }}" class="btn btn-apply px-4">Go to Dashboard</a>
-                        @if($subscription->package?->can_search_candidates)
-                            <a href="{{ route('public.account.candidates.search') }}" class="btn btn-outline-secondary px-4">Search Candidates</a>
-                        @endif
                     </div>
                 </div>
             </div>

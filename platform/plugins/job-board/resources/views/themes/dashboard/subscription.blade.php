@@ -9,7 +9,7 @@
             <div class="d-flex align-items-center gap-3 flex-wrap">
                 <x-core::icon name="ti ti-alert-triangle" class="alert-icon flex-shrink-0" />
                 <span>{{ session('error') }}</span>
-                <a href="{{ route('public.account.packages') }}" class="btn btn-sm btn-danger flex-shrink-0 ms-auto">
+                <a href="{{ route('public.account.subscription.index') }}" class="btn btn-sm btn-danger flex-shrink-0 ms-auto">
                     <x-core::icon name="ti ti-crown" class="me-1" />
                     View Plans
                 </a>
@@ -34,28 +34,15 @@
                                 &nbsp;·&nbsp;<span class="text-warning">Cancels at period end</span>
                             @endif
                         </div>
-                        @php
-                            $limit = (int)($activeSub->package?->posts_per_cycle ?? 0);
-                            $used  = $activeSub->posts_used_this_cycle;
-                        @endphp
-                        <div class="text-muted small mt-1">
-                            Job posts this cycle: <strong>{{ $used }} / {{ $limit === 0 ? '∞' : $limit }}</strong>
-                            @if($activeSub->package?->can_search_candidates)
-                                &nbsp;·&nbsp;<span class="text-success">✓ Candidate search</span>
-                            @endif
-                            @if($activeSub->package?->is_recruiter_plan)
-                                &nbsp;·&nbsp;<span class="text-primary">✓ Recruiter plan</span>
-                            @endif
-                        </div>
                     </div>
                     @if(! $activeSub->cancel_at_period_end)
-                        <form method="POST" action="{{ route('public.account.subscription.cancel') }}">
-                            @csrf
-                            <button type="submit" class="btn btn-sm btn-outline-danger"
-                                onclick="return confirm('Cancel at end of period?')">
-                                Cancel Subscription
-                            </button>
-                        </form>
+                        <button type="button" class="btn btn-sm btn-outline-danger"
+                            data-bs-toggle="modal"
+                            data-bs-target="#cancelSubscriptionModal"
+                            data-action="{{ route('public.account.subscription.cancel') }}"
+                            data-label="{{ $activeSub->package?->name ?? 'this subscription' }}">
+                            Cancel Subscription
+                        </button>
                     @endif
                 </div>
             </x-core::card.body>
@@ -78,7 +65,7 @@
             @foreach($plans as $plan)
                 @php
                     $isCurrentPlan = $activeSub?->package_id === $plan->id;
-                    $annualPrice   = $plan->billing_cycle === 'monthly' ? $plan->price * 10 : null;
+                    $annualPrice   = $plan->billing_cycle === 'monthly' ? round($plan->price * 12 * 0.8, 2) : null;
                 @endphp
                 <div class="col">
                     <div @class(['card card-md h-100', 'border-primary' => $plan->is_default, 'border-success' => $isCurrentPlan])>
@@ -103,36 +90,29 @@
                                 @if($annualPrice)
                                     <div class="text-muted small mt-1">
                                         or {{ strtoupper(cms_currency()->getDefaultCurrency()->title ?? 'USD') }} {{ number_format($annualPrice, 0) }}/year
-                                        <span class="badge bg-green-lt ms-1">2 months free</span>
+                                        <span class="badge bg-green-lt ms-1">20% off</span>
                                     </div>
                                 @endif
                             </div>
 
                             <ul class="list-unstyled mb-3 flex-grow-1">
-                                @php $postLimit = (int)$plan->posts_per_cycle; @endphp
-                                <li class="mb-1">
-                                    <x-core::icon name="ti ti-check" class="text-success me-1" />
-                                    {{ $postLimit === 0 ? 'Unlimited job posts' : "{$postLimit} job posts / month" }}
-                                </li>
-                                @if($plan->can_search_candidates)
-                                    <li class="mb-1">
-                                        <x-core::icon name="ti ti-check" class="text-success me-1" />
-                                        Candidate CV search
-                                    </li>
-                                @endif
-                                @if($plan->is_recruiter_plan)
-                                    <li class="mb-1">
-                                        <x-core::icon name="ti ti-check" class="text-success me-1" />
-                                        Recruiter plan (bulk posting, multi-profile)
-                                    </li>
-                                @endif
                                 @foreach($plan->formatted_features ?? [] as $feature)
-                                    @if($feature)
-                                        <li class="mb-1">
-                                            <x-core::icon name="ti ti-check" class="text-success me-1" />
-                                            {{ $feature }}
-                                        </li>
-                                    @endif
+                                    @continue(! $feature)
+                                    @php
+                                        $featureText = strtolower($feature);
+                                        $isCreditFeature = str_contains($featureText, 'job post')
+                                            || str_contains($featureText, 'job listing')
+                                            || str_contains($featureText, 'active job')
+                                            || str_contains($featureText, 'cv database')
+                                            || str_contains($featureText, 'database access')
+                                            || str_contains($featureText, 'candidate search')
+                                            || str_contains($featureText, 'candidate cv');
+                                    @endphp
+                                    @continue($isCreditFeature)
+                                    <li class="mb-1">
+                                        <x-core::icon name="ti ti-check" class="text-success me-1" />
+                                        {{ $feature }}
+                                    </li>
                                 @endforeach
                             </ul>
 
@@ -147,7 +127,7 @@
                                     @if($annualPrice)
                                         <a href="{{ route('public.account.subscription.checkout', ['package' => $plan->id, 'cycle' => 'annual']) }}"
                                            class="btn btn-outline-primary w-100 mt-2">
-                                            Subscribe Annually (save 17%)
+                                            Subscribe Annually (save 20%)
                                         </a>
                                     @endif
                                 @endif
@@ -203,4 +183,37 @@
             </div>
         </x-core::card>
     @endif
+
+    <div class="modal fade" id="cancelSubscriptionModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content">
+                <div class="modal-body text-center py-4 px-4">
+                    <div class="mb-3">
+                        <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger bg-opacity-10" style="width:52px;height:52px;">
+                            <i class="ti ti-x text-danger fs-3"></i>
+                        </span>
+                    </div>
+                    <h6 class="fw-semibold mb-1">Cancel this subscription?</h6>
+                    <p class="text-muted small mb-4" id="cancelSubscriptionModalLabel">It will remain active until the current period ends.</p>
+                    <div class="d-flex gap-2 justify-content-center">
+                        <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Keep</button>
+                        <form id="cancelSubscriptionForm" method="POST">
+                            @csrf
+                            <button type="submit" class="btn btn-danger px-4">Cancel</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @push('footer')
+        <script>
+            document.getElementById('cancelSubscriptionModal')?.addEventListener('show.bs.modal', function (e) {
+                var btn = e.relatedTarget;
+                document.getElementById('cancelSubscriptionForm').action = btn.dataset.action;
+                document.getElementById('cancelSubscriptionModalLabel').textContent = btn.dataset.label;
+            });
+        </script>
+    @endpush
 @stop

@@ -48,6 +48,9 @@
     @else
         <div class="row g-3 mb-40">
             @foreach($packages as $pkg)
+                @php
+                    $pricing = $packagePrices[$pkg->id] ?? null;
+                @endphp
                 <div class="col-md-6 col-lg-4">
                     <div class="card h-100 border career-service-card" style="border-radius:12px;transition:box-shadow .2s,border-color .2s;">
                         <div class="card-body p-4 d-flex flex-column">
@@ -69,9 +72,21 @@
                                 </div>
                             </div>
                             <div class="d-flex align-items-center justify-content-between mt-auto">
-                                <span class="fw-bold color-brand-1 fs-5">
-                                    {{ $pkg->currency }} {{ number_format($pkg->price, 2) }}
-                                </span>
+                                <div>
+                                    <span class="fw-bold color-brand-1 fs-5">
+                                        {{ $pricing['display'] ?? ($pkg->currency . ' ' . number_format($pkg->price, 2)) }}
+                                    </span>
+                                    @if($pricing && $pricing['origin_currency_code'] !== $pricing['currency_code'])
+                                        <div class="font-xs color-text-paragraph-2">
+                                            {{ __('Converted for :country', ['country' => $pricing['target_country'] ?? $pricing['currency_code']]) }}
+                                        </div>
+                                    @endif
+                                    @if($pricing)
+                                        <div class="font-xs color-text-paragraph-2">
+                                            {{ __('Original: :country :price', ['country' => $pricing['origin_country'] ?? $pricing['origin_currency_code'], 'price' => $pricing['origin_display']]) }}
+                                        </div>
+                                    @endif
+                                </div>
                                 <a href="{{ route('public.account.job-alert.packages.checkout', ['package' => $pkg->id]) }}"
                                    class="btn btn-apply px-4">
                                     {{ __('Get this plan') }}

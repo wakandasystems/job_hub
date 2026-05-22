@@ -278,7 +278,7 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
 
             Route::controller('FeaturedJobCheckoutController')->prefix('featured-jobs')->name('featured-jobs.')->group(function (): void {
                 Route::get('', ['as' => 'index', 'uses' => 'index']);
-                Route::get('{package}/checkout', ['as' => 'checkout', 'uses' => 'checkout']);
+                Route::post('{package}/checkout', ['as' => 'checkout', 'uses' => 'checkout']);
                 Route::get('{order}/callback', ['as' => 'callback', 'uses' => 'callback']);
                 Route::get('{order}/thanks', ['as' => 'thanks', 'uses' => 'thanks']);
                 Route::get('{order}/pending', ['as' => 'pending', 'uses' => 'pending']);
@@ -335,6 +335,22 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
                     Route::put('/', [
                         'as' => 'package.subscribe.put',
                         'uses' => 'subscribePackage',
+                    ]);
+                });
+            });
+
+            Route::group([
+                'prefix' => 'credits',
+                'middleware' => [
+                    'account:' . AccountTypeEnum::EMPLOYER,
+                    'enable-credits',
+                    LocaleMiddleware::class,
+                ],
+            ], function (): void {
+                Route::controller('DashboardController')->group(function (): void {
+                    Route::get('/', [
+                        'as' => 'credits',
+                        'uses' => 'getCredits',
                     ]);
                 });
             });

@@ -26,6 +26,8 @@
                             <div class="col-6 font-sm fw-semibold">{{ \Illuminate\Support\Str::limit($job?->name ?? '—', 35) }}</div>
                             <div class="col-6 font-sm text-muted">{{ __('Badge') }}</div>
                             <div class="col-6"><span class="badge bg-warning text-dark">{{ $package?->badge_label }}</span></div>
+                            <div class="col-6 font-sm text-muted">{{ __('Credits Used') }}</div>
+                            <div class="col-6 font-sm fw-semibold">{{ number_format((int) $order->amount) }} {{ __('credits') }}</div>
                             <div class="col-6 font-sm text-muted">{{ __('Expires') }}</div>
                             <div class="col-6 font-sm fw-semibold">
                                 {{ $order->expires_at ? $order->expires_at->format('d M Y') : __('No expiry') }}

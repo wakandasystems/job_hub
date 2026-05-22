@@ -8,15 +8,13 @@ use Botble\JobBoard\Facades\JobBoardHelper;
 use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\CvReveal;
 use Botble\JobBoard\Supports\CvRevealService;
-use Botble\JobBoard\Supports\SubscriptionService;
 use Botble\SeoHelper\Facades\SeoHelper;
 use Illuminate\Http\Request;
 
 class CandidateSearchController extends BaseController
 {
     public function __construct(
-        protected SubscriptionService $subscriptionService,
-        protected CvRevealService     $revealService,
+        protected CvRevealService $revealService,
     ) {
     }
 
@@ -24,11 +22,6 @@ class CandidateSearchController extends BaseController
     {
         /** @var Account $account */
         $account = auth('account')->user();
-
-        if (! $this->subscriptionService->canSearchCandidates($account)) {
-            return redirect()->route('public.account.subscription.index')
-                ->with('error', __('Candidate search is available on Growth and Enterprise subscription plans.'));
-        }
 
         SeoHelper::setTitle(__('Search Candidates'));
         PageTitle::setTitle(__('Search Candidates'));

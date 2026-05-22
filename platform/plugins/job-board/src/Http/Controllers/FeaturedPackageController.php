@@ -71,14 +71,14 @@ class FeaturedPackageController extends BaseController
             'name'          => ['required', 'string', 'max:100'],
             'description'   => ['nullable', 'string', 'max:500'],
             'duration_days' => ['required', 'integer', 'min:0'],
-            'price'         => ['required', 'numeric', 'min:0'],
-            'currency'      => ['required', 'string', 'max:3'],
+            'price'         => ['required', 'integer', 'min:0'],
             'badge_label'   => ['required', 'string', 'max:50'],
             'is_active'     => ['nullable', 'boolean'],
             'sort_order'    => ['nullable', 'integer', 'min:0'],
         ]);
 
         $data['is_active'] = (bool) ($data['is_active'] ?? false);
+        $data['currency'] = 'CRD';
 
         return $data;
     }

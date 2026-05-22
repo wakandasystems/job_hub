@@ -86,10 +86,10 @@
         </header>
 
         <div id="app">
-            @if (auth('account')->user()->isEmployer() && JobBoardHelper::isEnabledCreditsSystem())
+            @if (auth('account')->user()->isEmployer() && JobBoardHelper::isEnabledCreditsSystem() && ! request()->routeIs('public.account.credits'))
                 <x-core::alert>
                     {{ trans('plugins/job-board::package.add_credit_warning') }}
-                    <a href="{{ route('public.account.packages') }}">
+                    <a href="{{ route('public.account.credits') }}">
                         {{ trans('plugins/job-board::dashboard.buy_credits') }}
                         <span class="mr-2 badge badge-danger">{{ auth('account')->user()->credits }}</span>
                     </a>

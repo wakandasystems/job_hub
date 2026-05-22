@@ -12,6 +12,8 @@ use Botble\JobBoard\Models\Job;
 use Botble\SeoHelper\Facades\SeoHelper;
 use Botble\Theme\Facades\Theme;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class FeaturedJobCheckoutController extends BaseController
 {
@@ -60,27 +62,44 @@ class FeaturedJobCheckoutController extends BaseController
 
         abort_if(! $job, 404, 'Select a valid job from your listings.');
 
-        SeoHelper::setTitle(__('Checkout: :name', ['name' => $package->name]));
+        $creditCost = $this->getCreditCost($package);
 
-        $currency = strtoupper(cms_currency()->getDefaultCurrency()->title ?? 'USD');
+        $order = DB::transaction(function () use ($account, $job, $package, $creditCost): ?FeaturedOrder {
+            if ($creditCost > 0) {
+                $deducted = Account::query()
+                    ->whereKey($account->getKey())
+                    ->where('credits', '>=', $creditCost)
+                    ->decrement('credits', $creditCost);
 
-        $order = FeaturedOrder::create([
-            'account_id' => $account->getKey(),
-            'job_id'     => $job->getKey(),
-            'package_id' => $package->getKey(),
-            'amount'     => $package->price,
-            'currency'   => $currency,
-            'status'     => 'pending',
-        ]);
+                if (! $deducted) {
+                    return null;
+                }
+            }
 
-        $callbackUrl = route('public.account.featured-jobs.callback', ['order' => $order->id]);
-        $returnUrl   = route('public.account.featured-jobs.index');
-        $name        = $package->name . ' — ' . $job->name;
-        $amount      = $package->price;
+            $order = FeaturedOrder::create([
+                'account_id'     => $account->getKey(),
+                'job_id'         => $job->getKey(),
+                'package_id'     => $package->getKey(),
+                'amount'         => $creditCost,
+                'currency'       => 'CRD',
+                'status'         => 'pending',
+                'payment_method' => 'credits',
+                'charge_id'      => 'credits-' . Str::uuid(),
+            ]);
 
-        return Theme::scope('job-board.featured-jobs.checkout', compact(
-            'package', 'order', 'job', 'account', 'callbackUrl', 'returnUrl', 'currency', 'name', 'amount'
-        ))->render();
+            $order->approve();
+
+            return $order;
+        });
+
+        if (! $order) {
+            return redirect()
+                ->route('public.account.featured-jobs.index')
+                ->with('error', __('You need :credits credit(s) to feature this job. Buy more credits and try again.', ['credits' => $creditCost]));
+        }
+
+        return redirect()->route('public.account.featured-jobs.thanks', ['order' => $order->id])
+            ->with('success', __(':credits credit(s) deducted. Your job is now featured.', ['credits' => $creditCost]));
     }
 
     public function callback(FeaturedOrder $order, Request $request)
@@ -128,11 +147,16 @@ class FeaturedJobCheckoutController extends BaseController
             return redirect()->route('public.account.featured-jobs.thanks', ['order' => $order->id]);
         }
 
-        SeoHelper::setTitle(__('Payment Pending'));
+        SeoHelper::setTitle(__('Activation Pending'));
 
         $package = $order->package;
         $job     = $order->job;
 
         return Theme::scope('job-board.featured-jobs.pending', compact('package', 'order', 'account', 'job'))->render();
+    }
+
+    protected function getCreditCost(FeaturedPackage $package): int
+    {
+        return max(0, (int) ceil((float) $package->price));
     }
 }

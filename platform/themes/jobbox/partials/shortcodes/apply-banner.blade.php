@@ -1,4 +1,19 @@
 <div class="section-box mb-30">
+    <style>
+        .box-we-hiring {
+            overflow: hidden;
+        }
+
+        .box-we-hiring .box-we-hiring-after {
+            background-position: center center !important;
+            background-repeat: no-repeat !important;
+            background-size: contain !important;
+            bottom: 15px;
+            height: 120px;
+            right: 15px;
+            width: 220px;
+        }
+    </style>
     <div class="container">
         <div class="box-we-hiring">
             @if ($shortcode->apply_image_left)
@@ -20,7 +35,7 @@
             @endif
 
             @if ($shortcode->apply_image_right)
-                <div class="box-we-hiring-after" style="background: url({{ RvMedia::getImageUrl($shortcode->apply_image_right) }}) no-repeat 0 0"></div>
+                <div class="box-we-hiring-after" style="background-image: url({{ RvMedia::getImageUrl($shortcode->apply_image_right) }})"></div>
             @endif
         </div>
     </div>

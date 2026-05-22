@@ -61,7 +61,7 @@ class AccountJobController extends BaseController
             return $this
                 ->httpResponse()
                 ->setError()
-                ->setNextUrl(route('public.account.packages'))
+                ->setNextUrl(route('public.account.credits'))
                 ->setMessage(trans('plugins/job-board::messages.please_purchase_package'));
         }
 

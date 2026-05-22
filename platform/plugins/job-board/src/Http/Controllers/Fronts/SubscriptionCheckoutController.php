@@ -30,8 +30,8 @@ class SubscriptionCheckoutController extends BaseController
         $plans = Package::query()
             ->wherePublished()
             ->whereIn('billing_cycle', ['monthly', 'annual'])
-            ->orderBy('order')
             ->orderByRaw('(price - (price * percent_save / 100)) asc')
+            ->oldest('order')
             ->get();
 
         $activeSub = $this->subscriptionService->getActiveSubscription($account);
@@ -58,10 +58,9 @@ class SubscriptionCheckoutController extends BaseController
 
         $currency = strtoupper(cms_currency()->getDefaultCurrency()->title ?? 'USD');
 
-        // Annual = 10x monthly (2 months free)
         $price = (float) $package->price;
         if ($request->input('cycle', $package->billing_cycle) === 'annual' && $package->billing_cycle === 'monthly') {
-            $price = $price * 10;
+            $price = round($price * 12 * 0.8, 2);
         }
 
         $billingCycle = $request->input('cycle', $package->billing_cycle);

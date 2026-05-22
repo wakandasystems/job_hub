@@ -7,10 +7,6 @@ use Botble\JobBoard\Models\CvReveal;
 
 class CvRevealService
 {
-    public function __construct(protected SubscriptionService $subscriptionService)
-    {
-    }
-
     public function hasRevealed(Account $employer, Account $candidate): bool
     {
         return CvReveal::query()
@@ -25,11 +21,6 @@ class CvRevealService
      */
     public function canReveal(Account $employer): array
     {
-        // Active subscription with candidate search → free reveal
-        if ($this->subscriptionService->canSearchCandidates($employer)) {
-            return ['can' => true, 'reason' => 'subscription', 'cost' => 0];
-        }
-
         // Credits-based reveal
         $cost = (int) setting('cv_reveal_credit_cost', 1);
         if ($cost > 0 && $employer->credits >= $cost) {

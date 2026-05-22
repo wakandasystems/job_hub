@@ -8,9 +8,9 @@
                             <i class="fi-rr-clock text-warning fs-1"></i>
                         </span>
                     </div>
-                    <h3 class="fw-bold color-brand-1 mb-2">{{ __('Payment Pending') }}</h3>
+                    <h3 class="fw-bold color-brand-1 mb-2">{{ __('Activation Pending') }}</h3>
                     <p class="color-text-paragraph-2 font-sm mb-4">
-                        {{ __('Your payment is being verified. Your job will be featured as soon as we confirm receipt.') }}
+                        {{ __('Your featured job request is being reviewed. Your job will be featured as soon as it is approved.') }}
                     </p>
 
                     <div class="card bg-light border-0 p-3 mb-4 text-start">
@@ -21,8 +21,8 @@
                             <div class="col-6 font-sm fw-semibold">{{ $package?->name }}</div>
                             <div class="col-6 font-sm text-muted">{{ __('Job') }}</div>
                             <div class="col-6 font-sm fw-semibold">{{ \Illuminate\Support\Str::limit($job?->name ?? '—', 35) }}</div>
-                            <div class="col-6 font-sm text-muted">{{ __('Amount') }}</div>
-                            <div class="col-6 font-sm fw-semibold">{{ $order->currency }} {{ number_format($order->amount, 2) }}</div>
+                            <div class="col-6 font-sm text-muted">{{ __('Credits Used') }}</div>
+                            <div class="col-6 font-sm fw-semibold">{{ number_format((int) $order->amount) }} {{ __('credits') }}</div>
                             <div class="col-6 font-sm text-muted">{{ __('Payment') }}</div>
                             <div class="col-6 font-sm">
                                 {{ $order->payment_method ? ucwords(str_replace('_', ' ', $order->payment_method)) : '—' }}

@@ -71,14 +71,16 @@ class CouponController extends BaseController
     public function refresh(string $id, CouponService $service): BaseHttpResponse
     {
         $package = Package::query()->findOrFail($id);
+        $packageAmount = (float) Session::get('cart_total', $package->price);
+        $billingCycle = Session::get('subscribed_package_billing_cycle', 'monthly');
 
         $totalAmount = $service->getAmountAfterDiscount(
             Session::get('coupon_discount_amount', 0),
-            $package->price
+            $packageAmount
         );
 
         return $this
             ->httpResponse()
-            ->setData(view('plugins/job-board::coupons.partials.form', compact('package', 'totalAmount'))->render());
+            ->setData(view('plugins/job-board::coupons.partials.form', compact('package', 'totalAmount', 'packageAmount', 'billingCycle'))->render());
     }
 }
