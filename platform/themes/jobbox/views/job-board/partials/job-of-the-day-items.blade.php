@@ -4,7 +4,11 @@
     @foreach ($jobs as $job)
         @if ($style === 'style-1')
             <div class="col-xl-3 col-lg-4 col-md-6 col-sm-12 col-12">
-                <div @class(['card-grid-2 hover-up items', 'featured-job-item' => $job->is_featured])>
+                <div @class(['card-grid-2 hover-up items', 'featured-job-item' => $job->is_featured])
+                     @if($job->company_logo_thumb && !str_starts_with($job->company_logo_thumb, 'data:'))
+                         style="--card-logo: url('{{ $job->company_logo_thumb }}')"
+                     @endif
+                >
                     <div class="card-grid-2-image-left job-item">
                         @if ($job->is_featured)
                             <span class="flash"></span>

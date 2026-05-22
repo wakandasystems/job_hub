@@ -1,5 +1,7 @@
 <div class="col-xl-4 col-lg-4 col-md-6 col-sm-12 col-12 jobs-item job-grid">
-    <div class="card-grid-2 hover-up @if ($job->is_featured) featured-job-item @endif">
+    @php($logoUrl = RvMedia::getImageUrl($job->company_logo_thumb))
+    <div class="card-grid-2 hover-up @if ($job->is_featured) featured-job-item @endif"
+         @if($logoUrl && !str_starts_with($logoUrl, 'data:')) style="--card-logo: url('{{ $logoUrl }}')" @endif>
         <div class="card-grid-2-image-left">
             @if($job->is_featured)
                 <span class="flash"></span>
