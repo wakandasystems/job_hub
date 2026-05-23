@@ -10,7 +10,9 @@ use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Repositories\Interfaces\CategoryInterface;
 use Botble\JobBoard\Repositories\Interfaces\JobInterface;
 use Botble\Location\Facades\Location;
+use Botble\Location\Models\City;
 use Botble\Location\Models\Country;
+use Botble\Location\Models\State;
 use Botble\Theme\Facades\Theme;
 use Botble\Theme\Http\Controllers\PublicController;
 use Illuminate\Http\RedirectResponse;
@@ -90,6 +92,69 @@ class JobboxController extends PublicController
             ->map(fn ($addr) => ['id' => $addr, 'name' => $addr]);
 
         return $response->setData([$addresses, 'total' => $addresses->count()]);
+    }
+
+    public function ajaxGetTalentStates(Request $request)
+    {
+        abort_unless(is_plugin_active('location'), 404);
+
+        $request->validate([
+            'country_id' => ['required', 'integer'],
+            'q' => ['nullable', 'string', 'max:100'],
+            'page' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $states = State::query()
+            ->select(['id', 'name'])
+            ->wherePublished()
+            ->where('country_id', $request->integer('country_id'))
+            ->when($request->query('q'), function ($query, string $keyword): void {
+                $query->where('name', 'LIKE', '%' . BaseHelper::stringify($keyword) . '%');
+            })
+            ->orderBy('order')
+            ->orderBy('name')
+            ->paginate(10);
+
+        return response()->json([
+            'results' => $states->map(fn (State $state) => [
+                'id' => $state->id,
+                'text' => $state->name,
+            ])->values(),
+            'pagination' => ['more' => $states->hasMorePages()],
+        ]);
+    }
+
+    public function ajaxGetTalentCities(Request $request)
+    {
+        abort_unless(is_plugin_active('location'), 404);
+
+        $request->validate([
+            'country_id' => ['required', 'integer'],
+            'state_id' => ['required', 'integer'],
+            'q' => ['nullable', 'string', 'max:100'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
+        ]);
+
+        $cities = City::query()
+            ->select(['id', 'name'])
+            ->wherePublished()
+            ->where('country_id', $request->integer('country_id'))
+            ->where('state_id', $request->integer('state_id'))
+            ->when($request->query('q'), function ($query, string $keyword): void {
+                $query->where('name', 'LIKE', '%' . BaseHelper::stringify($keyword) . '%');
+            })
+            ->orderBy('order')
+            ->orderBy('name')
+            ->paginate(min($request->integer('per_page', 10), 200));
+
+        return response()->json([
+            'results' => $cities->map(fn (City $city) => [
+                'id' => $city->id,
+                'text' => $city->name,
+            ])->values(),
+            'pagination' => ['more' => $cities->hasMorePages()],
+        ]);
     }
 
     public function ajaxGetJobCategories(

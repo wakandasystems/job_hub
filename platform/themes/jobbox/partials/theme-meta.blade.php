@@ -9,4 +9,6 @@
         --primary-font: '{{ theme_option('primary_font') ?: 'Plus Jakarta Sans' }}', sans-serif;
         --primary-color-rgb: {{ implode(', ', BaseHelper::hexToRgb(theme_option('primary_color', '#3C65F5'))) }};
     }
+    /* Pre-hide WOW.js targets so JS init doesn't flash visible→hidden→animate */
+    .wow { visibility: hidden; }
 </style>

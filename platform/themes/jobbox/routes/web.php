@@ -31,6 +31,16 @@ Route::group(['namespace' => 'Theme\Jobbox\Http\Controllers', 'middleware' => ['
                             'uses' => 'ajaxGetLocation',
                         ]);
 
+                        Route::get('talent-states', [
+                            'as' => 'talent-states',
+                            'uses' => 'ajaxGetTalentStates',
+                        ]);
+
+                        Route::get('talent-cities', [
+                            'as' => 'talent-cities',
+                            'uses' => 'ajaxGetTalentCities',
+                        ]);
+
                         Route::get('quick-search-jobs', [
                             'as' => 'quick-search-jobs',
                             'uses' => 'ajaxQuickSearchJobs',

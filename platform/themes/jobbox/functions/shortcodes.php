@@ -130,7 +130,7 @@ app()->booted(function (): void {
                         'order_by' => [
                             'jb_jobs.created_at' => 'DESC',
                         ],
-                        'take' => 10,
+                        'take' => 20,
                     ]
                 );
 

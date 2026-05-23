@@ -16,15 +16,40 @@
 
     $allSkills      = JobSkill::orderBy('name')->pluck('name', 'id');
     $selectedSkills = array_filter((array) request('skill', []));
+    $selectedCountry = is_plugin_active('location') ? wakanda_selected_country() : null;
+    $selectedCountryId = $selectedCountry ? (int) $selectedCountry->id : null;
+    $selectedStateId = (int) request('state_id');
+    $selectedState = null;
+    $allStates = collect();
 
     $allCities = collect();
     if (is_plugin_active('location')) {
-        $usedCityIds = \DB::table('jb_accounts')->whereNotNull('city_id')->distinct()->pluck('city_id');
-        if ($usedCityIds->isNotEmpty()) {
-            $allCities = \DB::table('cities')->whereIn('id', $usedCityIds)->orderBy('name')->pluck('name', 'id');
+        if ($selectedCountryId) {
+            $allStates = \Botble\Location\Models\State::query()
+                ->where('country_id', $selectedCountryId)
+                ->wherePublished()
+                ->orderBy('order')
+                ->orderBy('name')
+                ->pluck('name', 'id');
+        }
+
+        if ($selectedStateId) {
+            $selectedState = \Botble\Location\Models\State::query()
+                ->where('id', $selectedStateId)
+                ->when($selectedCountryId, fn ($query) => $query->where('country_id', $selectedCountryId))
+                ->first();
+        }
+
+        if ($selectedState) {
+            $allCities = \Botble\Location\Models\City::query()
+                ->where('state_id', $selectedState->id)
+                ->wherePublished()
+                ->orderBy('order')
+                ->orderBy('name')
+                ->pluck('name', 'id');
         }
     }
-    $selectedCities = array_filter((array) request('city_id', []));
+    $selectedCities = $selectedState ? array_filter((array) request('city_id', [])) : [];
 @endphp
 
 <link rel="stylesheet" href="{{ asset('vendor/core/core/base/libraries/select2/css/select2.min.css') }}">
@@ -34,18 +59,51 @@
         border: 1px solid #e0e6f7 !important;
         border-radius: 8px !important;
         min-height: 44px !important;
+        max-width: 100% !important;
         padding: 4px 8px !important;
         background: #fff !important;
         cursor: pointer;
+        overflow: hidden;
+    }
+    .talent-select2 .select2-selection--single {
+        border: 1px solid #e0e6f7 !important;
+        border-radius: 8px !important;
+        height: 44px !important;
+        background: #fff !important;
+    }
+    .talent-select2 .select2-selection--single .select2-selection__rendered {
+        color: #4f5e64;
+        font-size: 13px;
+        line-height: 42px !important;
+        padding-left: 12px !important;
+        padding-right: 28px !important;
+    }
+    .talent-select2 .select2-selection--single .select2-selection__arrow {
+        height: 42px !important;
+        right: 8px !important;
     }
     .talent-select2.select2-container--focus .select2-selection--multiple {
         border-color: #3c65f5 !important;
         box-shadow: 0 0 0 3px rgba(60,101,245,.1) !important;
     }
-    .talent-select2 .select2-selection__rendered { display: flex; flex-wrap: wrap; gap: 3px; padding: 0 !important; }
+    .talent-select2.select2-container--focus .select2-selection--single {
+        border-color: #3c65f5 !important;
+        box-shadow: 0 0 0 3px rgba(60,101,245,.1) !important;
+    }
+    .talent-select2.select2-container { max-width: 100% !important; }
+    .talent-select2 .select2-selection--multiple .select2-selection__rendered {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 3px;
+        max-width: 100%;
+        padding: 0 !important;
+    }
     .talent-select2 .select2-selection__choice {
         background: #e8f0fe; border: none !important; color: #3c65f5;
         border-radius: 20px; padding: 2px 10px; font-size: 12px; line-height: 20px; margin: 1px 0;
+        max-width: 100%;
+        white-space: normal;
+        overflow-wrap: anywhere;
     }
     .talent-select2 .select2-selection__choice__remove { color: #3c65f5; margin-right: 4px; opacity: .7; }
     .talent-select2 .select2-selection__choice__remove:hover { opacity: 1; }
@@ -59,6 +117,104 @@
     }
     .talent-hub-multi-select {
         min-height: 44px;
+    }
+    .talent-filter-card {
+        overflow: visible;
+    }
+    .talent-location-disabled .select2-selection {
+        background: #f8f9fc !important;
+        cursor: not-allowed;
+    }
+    .talent-skills-list {
+        position: relative;
+    }
+    .talent-skills-toggle {
+        align-items: center;
+        background: #fff;
+        border: 1px solid #e0e6f7;
+        border-radius: 8px;
+        color: #4f5e64;
+        display: flex;
+        font-size: 13px;
+        justify-content: space-between;
+        min-height: 44px;
+        padding: 8px 12px;
+        text-align: left;
+        width: 100%;
+    }
+    .talent-skills-toggle:after {
+        content: "⌄";
+        color: #8a94a6;
+        font-size: 16px;
+        line-height: 1;
+        margin-left: 10px;
+    }
+    .talent-skills-list.is-open .talent-skills-toggle {
+        border-color: #3c65f5;
+        box-shadow: 0 0 0 3px rgba(60,101,245,.1);
+    }
+    .talent-skills-panel {
+        background: #fff;
+        border: 1px solid #e0e6f7;
+        border-radius: 8px;
+        box-shadow: 0 10px 25px rgba(15, 23, 42, .12);
+        display: none;
+        left: 0;
+        overflow: hidden;
+        position: absolute;
+        right: 0;
+        top: calc(100% + 6px);
+        z-index: 20;
+    }
+    .talent-skills-list.is-open .talent-skills-panel {
+        display: block;
+    }
+    .talent-skills-search {
+        border: 0;
+        border-bottom: 1px solid #e0e6f7;
+        border-radius: 0;
+        font-size: 13px;
+        min-height: 42px;
+    }
+    .talent-skills-options {
+        display: block;
+        max-height: 184px;
+        overflow-y: auto;
+        padding: 8px 10px;
+    }
+    .talent-skill-option {
+        align-items: center;
+        display: flex !important;
+        gap: 8px;
+        margin: 0;
+        min-height: 30px;
+        padding: 3px 0;
+        width: 100%;
+    }
+    .talent-skill-option span {
+        color: #4f5e64;
+        font-size: 13px;
+        line-height: 18px;
+        overflow-wrap: anywhere;
+    }
+    .talent-skill-summary {
+        color: #3c65f5;
+        font-size: 12px;
+        font-weight: 600;
+        min-height: 18px;
+        padding: 0 10px 8px;
+    }
+    .talent-location-select {
+        border: 1px solid #e0e6f7;
+        border-radius: 8px;
+        color: #4f5e64;
+        font-size: 13px;
+        min-height: 44px;
+    }
+    @media (max-width: 767px) {
+        .talent-filter-card {
+            padding: 20px !important;
+        }
     }
 </style>
 
@@ -89,10 +245,10 @@
 
     {{-- Filter card --}}
     <section class="section-box mt-30 mb-10">
-        <div class="box-shadow-bdrd-15 p-30">
-                {{-- Row 1: keyword + skills + city --}}
+        <div class="box-shadow-bdrd-15 p-30 talent-filter-card">
+                {{-- Row 1: keyword + skills + state + city --}}
                 <div class="row g-3 mb-20">
-                    <div class="col-lg-4 col-md-12">
+                    <div class="col-xl-3 col-lg-6 col-md-12">
                         <label class="font-sm color-text-mutted mb-5 fw-semibold"><i class="fi-rr-search me-1"></i>{{ __('Name or keyword') }}</label>
                         <div class="input-group">
                             <span class="input-group-text bg-white border-end-0"><i class="fi-rr-user text-muted"></i></span>
@@ -100,27 +256,54 @@
                                 value="{{ request('keyword') }}" placeholder="{{ __('e.g. John, Accountant…') }}">
                         </div>
                     </div>
-                    <div class="col-lg-5 col-md-8">
+                    <div class="col-xl-3 col-lg-6 col-md-6">
                         <label class="font-sm color-text-mutted mb-5 fw-semibold"><i class="fi-rr-tags me-1"></i>{{ __('Skills') }}</label>
-                        <select id="skill-select" name="skill[]" multiple class="w-100 talent-hub-multi-select" data-placeholder="{{ __('Any skill') }}">
-                            @foreach($allSkills as $id => $name)
-                                <option value="{{ $id }}" @if(!empty($selectedSkills) && in_array($id, $selectedSkills)) selected @endif>{{ $name }}</option>
-                            @endforeach
-                        </select>
+                        <div class="talent-skills-list">
+                            <button type="button" class="talent-skills-toggle" id="skill-toggle">
+                                <span id="skill-toggle-label">{{ __('Any skill') }}</span>
+                            </button>
+                            <div class="talent-skills-panel" id="skill-panel">
+                                <input type="search" class="form-control talent-skills-search" id="skill-search" placeholder="{{ __('Search skills') }}">
+                                <div class="talent-skills-options" id="skill-options">
+                                    @foreach($allSkills as $id => $name)
+                                        <label class="talent-skill-option" data-skill-name="{{ strtolower($name) }}">
+                                            <input type="checkbox" class="form-check-input skill-checkbox" value="{{ $id }}" @checked(!empty($selectedSkills) && in_array($id, $selectedSkills))>
+                                            <span>{{ $name }}</span>
+                                        </label>
+                                    @endforeach
+                                </div>
+                                <div class="talent-skill-summary" id="skill-summary"></div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="col-lg-3 col-md-4">
-                        <label class="font-sm color-text-mutted mb-5 fw-semibold"><i class="fi-rr-marker me-1"></i>{{ __('City / Region') }}</label>
-                        @if($allCities->isNotEmpty())
-                            <select id="city-select" name="city_id[]" multiple class="w-100 talent-hub-multi-select" data-placeholder="{{ __('Any city') }}">
+                    <div class="col-xl-3 col-lg-6 col-md-6">
+                        <label class="font-sm color-text-mutted mb-5 fw-semibold"><i class="fi-rr-map me-1"></i>{{ __('Region / State') }}</label>
+                        @if($selectedCountryId)
+                            <select id="state-select" name="state_id" class="form-select talent-location-select" data-country-id="{{ $selectedCountryId }}">
+                                <option value="">{{ __('Any region/state') }}</option>
+                                @foreach($allStates as $id => $name)
+                                    <option value="{{ $id }}" @selected($selectedState && (int) $selectedState->id === (int) $id)>{{ $name }}</option>
+                                @endforeach
+                            </select>
+                        @else
+                            <select id="state-select" class="form-select talent-location-select" disabled>
+                                <option>{{ __('Select a country first') }}</option>
+                            </select>
+                        @endif
+                    </div>
+                    <div class="col-xl-3 col-lg-6 col-md-6">
+                        <label class="font-sm color-text-mutted mb-5 fw-semibold"><i class="fi-rr-marker me-1"></i>{{ __('City') }}</label>
+                        @if($selectedCountryId)
+                            <select id="city-select" name="city_id" class="form-select talent-location-select" data-country-id="{{ $selectedCountryId }}" data-url="{{ route('public.ajax.talent-cities') }}" @disabled(! $selectedState)>
+                                <option value="">{{ __('Any city') }}</option>
                                 @foreach($allCities as $id => $name)
-                                    <option value="{{ $id }}" @if(!empty($selectedCities) && in_array($id, $selectedCities)) selected @endif>{{ $name }}</option>
+                                    <option value="{{ $id }}" @selected(!empty($selectedCities) && in_array($id, $selectedCities))>{{ $name }}</option>
                                 @endforeach
                             </select>
                         @else
                             <div class="input-group">
                                 <span class="input-group-text bg-white border-end-0"><i class="fi-rr-marker text-muted"></i></span>
-                                <input class="form-control border-start-0" id="filter-location" name="location"
-                                    value="{{ request('location') }}" placeholder="{{ __('Any city') }}">
+                                <input class="form-control border-start-0" id="filter-location" name="location" value="{{ request('location') }}" placeholder="{{ __('Select a country first') }}" disabled>
                             </div>
                         @endif
                     </div>
@@ -173,6 +356,8 @@
         @foreach($selectedSkills as $skillId)
             <input class="ajax-skill" type="hidden" name="skill[]" value="{{ $skillId }}">
         @endforeach
+        <input type="hidden" id="ajax-country"         name="country_id"        value="{{ $selectedCountryId ?: '' }}">
+        <input type="hidden" id="ajax-state"           name="state_id"          value="{{ $selectedState ? $selectedState->id : '' }}">
         @foreach($selectedCities as $cityId)
             <input class="ajax-city" type="hidden" name="city_id[]" value="{{ $cityId }}">
         @endforeach
@@ -189,38 +374,90 @@
     document.addEventListener('DOMContentLoaded', function () {
         var $ = jQuery;
 
-        // --- Select2 init ---
-        function initTalentHubSelects(attempt) {
-            if (! $.fn.select2) {
-                if (attempt < 20) {
-                    setTimeout(function () {
-                        initTalentHubSelects(attempt + 1);
-                    }, 100);
-                }
+        function updateSkillSummary() {
+            var count = $('.skill-checkbox:checked').length;
+            var text = count ? count + ' ' + @json(__('skill(s) selected')) : @json(__('Any skill'));
+            $('#skill-summary').text(text);
+            $('#skill-toggle-label').text(text);
+        }
 
+        $('#skill-toggle').on('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $('.talent-skills-list').toggleClass('is-open');
+            if ($('.talent-skills-list').hasClass('is-open')) {
+                $('#skill-search').trigger('focus');
+            }
+        });
+
+        $('#skill-panel').on('click', function (e) {
+            e.stopPropagation();
+        });
+
+        $(document).on('click', function () {
+            $('.talent-skills-list').removeClass('is-open');
+        });
+
+        $('#skill-search').on('input', function () {
+            var term = $(this).val().toLowerCase();
+
+            $('.talent-skill-option').each(function () {
+                $(this).toggle($(this).data('skill-name').indexOf(term) !== -1);
+            });
+        });
+
+        $('.skill-checkbox').on('change', function () {
+            updateSkillSummary();
+            syncAndSearch();
+        });
+
+        updateSkillSummary();
+
+        function setCityEnabled(enabled) {
+            var $city = $('#city-select');
+
+            if (! $city.length) {
                 return;
             }
 
-            $('.talent-hub-multi-select').each(function () {
-                var $select = $(this);
-
-                if ($select.data('select2')) {
-                    return;
-                }
-
-                $select.select2({
-                    multiple: true,
-                    allowClear: true,
-                    closeOnSelect: false,
-                    width: '100%',
-                    placeholder: $select.data('placeholder'),
-                    containerCssClass: 'talent-select2',
-                    dropdownCssClass: 'talent-hub-dropdown'
-                });
-            });
+            $city.prop('disabled', ! enabled);
         }
 
-        initTalentHubSelects(0);
+        function loadCitiesForState(stateId, selectedCityIds) {
+            var $city = $('#city-select');
+
+            if (! $city.length) {
+                return;
+            }
+
+            $city.empty();
+            $city.append(new Option(@json(__('Any city')), '', false, false));
+
+            if (! stateId) {
+                setCityEnabled(false);
+                return;
+            }
+
+            setCityEnabled(true);
+
+            $.ajax({
+                url: $city.data('url'),
+                method: 'GET',
+                headers: { Accept: 'application/json' },
+                data: {
+                    country_id: $city.data('country-id'),
+                    state_id: stateId,
+                    per_page: 200
+                },
+                success: function (res) {
+                    var selected = selectedCityIds || '';
+                    (res.results || []).forEach(function (city) {
+                        var option = new Option(city.text, city.id, false, String(selected) === String(city.id));
+                        $city.append(option);
+                    });
+                }
+            });
+        }
 
         // --- Sync visible filters → hidden AJAX form, then fire AJAX ---
         function syncAndSearch() {
@@ -230,15 +467,21 @@
             // skills — remove old hidden inputs, add fresh ones
             $('.ajax-skill').remove();
             var $ajaxForm = $('form.candidate-filter-form');
-            $('#skill-select').val() && $('#skill-select').val().forEach(function(v) {
-                $ajaxForm.append('<input class="ajax-skill" type="hidden" name="skill[]" value="' + v + '">');
+            $('.skill-checkbox:checked').each(function() {
+                var v = $(this).val();
+                $ajaxForm.append($('<input>', { class: 'ajax-skill', type: 'hidden', name: 'skill[]', value: v }));
             });
+
+            // country/state
+            $('#ajax-country').val($('#state-select').data('country-id') || '');
+            $('#ajax-state').val($('#state-select').val() || '');
 
             // cities
             $('.ajax-city').remove();
-            $('#city-select').length && $('#city-select').val() && $('#city-select').val().forEach(function(v) {
-                $ajaxForm.append('<input class="ajax-city" type="hidden" name="city_id[]" value="' + v + '">');
-            });
+            var cityId = $('#city-select').val();
+            if (cityId) {
+                $ajaxForm.append($('<input>', { class: 'ajax-city', type: 'hidden', name: 'city_id[]', value: cityId }));
+            }
 
             // text location fallback
             $('#ajax-location').val($('#filter-location').val() || '');
@@ -277,7 +520,13 @@
 
         // Dropdowns: search on change
         $('#filter-experience, #filter-availability').on('change', syncAndSearch);
-        $('#skill-select, #city-select').on('change', syncAndSearch);
+        $('#city-select').on('change', syncAndSearch);
+        $('#state-select').on('change', function () {
+            loadCitiesForState($(this).val(), []);
+            syncAndSearch();
+        });
+
+        setCityEnabled(!! $('#state-select').val());
 
         // Open to work toggle
         $('#filter-open-to-work').on('change', syncAndSearch);

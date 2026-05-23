@@ -260,7 +260,7 @@
                         {{ __('Latest jobs') }}@if(isset($selectedCountry) && $selectedCountry) {{ __('in :country', ['country' => $selectedCountry->name]) }} @endif
                     </h2>
                     <p class="font-lg color-text-paragraph-2 wow animate__animated animate__fadeInUp">
-                        {{ __('Browse the 10 most recent jobs available for your selected country.') }}
+                        {{ __('Browse the 20 most recent jobs available for your selected country.') }}
                     </p>
                 </div>
                 <div class="box-swiper mt-50">

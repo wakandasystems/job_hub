@@ -320,6 +320,8 @@ class JobBoardHelper
             'per_page'        => ['nullable', 'numeric', 'min:1'],
             'skill'           => ['nullable'],
             'skill.*'         => ['nullable', 'integer'],
+            'country_id'      => ['nullable', 'integer'],
+            'state_id'        => ['nullable', 'integer'],
             'city_id'         => ['nullable', 'array'],
             'city_id.*'       => ['nullable', 'integer'],
             'location'        => ['nullable', 'string', 'max:100'],
@@ -400,6 +402,14 @@ class JobBoardHelper
                     $q->where('jb_job_skills.name', 'like', "%{$skill}%");
                 });
             }
+        }
+
+        if (! empty($data['country_id'])) {
+            $candidates->where('country_id', $data['country_id']);
+        }
+
+        if (! empty($data['state_id'])) {
+            $candidates->where('state_id', $data['state_id']);
         }
 
         if (! empty($data['city_id'])) {
