@@ -15,6 +15,11 @@
                 <h1 class="text-42 color-white wow animate__ animate__fadeInUp animated" style="visibility: visible; animation-name: fadeInUp;">
                     {{ SeoHelper::getTitle()  }}
                 </h1>
+                @if (! empty($seoDescription))
+                    <p class="font-md color-white mt-15 mb-0">
+                        {{ $seoDescription }}
+                    </p>
+                @endif
             </div>
         </div>
     </div>

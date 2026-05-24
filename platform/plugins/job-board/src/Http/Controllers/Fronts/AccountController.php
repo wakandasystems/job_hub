@@ -16,6 +16,7 @@ use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\AccountActivityLog;
 use Botble\JobBoard\Models\AccountEducation;
 use Botble\JobBoard\Models\AccountExperience;
+use Botble\JobBoard\Models\AccountLanguage;
 use Botble\JobBoard\Models\CareerServiceOrder;
 use Botble\JobBoard\Models\Currency;
 use Botble\JobBoard\Services\CvScoringService;
@@ -113,7 +114,11 @@ class AccountController extends BaseController
 
         $form = AccountSettingForm::createFromModel($account);
 
-        $languages = $account->languages()->with('languageLevel')->get();
+        $languages = AccountLanguage::query()
+            ->where('account_id', $account->id)
+            ->with('languageLevel')
+            ->latest('id')
+            ->get();
 
         $languageForm = AccountLanguageForm::create();
 
@@ -414,5 +419,98 @@ class AccountController extends BaseController
         return $this
             ->httpResponse()
             ->setData(compact('url'));
+    }
+
+    public function postUploadResumeScore(UploadResumeRequest $request)
+    {
+        /** @var Account $account */
+        $account = auth('account')->user();
+
+        $result = RvMedia::handleUpload($request->file('file'), 0, $account->upload_folder);
+
+        if ($result['error']) {
+            return $this->httpResponse()->setError()->setMessage($result['message'] ?? __('Upload failed.'));
+        }
+
+        if ($old = $account->resume) {
+            Storage::disk('public')->delete($old);
+        }
+
+        // Archive the previous score into history before overwriting
+        if ($account->cv_score) {
+            $history = (array) ($account->cv_score_history ?: []);
+            array_unshift($history, [
+                'score'     => $account->cv_score,
+                'data'      => $account->cv_score_data,
+                'archived_at' => now()->toIso8601String(),
+            ]);
+            // Keep at most 20 historical entries
+            $history = array_slice($history, 0, 20);
+        }
+
+        $data = [
+            'resume'           => $result['data']->url,
+            'cv_score'         => null,
+            'cv_score_data'    => null,
+            'cv_score_history' => $history ?? $account->cv_score_history,
+        ];
+
+        $uploadedFile = $request->file('file');
+        try {
+            $cvResult = app(CvScoringService::class)->scoreFile(
+                $uploadedFile->getRealPath(),
+                $uploadedFile->getClientOriginalExtension()
+            );
+            if ($cvResult) {
+                $data['cv_score']      = $cvResult['score'];
+                $data['cv_score_data'] = $cvResult;
+            }
+        } catch (\Throwable) {
+            // Non-fatal: upload succeeded even if scoring fails
+        }
+
+        $account->update($data);
+
+        return $this->httpResponse()->setData([
+            'resume'    => $account->resume,
+            'score'     => $account->cv_score,
+            'feedback'  => $account->cv_score_data['feedback'] ?? [],
+            'scored_at' => $account->cv_score_data['scored_at'] ?? null,
+        ]);
+    }
+
+    public function getCvScoreHistory(Request $request)
+    {
+        /** @var Account $account */
+        $account = auth('account')->user();
+
+        $history = (array) ($account->cv_score_history ?: []);
+
+        $page    = max(1, (int) $request->input('page', 1));
+        $perPage = 5;
+        $total   = count($history);
+        $items   = array_slice($history, ($page - 1) * $perPage, $perPage);
+
+        return $this->httpResponse()->setData([
+            'items'        => $items,
+            'total'        => $total,
+            'per_page'     => $perPage,
+            'current_page' => $page,
+            'last_page'    => (int) ceil($total / $perPage) ?: 1,
+        ]);
+    }
+
+    public function deleteResume(Request $request)
+    {
+        /** @var Account $account */
+        $account = auth('account')->user();
+
+        if ($path = $account->resume) {
+            Storage::disk('public')->delete($path);
+        }
+
+        $account->update(['resume' => null, 'cv_score' => null, 'cv_score_data' => null]);
+
+        return $this->httpResponse()->setMessage(__('CV removed successfully.'));
     }
 }

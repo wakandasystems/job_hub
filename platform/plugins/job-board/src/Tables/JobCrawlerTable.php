@@ -14,10 +14,12 @@ use Botble\Table\Columns\Column;
 use Botble\Table\Columns\FormattedColumn;
 use Botble\Table\Columns\IdColumn;
 use Botble\Table\Columns\NameColumn;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Arr;
 
 class JobCrawlerTable extends TableAbstract
 {
@@ -49,6 +51,20 @@ class JobCrawlerTable extends TableAbstract
                 EditAction::make()->route('job-board.crawlers.edit'),
                 DeleteAction::make()->route('job-board.crawlers.destroy'),
             ]);
+
+        static $registeredStatsFilter = false;
+
+        if (! $registeredStatsFilter) {
+            add_filter(BASE_FILTER_TABLE_BEFORE_RENDER, function (?string $html, TableAbstract $table): ?string {
+                if (! $table instanceof self) {
+                    return $html;
+                }
+
+                return ($html ?: '') . $table->renderStatsPeriodFilter();
+            }, 20, 2);
+
+            $registeredStatsFilter = true;
+        }
     }
 
     protected function countryForCrawler(JobCrawler $crawler): string
@@ -63,6 +79,11 @@ class JobCrawlerTable extends TableAbstract
             'keejob'       => ['flag' => '🇹🇳', 'name' => 'Tunisia'],
         ];
 
+        // Go Africa Jobs reuses the Go Zambia parser but stores its country in field_mappings.
+        if ($crawler->parser_type === 'gozambiajobs' && $country = $this->countryFromMappings($crawler)) {
+            return $country;
+        }
+
         if (isset($staticMap[$crawler->parser_type])) {
             $info = $staticMap[$crawler->parser_type];
 
@@ -70,20 +91,25 @@ class JobCrawlerTable extends TableAbstract
         }
 
         // For parsers whose country is stored in field_mappings.country_id
-        if (in_array($crawler->parser_type, ['ringier', 'africawork', 'pending'])) {
-            $mappings  = $crawler->field_mappings;
-            $countryId = is_array($mappings) ? ($mappings['country_id'] ?? null) : null;
-
-            if ($countryId) {
-                $country = \DB::table('countries')->where('id', $countryId)->first(['name', 'code']);
-
-                if ($country) {
-                    return $this->codeToFlag((string) $country->code) . ' ' . $country->name;
-                }
-            }
+        if (in_array($crawler->parser_type, ['ringier', 'africawork', 'pending']) && $country = $this->countryFromMappings($crawler)) {
+            return $country;
         }
 
         return '&mdash;';
+    }
+
+    protected function countryFromMappings(JobCrawler $crawler): ?string
+    {
+        $mappings = $crawler->field_mappings;
+        $countryId = is_array($mappings) ? ($mappings['country_id'] ?? null) : null;
+
+        if (! $countryId) {
+            return null;
+        }
+
+        $country = \DB::table('countries')->where('id', $countryId)->first(['name', 'code']);
+
+        return $country ? $this->codeToFlag((string) $country->code) . ' ' . $country->name : null;
     }
 
     protected function codeToFlag(string $code): string
@@ -101,20 +127,22 @@ class JobCrawlerTable extends TableAbstract
 
     public function ajax(): JsonResponse
     {
+        $periodLabel = e($this->statsRange()['label']);
+
         $data = $this->table
             ->eloquent($this->query())
             ->addColumn('country', fn (JobCrawler $crawler) => $this->countryForCrawler($crawler))
-            ->addColumn('jobs', function (JobCrawler $crawler) {
+            ->addColumn('jobs', function (JobCrawler $crawler) use ($periodLabel) {
                 $total = number_format((int) $crawler->total_jobs);
-                $new   = (int) $crawler->new_today;
+                $new   = (int) $crawler->period_created;
                 $badge = $new > 0
                     ? '<span class="badge bg-success-lt ms-2">' . number_format($new) . ' new</span>'
                     : '<span class="text-muted ms-2 small">0 new</span>';
-                $tip = 'Total jobs: ' . $total . ' · New today: ' . number_format($new);
+                $tip = 'Total jobs: ' . $total . ' · New in ' . $periodLabel . ': ' . number_format($new);
 
                 return '<span title="' . e($tip) . '" style="cursor:default;">' . $total . $badge . '</span>';
             })
-            ->editColumn('last_status', function (JobCrawler $crawler) {
+            ->editColumn('last_status', function (JobCrawler $crawler) use ($periodLabel) {
                 if (! $crawler->last_status) {
                     return '&mdash;';
                 }
@@ -125,7 +153,10 @@ class JobCrawlerTable extends TableAbstract
                 $runAt      = $crawler->last_run_at
                     ? e($crawler->last_run_at->format('D, M j \a\t g:ia') . ' (' . $crawler->last_run_at->diffForHumans() . ')')
                     : 'Never';
-                $newToday   = number_format((int) $crawler->new_today);
+                $periodCreated = number_format((int) $crawler->period_created);
+                $periodUpdated = number_format((int) $crawler->period_updated);
+                $periodFound = number_format((int) $crawler->period_found);
+                $periodSkipped = number_format((int) $crawler->period_skipped);
                 $lrCreated  = number_format((int) ($crawler->last_run_created ?? 0));
                 $lrUpdated  = number_format((int) ($crawler->last_run_updated ?? 0));
                 $lrFound    = number_format((int) ($crawler->last_run_found ?? 0));
@@ -135,15 +166,16 @@ class JobCrawlerTable extends TableAbstract
                 return <<<HTML
                     <span class="crstatus">{$badge}<span class="crstatus-tip">
                         <span class="crname-tip-row"><span class="crname-tip-lbl">Last run</span><span>{$runAt}</span></span>
-                        <span class="crname-tip-row"><span class="crname-tip-lbl">Today</span><span class="text-success fw-semibold">{$newToday} new jobs</span></span>
+                        <span class="crname-tip-row"><span class="crname-tip-lbl">{$periodLabel}</span><span class="text-success fw-semibold">{$periodCreated} new</span></span>
+                        <span class="crname-tip-row"><span class="crname-tip-lbl">Period totals</span><span>{$periodFound} found &middot; {$periodUpdated} updated &middot; {$periodSkipped} skipped</span></span>
                         <span class="crname-tip-row"><span class="crname-tip-lbl">Last run</span><span>+{$lrCreated} new &middot; {$lrUpdated} updated &middot; {$lrFound} found</span></span>
                         <span class="crname-tip-row"><span class="crname-tip-lbl">Published</span><span>{$activeJobs} active / {$totalJobs} total</span></span>
                     </span></span>
                 HTML;
             })
             ->editColumn('last_run_at', fn (JobCrawler $crawler) => $crawler->last_run_at?->diffForHumans() ?: '&mdash;')
-            ->addColumn('runs_today', fn (JobCrawler $crawler) => (int) $crawler->runs_today > 0
-                ? '<span class="badge bg-blue-lt">' . number_format((int) $crawler->runs_today) . 'x</span>'
+            ->addColumn('runs_today', fn (JobCrawler $crawler) => (int) $crawler->period_runs > 0
+                ? '<span class="badge bg-blue-lt">' . number_format((int) $crawler->period_runs) . 'x</span>'
                 : '<span class="text-muted">—</span>');
 
         return $this->toJson($data);
@@ -151,6 +183,10 @@ class JobCrawlerTable extends TableAbstract
 
     public function query(): Relation|Builder|QueryBuilder
     {
+        $range = $this->statsRange();
+        $from = $range['from']->toDateTimeString();
+        $to = $range['to']->toDateTimeString();
+
         return $this->applyScopes(
             $this->getModel()->query()
                 ->select([
@@ -170,7 +206,22 @@ class JobCrawlerTable extends TableAbstract
                 ->selectRaw(
                     '(SELECT COALESCE(SUM(jobs_created), 0) FROM jb_job_crawler_runs'
                     . ' WHERE jb_job_crawler_runs.crawler_id = jb_job_crawlers.id'
-                    . ' AND DATE(started_at) = CURDATE()) AS new_today'
+                    . " AND started_at BETWEEN '$from' AND '$to') AS period_created"
+                )
+                ->selectRaw(
+                    '(SELECT COALESCE(SUM(jobs_found), 0) FROM jb_job_crawler_runs'
+                    . ' WHERE jb_job_crawler_runs.crawler_id = jb_job_crawlers.id'
+                    . " AND started_at BETWEEN '$from' AND '$to') AS period_found"
+                )
+                ->selectRaw(
+                    '(SELECT COALESCE(SUM(jobs_updated), 0) FROM jb_job_crawler_runs'
+                    . ' WHERE jb_job_crawler_runs.crawler_id = jb_job_crawlers.id'
+                    . " AND started_at BETWEEN '$from' AND '$to') AS period_updated"
+                )
+                ->selectRaw(
+                    '(SELECT COALESCE(SUM(jobs_skipped), 0) FROM jb_job_crawler_runs'
+                    . ' WHERE jb_job_crawler_runs.crawler_id = jb_job_crawlers.id'
+                    . " AND started_at BETWEEN '$from' AND '$to') AS period_skipped"
                 )
                 ->selectRaw(
                     "(SELECT jobs_created FROM jb_job_crawler_runs"
@@ -194,7 +245,7 @@ class JobCrawlerTable extends TableAbstract
                 ->selectRaw(
                     '(SELECT COUNT(*) FROM jb_job_crawler_runs'
                     . ' WHERE crawler_id = jb_job_crawlers.id'
-                    . ' AND DATE(started_at) = CURDATE()) AS runs_today'
+                    . " AND started_at BETWEEN '$from' AND '$to') AS period_runs"
                 )
                 ->orderBy('id')
         );
@@ -236,8 +287,111 @@ class JobCrawlerTable extends TableAbstract
                 }),
             Column::make('last_status')->title('Last status')->width(130),
             Column::make('last_run_at')->title('Last run')->width(160),
-            Column::make('runs_today')->title('Runs today')->width(100)->orderable(false)->className('text-center'),
+            Column::make('runs_today')->title('Runs')->width(100)->orderable(false)->className('text-center'),
         ];
+    }
+
+    protected function statsRange(): array
+    {
+        $period = (string) $this->request()->input('stats_period', 'today');
+        $now = Carbon::now();
+
+        [$from, $to, $label] = match ($period) {
+            'yesterday' => [$now->copy()->subDay()->startOfDay(), $now->copy()->subDay()->endOfDay(), 'Yesterday'],
+            '7_days' => [$now->copy()->subDays(6)->startOfDay(), $now->copy()->endOfDay(), 'Last 7 days'],
+            '30_days' => [$now->copy()->subDays(29)->startOfDay(), $now->copy()->endOfDay(), 'Last 30 days'],
+            'this_month' => [$now->copy()->startOfMonth(), $now->copy()->endOfDay(), 'This month'],
+            'last_month' => [$now->copy()->subMonthNoOverflow()->startOfMonth(), $now->copy()->subMonthNoOverflow()->endOfMonth(), 'Last month'],
+            'custom' => $this->customStatsRange($now),
+            default => [$now->copy()->startOfDay(), $now->copy()->endOfDay(), 'Today'],
+        };
+
+        return compact('period', 'from', 'to', 'label');
+    }
+
+    protected function customStatsRange(Carbon $now): array
+    {
+        $fromInput = (string) $this->request()->input('stats_from');
+        $toInput = (string) $this->request()->input('stats_to');
+
+        try {
+            $from = $fromInput ? Carbon::parse($fromInput)->startOfDay() : $now->copy()->startOfDay();
+        } catch (\Throwable) {
+            $from = $now->copy()->startOfDay();
+        }
+
+        try {
+            $to = $toInput ? Carbon::parse($toInput)->endOfDay() : $now->copy()->endOfDay();
+        } catch (\Throwable) {
+            $to = $now->copy()->endOfDay();
+        }
+
+        if ($from->gt($to)) {
+            [$from, $to] = [$to->copy()->startOfDay(), $from->copy()->endOfDay()];
+        }
+
+        return [$from, $to, $from->toDateString() . ' to ' . $to->toDateString()];
+    }
+
+    public function renderStatsPeriodFilter(): string
+    {
+        $range = $this->statsRange();
+        $period = $range['period'];
+        $from = e((string) $this->request()->input('stats_from', $range['from']->toDateString()));
+        $to = e((string) $this->request()->input('stats_to', $range['to']->toDateString()));
+        $action = e($this->request()->url());
+        $query = Arr::except($this->request()->query(), ['stats_period', 'stats_from', 'stats_to']);
+        $hidden = '';
+
+        foreach ($query as $key => $value) {
+            if (is_array($value)) {
+                continue;
+            }
+
+            $hidden .= '<input type="hidden" name="' . e($key) . '" value="' . e((string) $value) . '">';
+        }
+
+        $option = fn (string $value, string $label) => '<option value="' . e($value) . '"' . ($period === $value ? ' selected' : '') . '>' . e($label) . '</option>';
+        $options = implode('', [
+            $option('today', 'Today'),
+            $option('yesterday', 'Yesterday'),
+            $option('7_days', 'Last 7 days'),
+            $option('30_days', 'Last 30 days'),
+            $option('this_month', 'This month'),
+            $option('last_month', 'Last month'),
+            $option('custom', 'Custom range'),
+        ]);
+
+        return <<<HTML
+            <div class="card mb-3">
+                <div class="card-body">
+                    <form method="GET" action="{$action}" class="row g-2 align-items-end">
+                        {$hidden}
+                        <div class="col-12 col-md-3">
+                            <label class="form-label mb-1">Stats period</label>
+                            <select name="stats_period" class="form-select">
+                                {$options}
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label mb-1">From</label>
+                            <input type="date" name="stats_from" value="{$from}" class="form-control">
+                        </div>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label mb-1">To</label>
+                            <input type="date" name="stats_to" value="{$to}" class="form-control">
+                        </div>
+                        <div class="col-12 col-md-auto d-flex gap-2">
+                            <button type="submit" class="btn btn-primary">Apply</button>
+                            <a href="{$action}" class="btn btn-outline-secondary">Reset</a>
+                        </div>
+                        <div class="col-12 col-md text-muted small">
+                            Showing run stats for <strong>{$range['label']}</strong>. Total jobs remains all-time; the green badge, runs, and tooltip period totals use this range.
+                        </div>
+                    </form>
+                </div>
+            </div>
+        HTML;
     }
 
     public function buttons(): array

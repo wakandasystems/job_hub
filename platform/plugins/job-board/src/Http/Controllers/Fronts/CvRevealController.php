@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Http\Controllers\Fronts;
 
 use Botble\Base\Http\Controllers\BaseController;
+use Botble\JobBoard\Enums\AccountTypeEnum;
 use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Supports\CvRevealService;
 use Illuminate\Http\JsonResponse;
@@ -19,7 +20,7 @@ class CvRevealController extends BaseController
         $employer  = auth('account')->user();
         $candidate = Account::query()
             ->where('id', $candidateId)
-            ->where('type', 'job_seeker')
+            ->where('type', AccountTypeEnum::JOB_SEEKER)
             ->where('is_public_profile', true)
             ->firstOrFail();
 

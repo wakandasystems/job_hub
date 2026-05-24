@@ -141,7 +141,8 @@ class AccountSettingForm extends FormAbstract
                     );
             })
             ->when($isJobSeeker, function (AccountSettingForm $form) use ($selectedJobTags, $jobTags, $selectedJobSkills, $jobSkills): void {
-                $form->when(! empty($jobSkills) || ! empty($selectedJobSkills), function (AccountSettingForm $form) use ($selectedJobSkills, $jobSkills): void {
+                $form->add('_section_skills', HtmlField::class, HtmlFieldOption::make()->content('<!-- SECTION:skills -->'))
+                    ->when(! empty($jobSkills) || ! empty($selectedJobSkills), function (AccountSettingForm $form) use ($selectedJobSkills, $jobSkills): void {
                     $form->add(
                         'favorite_skills',
                         TagField::class,
@@ -161,12 +162,7 @@ class AccountSettingForm extends FormAbstract
                                 ->selected(implode(',', $selectedJobTags))
                         );
                     })
-                    ->add(
-                        'title_profile',
-                        HtmlField::class,
-                        HtmlFieldOption::make()
-                            ->content(sprintf('<h5 class="fs-17 fw-semibold mb-3">%s</h5>', trans('plugins/job-board::messages.profile')))
-                    )
+                    ->add('_section_profile', HtmlField::class, HtmlFieldOption::make()->content('<!-- SECTION:profile -->'))
                     ->when(! JobBoardHelper::isDisabledPublicProfile(), function (FormAbstract $form): void {
                         $form
                             ->add(
@@ -250,6 +246,15 @@ class AccountSettingForm extends FormAbstract
             })
             ->when($isJobSeeker, function (AccountSettingForm $form) use ($account): void {
                 $form
+                    ->add('_section_documents', HtmlField::class, HtmlFieldOption::make()->content('<!-- SECTION:documents -->'))
+                    ->add(
+                        'profile_contact_policy_notice',
+                        HtmlField::class,
+                        HtmlFieldOption::make()->content(
+                            '<div class="alert alert-warning mb-3"><strong>' . __('Do not put contact details in your public profile text.') . '</strong> '
+                            . __('Phone numbers, emails, WhatsApp/Telegram handles, social links, and similar direct contact details must only be added in the official contact fields. Attempts to bypass this rule may lead to your profile being suspended or banned.') . '</div>'
+                        )
+                    )
                     ->add(
                         'description',
                         TextareaField::class,
@@ -284,16 +289,25 @@ class AccountSettingForm extends FormAbstract
                             $feedbackHtml .= "<div class=\"color-text-paragraph-2 font-xs mb-1\"><i class=\"fi-rr-angle-right me-1\"></i>{$escaped}</div>";
                         }
 
+                        $hasHistory = !empty($account->cv_score_history);
+                        $historyLink = $hasHistory
+                            ? '<a href="#" class="font-xs text-muted text-decoration-underline" data-bs-toggle="modal" data-bs-target="#cvScoreHistoryModal">View history</a>'
+                            : '';
+
                         $upsell = $score < 75
                             ? '<div class="alert alert-warning d-flex align-items-center gap-3 py-2 px-3 mb-0 mt-3"><i class="fi-rr-star fs-5 text-warning flex-shrink-0"></i><div class="font-sm"><strong>Boost your chances</strong> — have a career coach professionally review and rewrite your CV. <a href="' . route('public.account.career-services') . '" class="fw-semibold ms-1">View Career Services →</a></div></div>'
                             : '';
 
                         $html = <<<HTML
+<div id="cv-score-card-inpage">
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body p-4">
     <div class="d-flex align-items-center justify-content-between mb-3">
       <h5 class="fw-semibold mb-0">Your CV Score</h5>
-      <span class="color-text-paragraph-2 font-xs">{$timeAgo}</span>
+      <div class="d-flex align-items-center gap-2">
+        {$historyLink}
+        <span class="color-text-paragraph-2 font-xs">{$timeAgo}</span>
+      </div>
     </div>
     <div class="d-flex align-items-center gap-4 mb-0">
       <div style="position:relative;width:80px;height:80px;flex-shrink:0;">
@@ -315,6 +329,7 @@ class AccountSettingForm extends FormAbstract
     {$upsell}
   </div>
 </div>
+</div>
 HTML;
 
                         return $form->add('cv_score_display', HtmlField::class, HtmlFieldOption::make()->content($html));
@@ -327,7 +342,7 @@ HTML;
                             ->when($account->resume, function (FormFieldOptions $fieldOptions) use ($account) {
                                 return $fieldOptions->helperText(
                                     trans('plugins/job-board::messages.current_resume_message', [
-                                        'resume' => Html::link(RvMedia::url($account->resume), $account->resume, ['target' => '_blank'])->toHtml(),
+                                        'resume' => Html::link(RvMedia::url($account->resume), basename($account->resume), ['target' => '_blank'])->toHtml(),
                                     ])
                                 );
                             })
@@ -340,7 +355,7 @@ HTML;
                             ->when($account->cover_letter, function (FormFieldOptions $fieldOptions) use ($account) {
                                 return $fieldOptions->helperText(
                                     trans('plugins/job-board::messages.current_cover_letter_change', [
-                                        'cover_letter' => Html::link(RvMedia::url($account->cover_letter), $account->cover_letter, ['target' => '_blank'])->toHtml(),
+                                        'cover_letter' => Html::link(RvMedia::url($account->cover_letter), basename($account->cover_letter), ['target' => '_blank'])->toHtml(),
                                     ])
                                 );
                             })

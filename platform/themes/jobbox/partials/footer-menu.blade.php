@@ -1,4 +1,10 @@
 <ul {!! BaseHelper::clean($options) !!}>
+    @php
+        $menuPaths = collect($menu_nodes)
+            ->map(fn ($row) => trim(parse_url($row->url, PHP_URL_PATH) ?: '', '/'))
+            ->all();
+    @endphp
+
     @foreach ($menu_nodes as $key => $row)
         @php
             $menuPath = trim(parse_url($row->url, PHP_URL_PATH) ?: '', '/');
@@ -11,4 +17,8 @@
 
         <li><a href="{{ $row->url }}">{{ $title }}</a></li>
     @endforeach
+
+    @if (in_array('salary-checker', $menuPaths, true) && ! in_array('career-services/cv-score', $menuPaths, true))
+        <li><a href="{{ route('public.career-service.cv-score') }}">{{ __('AI CV Score') }}</a></li>
+    @endif
 </ul>

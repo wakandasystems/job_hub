@@ -1149,7 +1149,7 @@ class JobCrawlerRunner
                 continue;
             }
 
-            $company = $this->firstOrCreateGoZambiaCompany((array) data_get($item, 'employer', []));
+            $company = $this->firstOrCreateGoZambiaCompany($crawler, (array) data_get($item, 'employer', []));
             if (! $company) {
                 $stats['jobs_skipped']++;
                 $this->saveNewImportProgress($index + 1, $newTotal, $stats);
@@ -1158,7 +1158,7 @@ class JobCrawlerRunner
 
             // Only new jobs get a detail-page fetch.
             $detailPath = (string) data_get($item, 'job_details_path');
-            $detailUrl = $this->absoluteGoZambiaUrl($detailPath);
+            $detailUrl = $this->absoluteGoZambiaUrl($crawler, $detailPath);
 
             if ($detailUrl) {
                 try {
@@ -1424,11 +1424,11 @@ class JobCrawlerRunner
             ?: ($postedAtDate ? $postedAtDate->copy()->addDays((int) data_get($item, 'job_expires_in_days', 30)) : null);
 
         $sourceUrl = (string) data_get($item, 'external_source_url')
-            ?: $this->absoluteGoZambiaUrl((string) data_get($item, 'job_details_path'));
+            ?: $this->absoluteGoZambiaUrl($crawler, (string) data_get($item, 'job_details_path'));
         $description = $this->sanitizeGoZambiaHtml((string) data_get($item, 'description'));
         $address = data_get($item, 'job_location.name')
             ?: data_get($item, 'location')
-            ?: 'Zambia';
+            ?: $this->goZambiaCountryName($crawler);
 
         return [
             'crawler_id' => $crawler->getKey(),
@@ -1439,7 +1439,7 @@ class JobCrawlerRunner
             'content' => $description ?: Str::limit(trim(strip_tags($description)), 400, ''),
             'company_id' => $company->getKey(),
             'address' => $address,
-            'country_id' => 7, // Zambia
+            'country_id' => $this->goZambiaCountryId($crawler),
             'apply_url' => $this->normalizeApplyTarget((string) data_get($item, 'apply_to')),
             'status' => JobStatusEnum::PUBLISHED,
             'moderation_status' => ModerationStatusEnum::APPROVED,
@@ -1569,7 +1569,7 @@ class JobCrawlerRunner
         return $company;
     }
 
-    protected function firstOrCreateGoZambiaCompany(array $employer): ?Company
+    protected function firstOrCreateGoZambiaCompany(JobCrawler $crawler, array $employer): ?Company
     {
         $name = trim((string) data_get($employer, 'name'));
         if ($name === '') {
@@ -1584,7 +1584,7 @@ class JobCrawlerRunner
             'website' => $website ? $this->limitGoZambiaField($website, 110) : null,
             'description' => Str::limit(trim(strip_tags((string) data_get($employer, 'description'))), 400, ''),
             'content' => data_get($employer, 'description'),
-            'country_id' => 7, // Zambia
+            'country_id' => $this->goZambiaCountryId($crawler),
             'status' => BaseStatusEnum::PUBLISHED,
             'is_verified' => true,
             'verified_at' => Carbon::now(),
@@ -1809,7 +1809,32 @@ class JobCrawlerRunner
         return null;
     }
 
-    protected function absoluteGoZambiaUrl(string $path): ?string
+    protected function goZambiaCountryId(JobCrawler $crawler): int
+    {
+        $countryId = (int) data_get($crawler->field_mappings, 'country_id');
+
+        return $countryId > 0 ? $countryId : 7;
+    }
+
+    protected function goZambiaCountryName(JobCrawler $crawler): string
+    {
+        $countryName = data_get($crawler->field_mappings, 'country_name');
+
+        if ($countryName) {
+            return (string) $countryName;
+        }
+
+        return match ($this->goZambiaCountryId($crawler)) {
+            11 => 'Botswana',
+            38 => 'Malawi',
+            44 => 'Namibia',
+            53 => 'South Africa',
+            60 => 'Zimbabwe',
+            default => 'Zambia',
+        };
+    }
+
+    protected function absoluteGoZambiaUrl(JobCrawler $crawler, string $path): ?string
     {
         $path = trim($path);
         if ($path === '') {
@@ -1824,7 +1849,11 @@ class JobCrawlerRunner
             return 'https:' . $path;
         }
 
-        return 'https://gozambiajobs.com/' . ltrim($path, '/');
+        $parts = parse_url($crawler->source_url);
+        $scheme = $parts['scheme'] ?? 'https';
+        $host = $parts['host'] ?? 'gozambiajobs.com';
+
+        return sprintf('%s://%s/%s', $scheme, $host, ltrim($path, '/'));
     }
 
     protected function normalizeApplyTarget(string $target): ?string

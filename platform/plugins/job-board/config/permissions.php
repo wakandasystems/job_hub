@@ -71,6 +71,11 @@ return [
         'parent_flag' => 'plugins.job-board',
     ],
     [
+        'name' => 'Credit Orders',
+        'flag' => 'credit-orders.index',
+        'parent_flag' => 'plugins.job-board',
+    ],
+    [
         'name' => 'Edit',
         'flag' => 'career-service-orders.edit',
         'parent_flag' => 'career-service-orders.index',

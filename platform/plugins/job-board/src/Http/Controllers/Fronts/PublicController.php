@@ -31,6 +31,8 @@ use Botble\Media\Facades\RvMedia;
 use Botble\SeoHelper\Facades\SeoHelper;
 use Botble\SeoHelper\SeoOpenGraph;
 use Botble\Slug\Facades\SlugHelper;
+use Botble\JobBoard\Models\CvReveal;
+use Botble\JobBoard\Supports\CvRevealService;
 use Botble\Theme\Facades\Theme;
 use Exception;
 use GeoIp2\Database\Reader;
@@ -82,17 +84,38 @@ class PublicController extends BaseController
 
         $job->setRelation('slugable', $slug);
 
-        SeoHelper::setTitle($job->name)->setDescription($job->description);
-
-        $meta = new SeoOpenGraph();
-        $meta->setDescription($job->description);
-        $meta->setUrl($job->url);
-        $meta->setTitle($job->name);
-        $meta->setType('article');
-
         $companyJobs = collect();
 
         $company = $job->company;
+
+        // Build a richer title: "Job Title at Company in City, Country"
+        $titleParts = [$job->name];
+        if (! $job->hide_company && $company->id) {
+            $titleParts[] = 'at ' . $company->name;
+        }
+        if ($job->location) {
+            $titleParts[] = 'in ' . $job->location;
+        }
+        $seoTitle = Str::limit(implode(' ', $titleParts), 100, '');
+
+        // Rich description: plain text + location + salary hint
+        $rawDesc = Str::limit(strip_tags((string) ($job->content ?: $job->description)), 140, '');
+        $descParts = array_filter([$rawDesc]);
+        if ($job->location) {
+            $descParts[] = 'Based in ' . $job->location . '.';
+        }
+        if (! $job->hide_salary) {
+            $descParts[] = 'Salary: ' . $job->salaryText . '.';
+        }
+        $seoDescription = Str::limit(implode(' ', $descParts), 160, '');
+
+        SeoHelper::setTitle($seoTitle)->setDescription($seoDescription);
+
+        $meta = new SeoOpenGraph();
+        $meta->setDescription($seoDescription);
+        $meta->setUrl($job->url);
+        $meta->setTitle($seoTitle);
+        $meta->setType('article');
 
         if ($company && $company->id) {
             $company->loadCount('jobs');
@@ -158,10 +181,26 @@ class PublicController extends BaseController
         }
 
         $job->loadMissing('customFields');
+        $job->loadMissing(['jobTypes', 'city', 'state', 'country']);
+
+        $locationLinks = [];
+        if ($job->city_name && $job->city?->slug) {
+            $locationLinks[] = ['label' => 'Jobs in ' . $job->city_name, 'url' => route('public.jobs-by-city', $job->city->slug)];
+        }
+        if ($job->state_name && $job->state?->slug) {
+            $locationLinks[] = ['label' => 'Jobs in ' . $job->state_name, 'url' => route('public.jobs-by-state', $job->state->slug)];
+        }
+        if ($job->country?->id) {
+            $countryKey = strtolower((string) $job->country->code) ?: Str::slug($job->country->name);
+            $locationLinks[] = ['label' => 'Jobs in ' . $job->country->name, 'url' => route('public.jobs-by-country', $countryKey)];
+        }
+        foreach ($job->jobTypes as $jt) {
+            $locationLinks[] = ['label' => $jt->name . ' Jobs', 'url' => route('public.jobs-by-title', Str::slug($jt->name))];
+        }
 
         return Theme::scope(
             'job-board.job',
-            compact('job', 'companyJobs', 'company'),
+            compact('job', 'companyJobs', 'company', 'locationLinks'),
             'plugins/job-board::themes.job'
         )->render();
     }
@@ -515,12 +554,16 @@ class PublicController extends BaseController
             ->with('activeChildren')
             ->firstOrFail();
 
-        SeoHelper::setTitle($category->name)->setDescription($category->description);
+        $catSeoTitle = $category->name . ' Jobs in Africa | Wakanda Jobs';
+        $catSeoDesc  = $category->description
+            ?: 'Find ' . $category->name . ' jobs across Africa on Wakanda Jobs. Browse current vacancies from top employers in Nigeria, South Africa, Kenya, Ghana, Tanzania, Zambia, Zimbabwe and more. Apply online today.';
+
+        SeoHelper::setTitle($catSeoTitle)->setDescription($catSeoDesc);
 
         $meta = new SeoOpenGraph();
-        $meta->setDescription($category->description);
+        $meta->setDescription($catSeoDesc);
         $meta->setUrl($category->url);
-        $meta->setTitle($category->name);
+        $meta->setTitle($catSeoTitle);
         $meta->setType('article');
 
         SeoHelper::setSeoOpenGraph($meta);
@@ -953,9 +996,17 @@ class PublicController extends BaseController
             $canReview = false;
         }
 
+        $revealService = app(CvRevealService::class);
+        $isEmployer    = $account && $account->isEmployer();
+        $hasRevealed   = $isEmployer && $revealService->hasRevealed($account, $candidate);
+        $revealCheck   = $isEmployer ? $revealService->canReveal($account) : ['can' => false, 'reason' => 'no_access', 'cost' => (int) setting('cv_reveal_credit_cost', 1)];
+        $canRevealFree = $revealCheck['can'] && $revealCheck['cost'] === 0;
+        $revealCost    = $revealCheck['cost'];
+        $revealUrl     = $isEmployer ? route('public.account.cv-reveal.reveal', ['candidate' => $candidate->id]) : null;
+
         return Theme::scope(
             'job-board.candidate',
-            compact('candidate', 'experiences', 'educations', 'account', 'canReview'),
+            compact('candidate', 'experiences', 'educations', 'account', 'canReview', 'isEmployer', 'hasRevealed', 'canRevealFree', 'revealCost', 'revealUrl'),
             'plugins/job-board::themes.candidate'
         )->render();
     }
@@ -964,14 +1015,26 @@ class PublicController extends BaseController
     {
         abort_if(! $request->ajax() || JobBoardHelper::isDisabledPublicProfile(), 404);
 
-        $candidates = JobBoardHelper::filterCandidates(request()->input());
+        $candidates  = JobBoardHelper::filterCandidates(request()->input());
+        $authAccount = Auth::guard('account')->user();
+        $isEmployer  = $authAccount && $authAccount->isEmployer();
+
+        $revealService = app(CvRevealService::class);
+        $revealedIds   = $isEmployer
+            ? CvReveal::query()->where('employer_id', $authAccount->getKey())->pluck('candidate_id')->all()
+            : [];
+        $revealCheck   = $isEmployer ? $revealService->canReveal($authAccount) : ['can' => false, 'cost' => (int) setting('cv_reveal_credit_cost', 1)];
+        $hasSubscriptionAccess = $isEmployer && $revealService->hasSubscriptionAccess($authAccount);
+        $canReveal     = (bool) ($revealCheck['can'] ?? false);
+        $canRevealFree = $revealCheck['can'] && $revealCheck['cost'] === 0;
+        $revealCost    = $revealCheck['cost'];
 
         return $this
             ->httpResponse()
             ->setData([
                 'list' => view(
                     Theme::getThemeNamespace('views.job-board.partials.candidate-list'),
-                    compact('candidates')
+                    compact('candidates', 'isEmployer', 'revealedIds', 'hasSubscriptionAccess', 'canReveal', 'canRevealFree', 'revealCost')
                 )->render(),
                 'total_text' => trans('plugins/job-board::messages.showing_candidates', [
                     'from' => number_format($candidates->firstItem()),

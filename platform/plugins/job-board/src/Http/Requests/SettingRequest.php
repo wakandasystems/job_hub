@@ -6,6 +6,7 @@ use Botble\Base\Facades\BaseHelper;
 use Botble\Base\Supports\Language;
 use Botble\JobBoard\Enums\AccountGenderEnum;
 use Botble\JobBoard\Enums\AccountTypeEnum;
+use Botble\JobBoard\Supports\ProfileContactGuard;
 use Botble\Support\Http\Requests\Request;
 use Illuminate\Validation\Rule;
 
@@ -40,6 +41,7 @@ class SettingRequest extends Request
                 'available_for_hiring' => Rule::in([0, 1]),
                 'talent_hub_consent'   => Rule::in([0, 1]),
                 'resume'               => 'nullable|file|mimes:pdf,doc,docx,ppt,pptx',
+                'cv_upload_consent'    => 'required_with:resume|accepted',
                 'cover_letter'         => 'nullable|file|mimes:pdf,doc,docx,ppt,pptx',
                 'whatsapp_number'      => 'nullable|string|max:30',
                 'telegram_chat_id'     => 'nullable|string|max:100',
@@ -52,6 +54,38 @@ class SettingRequest extends Request
         }
 
         return $rules;
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator): void {
+            $account = auth('account')->user();
+
+            if (! $account || ! $account->isJobSeeker()) {
+                return;
+            }
+
+            $fields = [
+                'first_name' => __('First name'),
+                'last_name' => __('Last name'),
+                'description' => __('Profile introduction'),
+                'bio' => __('Bio'),
+            ];
+
+            foreach ($fields as $field => $label) {
+                if (ProfileContactGuard::containsContactInfo($this->input($field))) {
+                    $validator->errors()->add($field, ProfileContactGuard::violationMessage($label));
+                }
+            }
+        });
+    }
+
+    public function messages(): array
+    {
+        return [
+            'cv_upload_consent.accepted' => __('Please accept the CV visibility terms before uploading your CV.'),
+            'cv_upload_consent.required_with' => __('Please accept the CV visibility terms before uploading your CV.'),
+        ];
     }
 
     /**

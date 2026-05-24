@@ -49,6 +49,44 @@
         </x-core::card>
     @endif
 
+    {{-- Talent Hub value proposition --}}
+    @if($plans->where('can_search_candidates', true)->isNotEmpty())
+        <div class="card mb-4" style="background:linear-gradient(135deg,#1a2b6d 0%,#3c65f5 100%);border:none;color:#fff;">
+            <div class="card-body py-4 px-4">
+                <div class="row align-items-center g-3">
+                    <div class="col-auto">
+                        <span class="d-flex align-items-center justify-content-center rounded-circle"
+                              style="width:56px;height:56px;background:rgba(255,255,255,.15);font-size:1.6rem;">
+                            🎯
+                        </span>
+                    </div>
+                    <div class="col">
+                        <div class="fw-bold fs-4 mb-1">Unlock the Wakanda Jobs Talent Hub</div>
+                        <div style="opacity:.88;font-size:.95rem;">
+                            Stop waiting for the right CV to land in your inbox. With <strong>Talent Hub access</strong> you search our full candidate database — filter by skills, location, experience and availability — and reveal contact details instantly. <strong>LinkedIn doesn't cover Zambia and Zimbabwe the way we do.</strong> Our talent pool is local, verified and ready to work.
+                        </div>
+                    </div>
+                    <div class="col-lg-auto text-lg-end mt-2 mt-lg-0">
+                        <div class="d-flex flex-wrap gap-2 justify-content-start justify-content-lg-end">
+                            <span class="badge" style="background:rgba(255,255,255,.2);font-size:.8rem;padding:.45em .85em;">
+                                👤 Full candidate profiles
+                            </span>
+                            <span class="badge" style="background:rgba(255,255,255,.2);font-size:.8rem;padding:.45em .85em;">
+                                📞 Phone & email reveals
+                            </span>
+                            <span class="badge" style="background:rgba(255,255,255,.2);font-size:.8rem;padding:.45em .85em;">
+                                📄 CV downloads
+                            </span>
+                            <span class="badge" style="background:rgba(255,255,255,.2);font-size:.8rem;padding:.45em .85em;">
+                                🔎 Advanced search & filters
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
     <div id="plans"></div>
     @if($plans->isEmpty())
         <x-core::card>
@@ -64,21 +102,30 @@
         <div class="row row-cols-1 row-cols-lg-3 mb-4 row-cards">
             @foreach($plans as $plan)
                 @php
-                    $isCurrentPlan = $activeSub?->package_id === $plan->id;
-                    $annualPrice   = $plan->billing_cycle === 'monthly' ? round($plan->price * 12 * 0.8, 2) : null;
+                    $isCurrentPlan    = $activeSub?->package_id === $plan->id;
+                    $annualPrice      = $plan->billing_cycle === 'monthly' ? round($plan->price * 12 * 0.8, 2) : null;
+                    $hasTalentAccess  = (bool) $plan->can_search_candidates;
                 @endphp
                 <div class="col">
-                    <div @class(['card card-md h-100', 'border-primary' => $plan->is_default, 'border-success' => $isCurrentPlan])>
-                        @if($plan->is_default)
+                    <div @class([
+                        'card card-md h-100 position-relative',
+                        'border-primary'  => $plan->is_default && ! $hasTalentAccess,
+                        'border-success'  => $isCurrentPlan && ! $hasTalentAccess,
+                    ]) @if($hasTalentAccess) style="border:2px solid #3c65f5;box-shadow:0 4px 24px rgba(60,101,245,.18);" @endif>
+                        @if($plan->is_default && ! $hasTalentAccess)
                             <div class="ribbon ribbon-top ribbon-bookmark bg-primary">Most Popular</div>
+                        @endif
+                        @if($hasTalentAccess)
+                            <div class="ribbon ribbon-top ribbon-bookmark" style="background:#1a2b6d;">Talent Hub</div>
                         @endif
                         @if($isCurrentPlan)
                             <div class="ribbon ribbon-top ribbon-bookmark bg-success">Your Plan</div>
                         @endif
+
                         <div class="card-body d-flex flex-column">
                             <h4 class="mb-1">{{ $plan->name }}</h4>
                             @if($plan->description)
-                                <p class="text-muted mb-3">{{ $plan->description }}</p>
+                                <p class="text-muted mb-2">{{ $plan->description }}</p>
                             @endif
 
                             <div class="my-3">
@@ -95,20 +142,32 @@
                                 @endif
                             </div>
 
+                            {{-- Talent Hub highlight block --}}
+                            @if($hasTalentAccess)
+                                <div class="rounded-2 p-3 mb-3" style="background:linear-gradient(135deg,#eef2ff 0%,#e8edff 100%);border:1px solid #c7d4fc;">
+                                    <div class="fw-semibold mb-2" style="color:#1a2b6d;font-size:.9rem;">
+                                        🎯 Full Talent Hub Access — included
+                                    </div>
+                                    <ul class="list-unstyled mb-0" style="font-size:.82rem;color:#2d3e8a;">
+                                        <li class="mb-1">✓ &nbsp;Search &amp; filter all candidate profiles</li>
+                                        <li class="mb-1">✓ &nbsp;Reveal phone, email &amp; WhatsApp — unlimited</li>
+                                        <li class="mb-1">✓ &nbsp;Download CVs with one click</li>
+                                        <li class="mb-1">✓ &nbsp;Filter by skills, location, experience &amp; availability</li>
+                                        <li>✓ &nbsp;Candidates open to work highlighted first</li>
+                                    </ul>
+                                </div>
+                            @endif
+
                             <ul class="list-unstyled mb-3 flex-grow-1">
                                 @foreach($plan->formatted_features ?? [] as $feature)
                                     @continue(! $feature)
                                     @php
-                                        $featureText = strtolower($feature);
-                                        $isCreditFeature = str_contains($featureText, 'job post')
-                                            || str_contains($featureText, 'job listing')
-                                            || str_contains($featureText, 'active job')
-                                            || str_contains($featureText, 'cv database')
-                                            || str_contains($featureText, 'database access')
-                                            || str_contains($featureText, 'candidate search')
-                                            || str_contains($featureText, 'candidate cv');
+                                        $ft = strtolower($feature);
+                                        $skip = str_contains($ft, 'cv database') || str_contains($ft, 'database access')
+                                             || str_contains($ft, 'candidate search') || str_contains($ft, 'candidate cv')
+                                             || str_contains($ft, 'talent hub');
                                     @endphp
-                                    @continue($isCreditFeature)
+                                    @continue($skip)
                                     <li class="mb-1">
                                         <x-core::icon name="ti ti-check" class="text-success me-1" />
                                         {{ $feature }}
@@ -118,11 +177,14 @@
 
                             <div class="mt-auto">
                                 @if($isCurrentPlan)
-                                    <button class="btn btn-success w-100" disabled>Current Plan</button>
+                                    <button class="btn btn-success w-100" disabled>
+                                        <x-core::icon name="ti ti-circle-check" class="me-1" /> Current Plan
+                                    </button>
                                 @else
                                     <a href="{{ route('public.account.subscription.checkout', ['package' => $plan->id]) }}"
-                                       class="btn btn-primary w-100">
-                                        Subscribe Monthly
+                                       @class(['btn w-100', 'btn-primary' => ! $hasTalentAccess, 'btn-default' => $hasTalentAccess])
+                                       style="{{ $hasTalentAccess ? 'background:#1a2b6d;border-color:#1a2b6d;color:#fff;' : '' }}">
+                                        {{ $hasTalentAccess ? '🚀 Get Talent Hub Access' : 'Subscribe Monthly' }}
                                     </a>
                                     @if($annualPrice)
                                         <a href="{{ route('public.account.subscription.checkout', ['package' => $plan->id, 'cycle' => 'annual']) }}"
@@ -137,6 +199,15 @@
                 </div>
             @endforeach
         </div>
+
+        {{-- Social proof strip --}}
+        @if($plans->where('can_search_candidates', true)->isNotEmpty())
+            <div class="text-center text-muted small mb-4">
+                <x-core::icon name="ti ti-lock" class="me-1" /> Employer data is never shared with candidates &nbsp;·&nbsp;
+                <x-core::icon name="ti ti-refresh" class="me-1" /> Candidate profiles refreshed every 90 days &nbsp;·&nbsp;
+                <x-core::icon name="ti ti-shield-check" class="me-1" /> Cancel any time
+            </div>
+        @endif
     @endif
 
     {{-- Order history --}}

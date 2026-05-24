@@ -1,6 +1,101 @@
 @php
     Theme::asset()->usePath()->add('leaflet-css', 'plugins/leaflet/leaflet.css');
     Theme::asset()->container('footer')->usePath()->add('leaflet-js', 'plugins/leaflet/leaflet.js');
+
+    // ── JobPosting JSON-LD (Google Jobs) ──────────────────────────────────────
+    $schemaEmploymentTypes = [];
+    foreach ($job->jobTypes as $jt) {
+        $n = strtolower($jt->name);
+        $schemaEmploymentTypes[] = match (true) {
+            str_contains($n, 'full')      => 'FULL_TIME',
+            str_contains($n, 'part')      => 'PART_TIME',
+            str_contains($n, 'contract')  => 'CONTRACTOR',
+            str_contains($n, 'freelance') => 'CONTRACTOR',
+            str_contains($n, 'temp')      => 'TEMPORARY',
+            str_contains($n, 'intern')    => 'INTERN',
+            str_contains($n, 'volunteer') => 'VOLUNTEER',
+            default                       => 'OTHER',
+        };
+    }
+    $schemaEmploymentTypes = array_unique($schemaEmploymentTypes) ?: ['OTHER'];
+
+    // Clean description: prefer the short description field; fall back to stripped content
+    $schemaDesc = strip_tags((string) ($job->description ?: $job->content));
+    $schemaDesc = preg_replace('/\s+/', ' ', $schemaDesc);
+    $schemaDesc = trim($schemaDesc);
+
+    $schemaOrg = [
+        '@context'   => 'https://schema.org/',
+        '@type'      => 'JobPosting',
+        'title'      => strip_tags((string) $job->name),
+        'description' => $schemaDesc,
+        'datePosted' => $job->created_at->toIso8601String(),
+        'identifier' => [
+            '@type' => 'PropertyValue',
+            'name'  => 'Wakanda Jobs',
+            'value' => 'WJ-' . $job->id,
+        ],
+        'employmentType' => count($schemaEmploymentTypes) === 1 ? $schemaEmploymentTypes[0] : $schemaEmploymentTypes,
+        'url' => $job->url,
+        'directApply' => (bool) $job->apply_url,
+    ];
+
+    if (! $job->never_expired && $job->expire_date) {
+        $schemaOrg['validThrough'] = $job->expire_date->toIso8601String();
+    }
+
+    // Hiring organisation
+    $hiringOrg = ['@type' => 'Organization'];
+    if (! $job->hide_company && $company->id) {
+        $hiringOrg['name']   = strip_tags((string) $company->name);
+        if ($company->website) { $hiringOrg['sameAs'] = $company->website; }
+        if ($company->logo)    { $hiringOrg['logo']   = RvMedia::getImageUrl($company->logo); }
+    } else {
+        $hiringOrg['name'] = 'Confidential';
+    }
+    $schemaOrg['hiringOrganization'] = $hiringOrg;
+
+    // Location
+    $address = ['@type' => 'PostalAddress'];
+    if ($job->address)    { $address['streetAddress']   = $job->address; }
+    if ($job->city_name)  { $address['addressLocality'] = $job->city_name; }
+    if ($job->state_name) { $address['addressRegion']   = $job->state_name; }
+    if ($job->country?->code) { $address['addressCountry'] = $job->country->code; }
+    if ($job->zip_code)   { $address['postalCode']      = $job->zip_code; }
+    if (count($address) > 1) {
+        $schemaOrg['jobLocation'] = ['@type' => 'Place', 'address' => $address];
+    }
+    if ($job->latitude && $job->longitude) {
+        $schemaOrg['jobLocation']['geo'] = [
+            '@type'     => 'GeoCoordinates',
+            'latitude'  => $job->latitude,
+            'longitude' => $job->longitude,
+        ];
+    }
+
+    // Salary
+    if (! $job->hide_salary && $job->salary_type?->getValue() === 'fixed' && ($job->salary_from || $job->salary_to)) {
+        $unitMap = ['monthly' => 'MONTH', 'yearly' => 'YEAR', 'weekly' => 'WEEK', 'daily' => 'DAY', 'hourly' => 'HOUR'];
+        $unit    = $unitMap[$job->salary_range?->getValue() ?? ''] ?? 'MONTH';
+        $currency = $job->currency?->title ?? cms_currency()->getDefaultCurrency()?->title ?? 'ZMW';
+        $qty = ['@type' => 'QuantitativeValue', 'unitText' => $unit];
+        if ($job->salary_from && $job->salary_to) {
+            $qty['minValue'] = (float) $job->salary_from;
+            $qty['maxValue'] = (float) $job->salary_to;
+        } elseif ($job->salary_from) {
+            $qty['value'] = (float) $job->salary_from;
+        } else {
+            $qty['value'] = (float) $job->salary_to;
+        }
+        $schemaOrg['baseSalary'] = ['@type' => 'MonetaryAmount', 'currency' => strtoupper($currency), 'value' => $qty];
+    }
+
+    // Inject into Botble's header asset container (rendered inside <head>)
+    Theme::asset()->container('header')->writeScript(
+        'job-posting-schema',
+        json_encode($schemaOrg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        attributes: ['type' => 'application/ld+json']
+    );
 @endphp
 
 <section class="section-box-2">
@@ -43,7 +138,7 @@
                     @endif
                 </div>
             </div>
-            @php($classButtonApply = 'btn btn-apply-icon btn-apply btn-apply-big hover-up ml-auto')
+            @php $classButtonApply = 'btn btn-apply-icon btn-apply btn-apply-big hover-up ml-auto'; @endphp
             {!! Theme::partial('apply-button', [
                 'job' => $job,
                 'class' => $classButtonApply,
@@ -325,7 +420,7 @@
                 <div class="single-apply-jobs">
                     <div class="row align-items-center">
                         <div class="col-md-5">
-                            @php($classButtonApplyBottom = 'btn btn-default mr-15')
+                            @php $classButtonApplyBottom = 'btn btn-default mr-15'; @endphp
                             {!! Theme::partial('apply-button', [
                                 'job' => $job,
                                 'class' => $classButtonApplyBottom
@@ -438,3 +533,16 @@
         {!! apply_filters('ads_render', null, 'job_after', ['class' => 'my-2 text-center']) !!}
     @endif
 </section>
+
+@if(! empty($locationLinks))
+<section class="section-box mt-20 mb-30">
+    <div class="container">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <span class="font-sm color-text-mutted me-1">More:</span>
+            @foreach($locationLinks as $link)
+                <a href="{{ $link['url'] }}" class="btn btn-xs btn-outline-default">{{ $link['label'] }}</a>
+            @endforeach
+        </div>
+    </div>
+</section>
+@endif

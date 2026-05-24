@@ -11,7 +11,11 @@
     $revealedIds    = $authEmployer
         ? CvReveal::query()->where('employer_id', $authEmployer->id)->pluck('candidate_id')->all()
         : [];
-    $canRevealFree  = $authEmployer && app(\Botble\JobBoard\Supports\CvRevealService::class)->canReveal($authEmployer)['can'];
+    $revealService  = app(\Botble\JobBoard\Supports\CvRevealService::class);
+    $revealCheck    = $authEmployer ? $revealService->canReveal($authEmployer) : ['can' => false, 'reason' => 'no_access', 'cost' => (int) setting('cv_reveal_credit_cost', 1)];
+    $hasSubscriptionAccess = $authEmployer ? $revealService->hasSubscriptionAccess($authEmployer) : false;
+    $canReveal      = (bool) ($revealCheck['can'] ?? false);
+    $canRevealFree  = $canReveal && (int) ($revealCheck['cost'] ?? 0) === 0;
     $revealCost     = (int) setting('cv_reveal_credit_cost', 1);
 
     $allSkills      = JobSkill::orderBy('name')->pluck('name', 'id');
@@ -121,6 +125,10 @@
     .talent-filter-card {
         overflow: visible;
     }
+    .talent-filter-wrap {
+        padding-left: 12px;
+        padding-right: 98px;
+    }
     .talent-location-disabled .select2-selection {
         background: #f8f9fc !important;
         cursor: not-allowed;
@@ -211,7 +219,43 @@
         font-size: 13px;
         min-height: 44px;
     }
+    .btn-sign-in-reveal {
+        background: transparent;
+        border: 1px solid #3c65f5;
+        color: #3c65f5;
+        border-radius: 6px;
+        padding: 3px 10px;
+        white-space: nowrap;
+        transition: background .18s, color .18s;
+    }
+    .btn-sign-in-reveal:hover,
+    .btn-sign-in-reveal:focus {
+        background: #3c65f5;
+        color: #fff;
+        border-color: #3c65f5;
+    }
+    .btn-reveal-contact {
+        background: transparent;
+        border: 1px solid var(--primary-color, #530f93);
+        color: var(--primary-color, #530f93);
+        font-weight: 500;
+        transition: background .18s, color .18s, border-color .18s;
+    }
+    .btn-reveal-contact:hover,
+    .btn-reveal-contact:focus {
+        background: var(--primary-color, #530f93) !important;
+        border-color: var(--primary-color, #530f93) !important;
+        color: #fff !important;
+    }
+    .btn-reveal-contact:hover i,
+    .btn-reveal-contact:focus i {
+        color: #fff !important;
+    }
     @media (max-width: 767px) {
+        .talent-filter-wrap {
+            padding-left: 16px;
+            padding-right: 16px;
+        }
         .talent-filter-card {
             padding: 20px !important;
         }
@@ -245,7 +289,8 @@
 
     {{-- Filter card --}}
     <section class="section-box mt-30 mb-10">
-        <div class="box-shadow-bdrd-15 p-30 talent-filter-card">
+        <div class="talent-filter-wrap">
+            <div class="box-shadow-bdrd-15 p-30 talent-filter-card">
                 {{-- Row 1: keyword + skills + state + city --}}
                 <div class="row g-3 mb-20">
                     <div class="col-xl-3 col-lg-6 col-md-12">
@@ -347,6 +392,7 @@
                         </a>
                     </div>
                 </div>
+            </div>
         </div>
     </section>
 
@@ -573,21 +619,34 @@
                 </div>
 
                 {{-- Paywall notice for guests / non-employers --}}
+                @php $revealPriceLabel = setting('cv_reveal_price_label', ''); @endphp
                 @if(! $isEmployer)
-                    <div class="alert alert-info d-flex align-items-center gap-3 mb-4">
-                        <i class="fi-rr-lock fs-4 flex-shrink-0"></i>
-                        <div>
+                    <div class="alert alert-info d-flex align-items-center gap-3 mb-4" style="background:#eef2ff;border-color:#c7d4fc;">
+                        <i class="fi-rr-lock fs-4 flex-shrink-0 text-primary"></i>
+                        <div class="flex-grow-1">
                             <strong>{{ __('Contact details are hidden.') }}</strong>
-                            {{ __('Sign in as an employer to reveal phone, email and CVs.') }}
-                            <a href="{{ route('public.account.login') }}" class="btn btn-sm btn-primary ms-2">{{ __('Sign In') }}</a>
+                            {{ __('Sign in as an employer to access full profiles, phone numbers, emails and CVs.') }}
+                        </div>
+                        <div class="d-flex gap-2 flex-shrink-0">
+                            <a href="{{ route('public.account.login') }}" class="btn btn-sm btn-default">{{ __('Sign In') }}</a>
+                            <a href="{{ route('public.account.register') }}" class="btn btn-sm btn-outline-primary">{{ __('Register') }}</a>
                         </div>
                     </div>
-                @elseif(! $canRevealFree)
+                @elseif(! $hasSubscriptionAccess)
                     <div class="alert alert-warning d-flex align-items-center gap-3 mb-4">
                         <i class="fi-rr-unlock fs-4 flex-shrink-0"></i>
-                        <div>
-                            {{ __('Reveal a candidate contact for :cost credit(s) each — or get unlimited reveals with a subscription.', ['cost' => $revealCost]) }}
-                            <a href="{{ route('public.account.subscription.index') }}" class="btn btn-sm btn-warning ms-2">{{ __('View Plans') }}</a>
+                        <div class="flex-grow-1">
+                            <strong>{{ __('Candidate contacts are locked.') }}</strong>
+                            {{ __('Upgrade your subscription to view all profiles, or reveal one profile for :cost credit(s).', ['cost' => $revealCost]) }}
+                            @if($authEmployer)
+                                <span class="d-block font-xs mt-1">
+                                    {{ __('You currently have :credits credit(s).', ['credits' => number_format((int) $authEmployer->credits)]) }}
+                                </span>
+                            @endif
+                        </div>
+                        <div class="d-flex gap-2 flex-shrink-0">
+                            <a href="{{ route('public.account.subscription.index') }}" class="btn btn-sm btn-warning">{{ __('Upgrade Subscription') }}</a>
+                            <a href="{{ route('public.account.credits') }}" class="btn btn-sm btn-outline-primary">{{ __('Buy Credits') }}</a>
                         </div>
                     </div>
                 @endif
@@ -597,6 +656,8 @@
                         'isEmployer'   => $isEmployer,
                         'authEmployer' => $authEmployer,
                         'revealedIds'  => $revealedIds,
+                        'hasSubscriptionAccess' => $hasSubscriptionAccess,
+                        'canReveal'    => $canReveal,
                         'canRevealFree'=> $canRevealFree,
                         'revealCost'   => $revealCost,
                     ])

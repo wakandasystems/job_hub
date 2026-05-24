@@ -9,11 +9,13 @@ use Botble\JobBoard\Models\Company;
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\Tag;
 use Botble\Location\Models\City;
+use Botble\Location\Models\Country;
 use Botble\Location\Models\State;
 use Botble\Theme\Events\RenderingSiteMapEvent;
 use Botble\Theme\Facades\SiteMapManager;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
 
 class RenderingSiteMapListener
 {
@@ -29,6 +31,20 @@ class RenderingSiteMapListener
                     [],
                     ['id', 'name', 'updated_at', 'slug'],
                     'public.jobs-by-city'
+                );
+
+                return;
+            }
+
+            if (str_starts_with($key, 'job-country-') && ! str_starts_with($key, 'job-country-title-')) {
+                $this->addPaginatedSitemapItems(
+                    $key,
+                    'job-country',
+                    Country::query()->wherePublished(),
+                    '0.8',
+                    [],
+                    ['id', 'name', 'code', 'updated_at'],
+                    'public.jobs-by-country'
                 );
 
                 return;
@@ -66,15 +82,46 @@ class RenderingSiteMapListener
                 return;
             }
 
+            if (str_starts_with($key, 'job-country-title-')) {
+                $this->addPaginatedSitemapItems(
+                    $key,
+                    'job-country-title',
+                    $this->getJobQuery(),
+                    '0.7',
+                    [],
+                    ['id', 'name', 'country_id', 'updated_at'],
+                    'public.jobs-by-country-title'
+                );
+
+                return;
+            }
+
+            if (str_starts_with($key, 'job-title-')) {
+                $this->addPaginatedSitemapItems(
+                    $key,
+                    'job-title',
+                    $this->getJobQuery(),
+                    '0.7',
+                    [],
+                    ['id', 'name', 'updated_at'],
+                    'public.jobs-by-title'
+                );
+
+                return;
+            }
+
             $this->addPaginatedSitemapItems($key, 'jobs', $this->getJobQuery());
 
             return;
         }
 
         $this->createPaginatedSitemapsForKey('job-city', City::query()->wherePublished());
+        $this->createPaginatedSitemapsForKey('job-country', Country::query()->wherePublished());
         $this->createPaginatedSitemapsForKey('job-state', State::query()->wherePublished());
         $this->createPaginatedSitemapsForKey('job-companies', Company::query()->wherePublished());
         $this->createPaginatedSitemapsForKey('jobs', $this->getJobQuery());
+        $this->createPaginatedSitemapsForKey('job-country-title', $this->getJobQuery());
+        $this->createPaginatedSitemapsForKey('job-title', $this->getJobQuery());
         $this->createPaginatedSitemapsForKey('job-tags', Tag::query()->wherePublished());
         $this->createPaginatedSitemapsForKey('job-categories', Category::query()->wherePublished());
     }
@@ -107,14 +154,62 @@ class RenderingSiteMapListener
                     ->get();
 
                 foreach ($items as $item) {
-                    if (! $item->slugable && ! $item->slug) {
+                    $routeParameter = $this->getRouteParameter($routeName, $item);
+
+                    if ($routeName && ! $routeParameter) {
                         continue;
                     }
 
-                    SiteMapManager::add($routeName ? route($routeName, $item->slug) : $item->url, $item->updated_at, $priority);
+                    if (! $routeName && ! $item->slugable && ! $item->slug) {
+                        continue;
+                    }
+
+                    SiteMapManager::add($routeName ? route($routeName, $routeParameter) : $item->url, $item->updated_at, $priority);
                 }
             }
         }
+    }
+
+    protected function getRouteParameter(string $routeName, mixed $item): array|string|null
+    {
+        return match ($routeName) {
+            'public.jobs-by-country' => strtolower((string) $item->code) ?: Str::slug($item->name),
+            'public.jobs-by-country-title' => $this->getCountryTitleRouteParameter($item),
+            'public.jobs-by-title' => Str::slug($item->name),
+            default => $item->slug,
+        };
+    }
+
+    protected function getCountryTitleRouteParameter(mixed $item): ?array
+    {
+        $country = $this->getCountryById((int) $item->country_id);
+
+        if (! $country || ! $item->name) {
+            return null;
+        }
+
+        return [
+            'country' => strtolower((string) $country->code) ?: Str::slug($country->name),
+            'slug' => Str::slug($item->name),
+        ];
+    }
+
+    protected function getCountryById(int $countryId): ?Country
+    {
+        static $countries = null;
+
+        if (! $countryId) {
+            return null;
+        }
+
+        if ($countries === null) {
+            $countries = Country::query()
+                ->wherePublished()
+                ->get(['id', 'name', 'code'])
+                ->keyBy('id');
+        }
+
+        return $countries->get($countryId);
     }
 
     protected function createPaginatedSitemapsForKey(string $key, Builder $query): void

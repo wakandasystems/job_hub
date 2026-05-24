@@ -4,10 +4,12 @@ namespace Botble\JobBoard\Http\Controllers\Fronts;
 
 use Botble\Base\Facades\PageTitle;
 use Botble\Base\Http\Controllers\BaseController;
+use Botble\JobBoard\Enums\AccountTypeEnum;
 use Botble\JobBoard\Facades\JobBoardHelper;
 use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\CvReveal;
 use Botble\JobBoard\Supports\CvRevealService;
+use Botble\JobBoard\Supports\SubscriptionService;
 use Botble\SeoHelper\Facades\SeoHelper;
 use Illuminate\Http\Request;
 
@@ -27,7 +29,7 @@ class CandidateSearchController extends BaseController
         PageTitle::setTitle(__('Search Candidates'));
 
         $query = Account::query()
-            ->where('type', 'job_seeker')
+            ->where('type', AccountTypeEnum::JOB_SEEKER)
             ->where('is_public_profile', true)
             ->with(['favoriteSkills']);
 
@@ -90,11 +92,14 @@ class CandidateSearchController extends BaseController
             ->pluck('candidate_id')
             ->all();
 
-        $canRevealFree = $this->revealService->canReveal($account)['can'];
-        $revealCost    = (int) setting('cv_reveal_credit_cost', 1);
+        $revealCheck   = $this->revealService->canReveal($account);
+        $canReveal     = (bool) ($revealCheck['can'] ?? false);
+        $canRevealFree = $canReveal && (int) ($revealCheck['cost'] ?? 0) === 0;
+        $revealCost    = (int) ($revealCheck['cost'] ?? setting('cv_reveal_credit_cost', 1));
+        $hasSubscriptionAccess = app(SubscriptionService::class)->canSearchCandidates($account);
 
         return JobBoardHelper::view('dashboard.candidates.search', compact(
-            'candidates', 'account', 'revealedIds', 'canRevealFree', 'revealCost'
+            'candidates', 'account', 'revealedIds', 'canReveal', 'canRevealFree', 'revealCost', 'hasSubscriptionAccess'
         ));
     }
 }

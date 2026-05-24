@@ -72,6 +72,7 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
         'telegram_chat_id',
         'cv_score',
         'cv_score_data',
+        'cv_score_history',
         'desired_salary_from',
         'desired_salary_to',
         'experience_years',
@@ -90,6 +91,7 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
         'type'               => AccountTypeEnum::class,
         'dob'                => 'datetime',
         'cv_score_data'      => 'array',
+        'cv_score_history'   => 'array',
         'talent_hub_consent' => 'boolean',
         'profile_updated_at' => 'datetime',
     ];

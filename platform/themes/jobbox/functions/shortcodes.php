@@ -547,9 +547,17 @@ app()->booted(function (): void {
 
         add_shortcode('job-list', __('Job list'), __('Show job list'), function (Shortcode $shortcode) {
             $requestQuery = JobBoardHelper::getJobFilters(request()->input());
+            $selectedCountry = function_exists('wakanda_selected_country') ? wakanda_selected_country() : null;
+            $locationSuffix = $selectedCountry && $selectedCountry->name ? ' in ' . $selectedCountry->name : '';
 
             if (! empty($requestQuery['keyword'])) {
-                SeoHelper::setTitle(__('Search results for ":keyword"', ['keyword' => $requestQuery['keyword']]));
+                SeoHelper::setTitle(__('Search results for ":keyword":location', [
+                    'keyword' => $requestQuery['keyword'],
+                    'location' => $locationSuffix,
+                ]))->setDescription(__('Browse current :keyword jobs:location on Wakanda Jobs. Find relevant vacancies and apply for opportunities from employers.', [
+                    'keyword' => $requestQuery['keyword'],
+                    'location' => $locationSuffix,
+                ]));
 
                 if (! empty($requestQuery['job_categories'])) {
                     $categories = Category::query()
@@ -558,9 +566,16 @@ app()->booted(function (): void {
                         ->all();
 
                     if ($categories) {
-                        SeoHelper::setTitle(__('Search results for ":keyword" in :categories', ['keyword' => $requestQuery['keyword'], 'categories' => implode(', ', $categories)]));
+                        SeoHelper::setTitle(__('Search results for ":keyword" in :categories:location', [
+                            'keyword' => $requestQuery['keyword'],
+                            'categories' => implode(', ', $categories),
+                            'location' => $locationSuffix,
+                        ]));
                     }
                 }
+            } elseif ($selectedCountry && $selectedCountry->name) {
+                SeoHelper::setTitle(__('Jobs in :location', ['location' => $selectedCountry->name]))
+                    ->setDescription(__('Find the latest jobs in :location on Wakanda Jobs. Browse current vacancies, employer listings, and career opportunities updated regularly.', ['location' => $selectedCountry->name]));
             }
 
             $with = [

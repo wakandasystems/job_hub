@@ -13,3 +13,5 @@ Crawl-delay: 30
 
 User-agent: Google-Extended
 Crawl-delay: 30
+
+Sitemap: https://www.wakandajobs.com/sitemap.xml

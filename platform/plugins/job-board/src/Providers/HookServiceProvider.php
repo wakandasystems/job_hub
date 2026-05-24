@@ -19,6 +19,7 @@ use Botble\JobBoard\Facades\JobBoardHelper;
 use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\Category;
 use Botble\JobBoard\Models\CareerServiceOrder;
+use Botble\JobBoard\Models\CreditOrder;
 use Botble\JobBoard\Models\Company;
 use Botble\JobBoard\Models\EmployerSubscription;
 use Botble\JobBoard\Models\FeaturedOrder;
@@ -210,6 +211,32 @@ class HookServiceProvider extends ServiceProvider
                     }
 
                     return;
+                }
+
+                // Handle credit package (one-time) purchases
+                if ($subscribedPackageId = session('subscribed_packaged_id')) {
+                    $creditPackage = Package::query()->find($subscribedPackageId);
+                    if ($creditPackage && $creditPackage->billing_cycle === 'one_time') {
+                        $account = auth('account')->user();
+                        if ($account) {
+                            $isManual = in_array($data['payment_channel'], [
+                                PaymentMethodEnum::BANK_TRANSFER,
+                                PaymentMethodEnum::COD,
+                            ]);
+
+                            CreditOrder::query()->create([
+                                'account_id'     => $account->getKey(),
+                                'package_id'     => $creditPackage->getKey(),
+                                'credits'        => $creditPackage->number_of_listings,
+                                'amount'         => (float) ($data['amount'] ?? $creditPackage->price),
+                                'currency'       => strtoupper($data['currency'] ?? 'ZMW'),
+                                'payment_method' => $data['payment_channel'],
+                                'charge_id'      => $data['charge_id'] ?? null,
+                                'status'         => $isManual ? 'pending' : 'approved',
+                                'approved_at'    => $isManual ? null : now(),
+                            ]);
+                        }
+                    }
                 }
 
                 InvoiceHelper::store([
@@ -412,6 +439,18 @@ class HookServiceProvider extends ServiceProvider
                         ->where('reference_id', $package->getKey())
                         ->where('reference_type', Package::class)
                         ->update(['status' => InvoiceStatusEnum::COMPLETED]);
+
+                    // Update matching CreditOrder status (credits already awarded above)
+                    if ($payment->charge_id) {
+                        $pendingCreditOrder = CreditOrder::query()
+                            ->where('charge_id', $payment->charge_id)
+                            ->where('status', 'pending')
+                            ->first();
+
+                        if ($pendingCreditOrder) {
+                            $pendingCreditOrder->update(['status' => 'approved', 'approved_at' => now()]);
+                        }
+                    }
                 }
             }, 123, 2);
         }

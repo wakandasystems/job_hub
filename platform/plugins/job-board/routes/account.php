@@ -386,6 +386,21 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
                     'uses' => 'postUploadResume',
                 ]);
 
+                Route::post('upload-resume-score', [
+                    'as' => 'upload-resume-score',
+                    'uses' => 'postUploadResumeScore',
+                ]);
+
+                Route::get('cv-score-history', [
+                    'as' => 'cv-score-history',
+                    'uses' => 'getCvScoreHistory',
+                ]);
+
+                Route::delete('delete-resume', [
+                    'as' => 'delete-resume',
+                    'uses' => 'deleteResume',
+                ]);
+
                 Route::post('upload-from-editor', [
                     'as' => 'upload-from-editor',
                     'uses' => 'postUploadFromEditor',

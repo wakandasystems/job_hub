@@ -1,6 +1,27 @@
 @extends(JobBoardHelper::viewPath('dashboard.layouts.master'))
 
 @section('content')
+<style>
+.alert-cat-list { position: relative; }
+.talent-skills-toggle {
+    align-items: center; background: #fff; border: 1px solid #e0e6f7; border-radius: 8px;
+    color: #4f5e64; display: flex; font-size: 13px; justify-content: space-between;
+    min-height: 44px; padding: 8px 12px; text-align: left; width: 100%;
+}
+.talent-skills-toggle:after { content: "⌄"; color: #8a94a6; font-size: 16px; line-height: 1; margin-left: 10px; }
+.alert-cat-list.is-open .talent-skills-toggle { border-color: #3c65f5; box-shadow: 0 0 0 3px rgba(60,101,245,.1); }
+.alert-cat-panel {
+    background: #fff; border: 1px solid #e0e6f7; border-radius: 8px;
+    box-shadow: 0 10px 25px rgba(15,23,42,.12); display: none; left: 0;
+    overflow: hidden; position: absolute; right: 0; top: calc(100% + 6px); z-index: 20;
+}
+.alert-cat-list.is-open .alert-cat-panel { display: block; }
+.talent-skills-search { border: 0; border-bottom: 1px solid #e0e6f7; border-radius: 0; font-size: 13px; min-height: 42px; }
+.talent-skills-options { display: block; max-height: 184px; overflow-y: auto; padding: 8px 10px; }
+.talent-skill-option { align-items: center; display: flex !important; gap: 8px; margin: 0; min-height: 30px; padding: 3px 0; width: 100%; }
+.talent-skill-option span { color: #4f5e64; font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
+.talent-skill-summary { color: #3c65f5; font-size: 12px; font-weight: 600; min-height: 18px; padding: 0 10px 8px; }
+</style>
 <div>
     <div class="d-flex align-items-center justify-content-between mb-2">
         <h3 class="mt-0 mb-0 color-brand-1">{{ __('Job Alerts') }}</h3>
@@ -95,15 +116,24 @@
                     </div>
                     <div class="col-md-6">
                         <label class="form-label font-sm fw-semibold">{{ __('Categories') }} <span class="text-muted fw-normal">({{ __('optional, pick multiple') }})</span></label>
-                        <select name="category_ids[]" class="form-select" multiple style="min-height:80px;">
-                            @foreach($categories as $id => $name)
-                                <option value="{{ $id }}"
-                                    {{ in_array($id, (array) old('category_ids', [])) ? 'selected' : '' }}>
-                                    {{ $name }}
-                                </option>
-                            @endforeach
-                        </select>
-                        <div class="form-text">{{ __('Hold Ctrl / Cmd to select multiple.') }}</div>
+                        @php $selectedCategoryIds = array_map('strval', (array) old('category_ids', [])); @endphp
+                        <div class="alert-cat-list">
+                            <button type="button" class="talent-skills-toggle" id="cat-toggle">
+                                <span id="cat-toggle-label">{{ __('Any category') }}</span>
+                            </button>
+                            <div class="alert-cat-panel" id="cat-panel">
+                                <input type="search" class="form-control talent-skills-search" id="cat-search" placeholder="{{ __('Search categories') }}">
+                                <div class="talent-skills-options" id="cat-options">
+                                    @foreach($categories as $id => $name)
+                                        <label class="talent-skill-option" data-cat-name="{{ strtolower($name) }}">
+                                            <input type="checkbox" class="form-check-input cat-checkbox" name="category_ids[]" value="{{ $id }}" @checked(in_array((string) $id, $selectedCategoryIds))>
+                                            <span>{{ $name }}</span>
+                                        </label>
+                                    @endforeach
+                                </div>
+                                <div class="talent-skill-summary" id="cat-summary"></div>
+                            </div>
+                        </div>
                     </div>
 
                     @if($countries->isNotEmpty())
@@ -310,6 +340,48 @@ document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('deleteAlertForm').action = btn.getAttribute('data-delete-url');
         });
     });
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var catList   = document.querySelector('.alert-cat-list');
+    var catToggle = document.getElementById('cat-toggle');
+    var catPanel  = document.getElementById('cat-panel');
+    var catSearch = document.getElementById('cat-search');
+    var catLabel  = document.getElementById('cat-toggle-label');
+    var catSummary= document.getElementById('cat-summary');
+
+    function updateCatSummary() {
+        var count = document.querySelectorAll('.cat-checkbox:checked').length;
+        var text  = count ? count + ' {{ __('category(s) selected') }}' : '{{ __('Any category') }}';
+        catLabel.textContent  = text;
+        catSummary.textContent = text;
+    }
+
+    catToggle.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        catList.classList.toggle('is-open');
+        if (catList.classList.contains('is-open')) catSearch.focus();
+    });
+
+    catPanel.addEventListener('click', function (e) { e.stopPropagation(); });
+
+    document.addEventListener('click', function () { catList.classList.remove('is-open'); });
+
+    catSearch.addEventListener('input', function () {
+        var term = this.value.toLowerCase();
+        document.querySelectorAll('.talent-skill-option[data-cat-name]').forEach(function (el) {
+            el.style.display = el.getAttribute('data-cat-name').indexOf(term) !== -1 ? '' : 'none';
+        });
+    });
+
+    document.querySelectorAll('.cat-checkbox').forEach(function (cb) {
+        cb.addEventListener('change', updateCatSummary);
+    });
+
+    updateCatSummary();
 });
 </script>
 

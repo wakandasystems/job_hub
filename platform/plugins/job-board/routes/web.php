@@ -2,6 +2,7 @@
 
 use Botble\Base\Facades\AdminHelper;
 use Botble\JobBoard\Http\Controllers\AccountEducationController;
+use Botble\JobBoard\Http\Controllers\CreditOrderController;
 use Botble\JobBoard\Http\Controllers\AccountExperienceController;
 use Botble\JobBoard\Http\Controllers\CareerServiceOrderController;
 use Botble\JobBoard\Http\Controllers\EmployerSubscriptionController;
@@ -77,6 +78,12 @@ AdminHelper::registerRoutes(function (): void {
         Route::get('', [JobAlertOrderController::class, 'index'])->name('index');
         Route::post('{jobAlertOrder}/approve', [JobAlertOrderController::class, 'approve'])->name('approve');
         Route::post('{jobAlertOrder}/reject', [JobAlertOrderController::class, 'reject'])->name('reject');
+    });
+
+    Route::prefix('credit-orders')->name('credit-orders.')->middleware('auth')->group(function (): void {
+        Route::get('', [CreditOrderController::class, 'index'])->name('index');
+        Route::post('{order}/approve', [CreditOrderController::class, 'approve'])->name('approve');
+        Route::post('{order}/reject', [CreditOrderController::class, 'reject'])->name('reject');
     });
 
     Route::group(['prefix' => 'career-service-orders', 'as' => 'career-service-orders.', 'middleware' => 'auth'], function (): void {

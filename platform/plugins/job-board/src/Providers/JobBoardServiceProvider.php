@@ -471,6 +471,15 @@ class JobBoardServiceProvider extends ServiceProvider
                     'permissions' => ['job-alert-orders.index'],
                 ])
                 ->registerItem([
+                    'id'          => 'cms-plugins-credit-orders',
+                    'priority'    => 5,
+                    'parent_id'   => 'cms-plugins-job-board-main',
+                    'name'        => 'Credit Orders',
+                    'icon'        => null,
+                    'url'         => fn () => route('credit-orders.index'),
+                    'permissions' => ['credit-orders.index'],
+                ])
+                ->registerItem([
                     'id' => 'cms-plugins-job-board-featured-orders',
                     'priority' => 7,
                     'parent_id' => 'cms-plugins-job-board-main',
@@ -766,7 +775,7 @@ class JobBoardServiceProvider extends ServiceProvider
                         'id' => 'cms-account-candidates',
                         'priority' => 80,
                         'parent_id' => null,
-                        'name' => 'Find Candidates',
+                        'name' => 'Find Talent',
                         'url' => fn () => route('public.account.candidates.search'),
                         'icon' => 'ti ti-users-group',
                     ]);
@@ -827,14 +836,6 @@ class JobBoardServiceProvider extends ServiceProvider
                         'name' => 'Career Services',
                         'url' => fn () => route('public.account.career-services'),
                         'icon' => 'ti ti-writing-sign',
-                    ])
-                    ->registerItem([
-                        'id' => 'cms-account-cv-score',
-                        'priority' => 9,
-                        'parent_id' => null,
-                        'name' => 'AI CV Score',
-                        'url' => fn () => route('public.career-service.cv-score'),
-                        'icon' => 'ti ti-sparkles',
                     ])
                     ->registerItem([
                         'id' => 'cms-account-job-alerts',

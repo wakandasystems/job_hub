@@ -4,9 +4,19 @@ namespace Botble\JobBoard\Supports;
 
 use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\CvReveal;
+use Botble\JobBoard\Supports\SubscriptionService;
 
 class CvRevealService
 {
+    /**
+     * True when the employer's active subscription grants unlimited candidate access.
+     */
+    public function hasSubscriptionAccess(Account $employer): bool
+    {
+        $sub = app(SubscriptionService::class)->getActiveSubscription($employer);
+        return $sub !== null && (bool) $sub->package?->can_search_candidates;
+    }
+
     public function hasRevealed(Account $employer, Account $candidate): bool
     {
         return CvReveal::query()
@@ -21,6 +31,11 @@ class CvRevealService
      */
     public function canReveal(Account $employer): array
     {
+        // Active subscription with candidate search access → unlimited free reveals
+        if ($this->hasSubscriptionAccess($employer)) {
+            return ['can' => true, 'reason' => 'subscription', 'cost' => 0];
+        }
+
         // Credits-based reveal
         $cost = (int) setting('cv_reveal_credit_cost', 1);
         if ($cost > 0 && $employer->credits >= $cost) {

@@ -1,9 +1,12 @@
 @php
     $isEmployer    = $isEmployer    ?? (auth('account')->check() && auth('account')->user()->isEmployer());
     $revealedIds   = $revealedIds   ?? [];
+    $hasSubscriptionAccess = $hasSubscriptionAccess ?? false;
+    $canReveal     = $canReveal     ?? $canRevealFree ?? false;
     $canRevealFree = $canRevealFree ?? false;
     $revealCost    = $revealCost    ?? (int) setting('cv_reveal_credit_cost', 1);
     $revealUrlBase = $isEmployer ? route('public.account.cv-reveal.reveal', ['candidate' => 0]) : '#';
+    $revealPriceLabel = setting('cv_reveal_price_label', '');
 @endphp
 
 @if($candidates->total())
@@ -11,6 +14,8 @@
         @php
             $alreadyRevealed = in_array($candidate->id, $revealedIds);
             $isStale         = method_exists($candidate, 'isProfileStale') && $candidate->isProfileStale(90);
+            $candidateDisplayName = \Botble\JobBoard\Supports\ProfileContactGuard::obscure($candidate->name);
+            $candidateDescription = \Botble\JobBoard\Supports\ProfileContactGuard::obscure($candidate->description);
         @endphp
         <div class="col-xl-3 col-lg-4 col-md-6">
             <div class="card-grid-2 hover-up">
@@ -18,13 +23,13 @@
                     <div @class(['card-grid-2-image-rd', 'online' => $candidate->available_for_hiring])>
                         <a href="{{ $candidate->url }}">
                             <figure>
-                                <img alt="{{ $candidate->name }}" src="{{ $candidate->avatar_thumb_url }}">
+	                            <img alt="{{ $candidateDisplayName }}" src="{{ $candidate->avatar_thumb_url }}">
                             </figure>
                         </a>
                     </div>
                     <div class="card-profile pt-10">
                         <a href="{{ $candidate->url }}">
-                            <h5>{{ $candidate->name }}</h5>
+	                            <h5>{{ $candidateDisplayName }}</h5>
                         </a>
                         <div class="d-flex flex-wrap gap-1 mt-1">
                             @if($candidate->available_for_hiring)
@@ -39,7 +44,7 @@
                                 <span class="badge bg-secondary" style="font-size:10px;">{{ __('Inactive 90d+') }}</span>
                             @endif
                         </div>
-                        <span class="font-xs color-text-mutted text-truncate d-block mt-1">{{ $candidate->description }}</span>
+	                        <span class="font-xs color-text-mutted text-truncate d-block mt-1">{{ $candidateDescription }}</span>
                     </div>
                 </div>
                 <div class="card-block-info">
@@ -77,10 +82,15 @@
                     {{-- Contact reveal section --}}
                     <div class="mt-10 candidate-contact-block" data-candidate-id="{{ $candidate->id }}">
                         @if(! $isEmployer)
-                            <div class="d-flex gap-2 align-items-center">
-                                <span class="font-sm" style="filter:blur(4px);user-select:none;pointer-events:none;">+260 9X XXX XXXX</span>
-                                <a href="{{ route('public.account.login') }}" class="btn btn-xs btn-outline-primary ms-auto" style="font-size:11px;">
-                                    <i class="fi-rr-lock me-1"></i>{{ __('Sign in') }}
+                            <div class="d-flex flex-column gap-1">
+                                <div class="d-flex gap-2 align-items-center">
+                                    <span class="font-sm" style="filter:blur(4px);user-select:none;pointer-events:none;">+260 9X XXX XXXX</span>
+                                    <a href="{{ route('public.account.login') }}" class="btn btn-xs btn-sign-in-reveal ms-auto" style="font-size:11px;">
+                                        <i class="fi-rr-lock me-1"></i>{{ __('Sign in') }}
+                                    </a>
+                                </div>
+                                <a href="{{ $candidate->url }}" class="btn btn-xs btn-outline-secondary w-100" style="font-size:11px;">
+                                    {{ __('View Profile') }}
                                 </a>
                             </div>
                         @elseif($alreadyRevealed)
@@ -94,16 +104,27 @@
                                 @endif
                             </div>
                         @else
-                            <button type="button"
-                                class="btn btn-sm btn-outline-primary w-100 mt-1 btn-reveal-contact"
-                                data-reveal-url="{{ str_replace('/0', '/'.$candidate->id, $revealUrlBase) }}">
-                                <i class="fi-rr-unlock me-1"></i>
-                                @if($canRevealFree)
-                                    {{ __('Reveal Contact') }}
-                                @else
-                                    {{ __('Reveal (:cost cr)', ['cost' => $revealCost]) }}
-                                @endif
-                            </button>
+                            @if($canReveal)
+                                <button type="button"
+                                    class="btn btn-sm w-100 mt-1 btn-reveal-contact"
+                                    data-reveal-url="{{ str_replace('/0', '/'.$candidate->id, $revealUrlBase) }}">
+                                    <i class="fi-rr-unlock me-1"></i>
+                                    @if($hasSubscriptionAccess || $canRevealFree)
+                                        {{ __('Reveal Contact') }}
+                                    @else
+                                        {{ __('Reveal (:cost cr)', ['cost' => $revealCost]) }}
+                                    @endif
+                                </button>
+                            @else
+                                <div class="d-flex gap-1 mt-1">
+                                    <a href="{{ route('public.account.credits') }}" class="btn btn-xs btn-outline-primary flex-fill" style="font-size:11px;">
+                                        {{ __('Buy Credits') }}
+                                    </a>
+                                    <a href="{{ route('public.account.subscription.index') }}" class="btn btn-xs btn-outline-secondary flex-fill" style="font-size:11px;">
+                                        {{ __('Upgrade') }}
+                                    </a>
+                                </div>
+                            @endif
                         @endif
                     </div>
                 </div>

@@ -83,9 +83,24 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middlew
         )->name('public.jobs-by-city');
 
         Route::get(
+            sprintf('%s/country/{slug}', SlugHelper::getPrefix(Job::class, 'jobs')),
+            'JobByLocationController@country'
+        )->name('public.jobs-by-country');
+
+        Route::get(
+            sprintf('%s/country/{country}/title/{slug}', SlugHelper::getPrefix(Job::class, 'jobs')),
+            'JobByLocationController@titleInCountry'
+        )->name('public.jobs-by-country-title');
+
+        Route::get(
             sprintf('%s/%s/{slug?}', SlugHelper::getPrefix(Job::class, 'jobs'), SlugHelper::getPrefix(State::class, 'state')),
             'JobByLocationController@state'
         )->name('public.jobs-by-state');
+
+        Route::get(
+            sprintf('%s/title/{slug}', SlugHelper::getPrefix(Job::class, 'jobs')),
+            'JobByLocationController@title'
+        )->name('public.jobs-by-title');
 
         // Stores account type in session then redirects to social OAuth provider
         Route::get('social-register/{provider}', function (string $provider, \Illuminate\Http\Request $request) {

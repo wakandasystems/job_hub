@@ -426,6 +426,14 @@ class GeneralSettingForm extends SettingForm
                     ->attributes(['min' => 0])
             )
             ->add(
+                'cv_reveal_price_label',
+                TextField::class,
+                TextFieldOption::make()
+                    ->label('CV Reveal Price Label (display only)')
+                    ->value(setting('cv_reveal_price_label', ''))
+                    ->helperText('Human-readable price shown to users on the paywall, e.g. "ZMW 50,000". Leave blank to show credit cost instead.')
+            )
+            ->add(
                 'talent_hub_require_consent',
                 OnOffCheckboxField::class,
                 OnOffFieldOption::make()

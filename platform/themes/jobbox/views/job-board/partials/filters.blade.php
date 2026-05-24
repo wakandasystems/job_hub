@@ -10,7 +10,7 @@
         <div class="sidebar-filters sidebar-filter-mobile__inner">
             {!! Form::open(['url' => route('public.ajax.jobs'), 'method' => 'GET', 'id' => 'jobs-filter-form', 'class' => 'sidebar-filter-mobile__content']) !!}
                 <input type="hidden" name="page" data-value="{{ $jobs->currentPage() ?: 1 }}" />
-                <input type="hidden" name="keyword" value="{{ BaseHelper::stringify(request()->query('keyword')) }}" />
+                <input type="hidden" name="keyword" value="{{ BaseHelper::stringify($keyword ?? request()->query('keyword')) }}" />
                 <input type="hidden" name="per_page" />
                 <input type="hidden" name="layout" />
                 <input type="hidden" name="sort_by" value="{{ BaseHelper::stringify(request()->query('sort_by')) }}" />
@@ -29,6 +29,10 @@
 
                 @isset($stateId)
                     <input type="hidden" name="state_id" value="{{ $stateId }}" />
+                @endisset
+
+                @isset($countryId)
+                    <input type="hidden" name="country_id" value="{{ $countryId }}" />
                 @endisset
 
                 @if(! empty($currentJobTags))

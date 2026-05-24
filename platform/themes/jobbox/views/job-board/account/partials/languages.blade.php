@@ -1,8 +1,10 @@
 <div class="mb-3">
-    <label for="languages" class="form-label w-100">
-        {{ __('Languages') }}
-        <button type="button" class="btn btn-link btn-sm float-end" data-bs-target="#addLanguageModal" data-bs-toggle="modal">{{ __('Add New') }}</button>
-    </label>
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+        <label for="languages" class="form-label mb-0">{{ __('Languages') }}</label>
+        <button type="button" class="btn btn-primary btn-sm" data-bs-target="#addLanguageModal" data-bs-toggle="modal">
+            <i class="fi-rr-plus me-1"></i>{{ __('Add New') }}
+        </button>
+    </div>
 
     @if($languages->isNotEmpty())
         <ul class="list-group ps-0">
@@ -20,6 +22,7 @@
                                 class="btn btn-remove"
                                 data-bb-toggle="delete-language"
                                 data-url="{{ route('public.account.languages.destroy', $language->getKey()) }}"
+                                data-language="{{ $language->language }}"
                         ></button>
                     </div>
                 </li>
