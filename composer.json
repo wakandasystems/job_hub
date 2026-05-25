@@ -32,6 +32,7 @@
         "laravel/framework": "12.43.1",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10",
+        "minishlink/web-push": "^10.0",
         "predis/predis": "^3.0",
         "wikimedia/composer-merge-plugin": "^2.1"
     },

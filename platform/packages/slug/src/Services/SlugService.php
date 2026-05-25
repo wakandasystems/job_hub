@@ -12,7 +12,6 @@ class SlugService
     {
         $slug = Str::slug($name, '-', ! SlugHelper::turnOffAutomaticUrlTranslationIntoLatin() ? 'en' : false);
 
-        $index = 1;
         $baseSlug = $slug;
 
         $prefix = null;
@@ -21,7 +20,8 @@ class SlugService
         }
 
         while ($this->checkIfExistedSlug($slug, $slugId, $prefix)) {
-            $slug = apply_filters(FILTER_SLUG_EXISTED_STRING, $baseSlug . '-' . $index++, $baseSlug, $index, $model);
+            $suffix = strtolower(Str::random(6));
+            $slug = apply_filters(FILTER_SLUG_EXISTED_STRING, $baseSlug . '-' . $suffix, $baseSlug, 0, $model);
         }
 
         if (empty($slug)) {

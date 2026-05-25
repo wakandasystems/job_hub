@@ -261,6 +261,7 @@ return [
         'job_alert_company_info' => 'Company: :company_name',
         'job_alert_view_job' => 'View Job',
         'job_alert_source_label' => 'Job Alert:',
+        'job_alert_deadline' => 'Apply by: :job_deadline',
         'job_alert_buy_more' => 'Buy more job alerts',
 
         // Job seeker applied job email template

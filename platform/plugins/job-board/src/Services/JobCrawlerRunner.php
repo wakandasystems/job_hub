@@ -191,6 +191,10 @@ class JobCrawlerRunner
             return $this->fetchKeejobJobs($crawler);
         }
 
+        if ($crawler->parser_type === 'jobsearchzm') {
+            return $this->fetchJobSearchZmJobs($crawler);
+        }
+
         $sourceUrl = (string) $crawler->source_url;
         $paginated = str_contains($sourceUrl, '{page}');
 
@@ -361,6 +365,10 @@ class JobCrawlerRunner
 
         if ($crawler->parser_type === 'keejob') {
             return $this->importKeejobJobs($crawler, $items);
+        }
+
+        if ($crawler->parser_type === 'jobsearchzm') {
+            return $this->importJobSearchZmJobs($crawler, $items);
         }
 
         $stats = [
@@ -3452,6 +3460,349 @@ class JobCrawlerRunner
 
         return compact('title', 'company', 'location', 'description') + [
             'date_posted' => $datePosted,
+        ];
+    }
+
+    // -------------------------------------------------------------------------
+    // JobSearchZM — WordPress-based job board at jobsearchzm.com
+    // -------------------------------------------------------------------------
+
+    protected function fetchJobSearchZmJobs(JobCrawler $crawler): array
+    {
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->toArray();
+
+        $isFirstRun = empty($existingIds);
+        $isFullPull = $this->runMode === 'full';
+        $maxPages   = $isFullPull ? 50 : 10;
+        $jobs       = [];
+        $seenIds    = [];
+
+        // Strategy 1: WP REST API — job_listing custom post type (WP Job Manager)
+        $apiBase = 'https://jobsearchzm.com/wp-json/wp/v2/';
+
+        for ($page = 1; $page <= $maxPages; $page++) {
+            $this->saveProgress($page, count($jobs));
+
+            if ($page > 1) {
+                sleep($isFullPull ? rand(3, 6) : rand(1, 3));
+            }
+
+            $items = $this->jobSearchZmFetchPage($apiBase, $page);
+
+            if (empty($items)) {
+                break;
+            }
+
+            $newOnPage = 0;
+
+            foreach ($items as $item) {
+                $id = (string) ($item['id'] ?? '');
+                if ($id === '' || isset($seenIds[$id])) {
+                    continue;
+                }
+                $seenIds[$id] = true;
+                $jobs[]       = $item;
+
+                if (! array_key_exists($id, $existingIds)) {
+                    $newOnPage++;
+                }
+            }
+
+            // Early stop: caught up with known jobs
+            if (! $isFullPull && ! $isFirstRun && $newOnPage === 0) {
+                break;
+            }
+        }
+
+        return $jobs;
+    }
+
+    /**
+     * Try WP Job Manager post type first; fall back to regular posts filtered by jobs category.
+     */
+    protected function jobSearchZmFetchPage(string $apiBase, int $page): array
+    {
+        $headers = [
+            'User-Agent'      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept'          => 'application/json',
+            'Accept-Language' => 'en-US,en;q=0.9',
+        ];
+
+        // Try WP Job Manager custom post type
+        $response = Http::withHeaders($headers)->timeout(15)->get($apiBase . 'job_listing', [
+            'per_page' => 20,
+            'page'     => $page,
+            '_fields'  => 'id,title,link,date,modified,content,excerpt,meta,_links',
+            'status'   => 'publish',
+            'orderby'  => 'date',
+            'order'    => 'desc',
+        ]);
+
+        if ($response->successful()) {
+            $data = $response->json();
+            if (is_array($data) && ! empty($data)) {
+                return $this->normalizeJobSearchZmWpItems($data, 'job_listing');
+            }
+        }
+
+        // Fallback: regular posts — find posts in "jobs" category
+        $catResponse = Http::withHeaders($headers)->timeout(15)->get($apiBase . 'categories', [
+            'slug'      => 'jobs,job-listings,vacancies',
+            '_fields'   => 'id,name,slug',
+            'per_page'  => 5,
+        ]);
+
+        $categoryIds = [];
+        if ($catResponse->successful()) {
+            foreach ((array) $catResponse->json() as $cat) {
+                if (isset($cat['id'])) {
+                    $categoryIds[] = $cat['id'];
+                }
+            }
+        }
+
+        $postParams = [
+            'per_page' => 20,
+            'page'     => $page,
+            '_fields'  => 'id,title,link,date,content,excerpt,categories',
+            'status'   => 'publish',
+            'orderby'  => 'date',
+            'order'    => 'desc',
+        ];
+
+        if (! empty($categoryIds)) {
+            $postParams['categories'] = implode(',', $categoryIds);
+        }
+
+        $postsResponse = Http::withHeaders($headers)->timeout(15)->get($apiBase . 'posts', $postParams);
+
+        if ($postsResponse->successful()) {
+            $data = $postsResponse->json();
+            if (is_array($data) && ! empty($data)) {
+                return $this->normalizeJobSearchZmWpItems($data, 'post');
+            }
+        }
+
+        return [];
+    }
+
+    protected function normalizeJobSearchZmWpItems(array $items, string $type): array
+    {
+        $normalized = [];
+
+        foreach ($items as $item) {
+            $id    = (string) ($item['id'] ?? '');
+            $title = html_entity_decode(strip_tags($item['title']['rendered'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $url   = $item['link'] ?? '';
+            $date  = $item['date'] ?? null;
+
+            $rawContent = $item['content']['rendered'] ?? $item['excerpt']['rendered'] ?? '';
+
+            // Extract company name from meta (WP Job Manager) or content
+            $company  = '';
+            $location = 'Zambia';
+            $applyUrl = $url;
+            $deadline = null;
+
+            if ($type === 'job_listing') {
+                $meta     = $item['meta'] ?? [];
+                $company  = trim((string) ($meta['_company_name'] ?? $meta['company_name'] ?? ''));
+                $location = trim((string) ($meta['_job_location'] ?? $meta['job_location'] ?? 'Zambia'));
+                $applyUrl = trim((string) ($meta['_application'] ?? $meta['application'] ?? $url));
+                $deadline = $meta['_job_expires'] ?? null;
+            }
+
+            if ($company === '') {
+                // Try to extract "Company: Acme Ltd" — stop at sentence boundary or next field
+                if (preg_match('/(?:company|employer|organisation|organization)\s*[:–\-]\s*([^.<\n,]{3,60})(?:[.<,\n]|$)/i', strip_tags($rawContent), $m)) {
+                    $company = trim($m[1]);
+                }
+            }
+
+            if ($title === '' || $id === '') {
+                continue;
+            }
+
+            $normalized[] = [
+                'id'          => $id,
+                'title'       => $title,
+                'url'         => $url,
+                'company'     => $company ?: 'JobSearchZM',
+                'location'    => $location,
+                'apply_url'   => $applyUrl,
+                'content'     => $rawContent,
+                'date'        => $date,
+                'deadline'    => $deadline,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    protected function importJobSearchZmJobs(JobCrawler $crawler, array $items): array
+    {
+        $stats = [
+            'jobs_found'   => count($items),
+            'jobs_created' => 0,
+            'jobs_updated' => 0,
+            'jobs_skipped' => 0,
+        ];
+
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->toArray();
+
+        $newItems      = [];
+        $existingItems = [];
+
+        foreach ($items as $item) {
+            $id = (string) ($item['id'] ?? '');
+            if ($id !== '' && array_key_exists($id, $existingIds)) {
+                $existingItems[] = $item;
+            } else {
+                $newItems[] = $item;
+            }
+        }
+
+        $newTotal      = count($newItems);
+        $existingTotal = count($existingItems);
+
+        $this->saveNewImportProgress(0, $newTotal, $stats);
+
+        foreach ($newItems as $index => $item) {
+            $sourceId = (string) ($item['id'] ?? '');
+            $title    = trim((string) ($item['title'] ?? ''));
+
+            if ($sourceId === '' || $title === '') {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
+            $company = $this->firstOrCreateJobSearchZmCompany($item);
+            if (! $company) {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
+            $existing = Job::query()
+                ->where('crawler_id', $crawler->getKey())
+                ->where('external_source_id', $sourceId)
+                ->first();
+
+            $attributes = $this->buildJobSearchZmAttributes($crawler, $item, $company);
+
+            if ($existing) {
+                $existing->forceFill($attributes)->save();
+                $stats['jobs_updated']++;
+            } else {
+                $newJob = new Job();
+                $newJob->forceFill($attributes);
+                $this->persistNewJob($newJob, $crawler, $stats, function (Job $j): void {
+                    $j->jobTypes()->syncWithoutDetaching([3]);
+                    $this->dispatchNewJobEvents($j);
+                });
+            }
+
+            $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+        }
+
+        $this->saveExistingUpdateProgress(0, $existingTotal, $stats);
+
+        foreach ($existingItems as $index => $item) {
+            $sourceId = (string) ($item['id'] ?? '');
+            if ($sourceId !== '') {
+                $job = Job::query()
+                    ->where('crawler_id', $crawler->getKey())
+                    ->where('external_source_id', $sourceId)
+                    ->first();
+
+                if ($job) {
+                    $deadline = $item['deadline'] ?? null;
+                    $job->forceFill([
+                        'name'                     => $this->limitGoZambiaField($item['title'] ?? $job->name, 110),
+                        'expire_date'              => $deadline ? Carbon::parse($deadline) : Carbon::now()->addDays(30),
+                        'application_closing_date' => $deadline ? Carbon::parse($deadline) : null,
+                    ])->save();
+                    $stats['jobs_updated']++;
+                } else {
+                    $stats['jobs_skipped']++;
+                }
+            }
+
+            if ($index % 10 === 9 || $index === $existingTotal - 1) {
+                $this->saveExistingUpdateProgress($index + 1, $existingTotal, $stats);
+            }
+        }
+
+        return $stats;
+    }
+
+    protected function firstOrCreateJobSearchZmCompany(array $item): ?Company
+    {
+        $name = trim((string) ($item['company'] ?? ''));
+        if ($name === '') {
+            return null;
+        }
+
+        $company = $this->findGoZambiaCompany($name, null);
+
+        if (! $company) {
+            $company = $this->firstOrCreateCompany([
+                'name'       => $this->limitGoZambiaField($name, 110),
+                'country_id' => 7, // Zambia
+                'status'     => \Botble\Base\Enums\BaseStatusEnum::PUBLISHED,
+                'is_verified'=> false,
+            ], $name);
+            SlugHelper::createSlug($company);
+        }
+
+        return $company;
+    }
+
+    protected function buildJobSearchZmAttributes(JobCrawler $crawler, array $item, Company $company): array
+    {
+        $date     = $item['date'] ?? null;
+        $deadline = $item['deadline'] ?? null;
+
+        $postedDate = $date ? Carbon::parse($date) : Carbon::now();
+        $expireDate = $deadline
+            ? Carbon::parse($deadline)
+            : $postedDate->copy()->addDays(45);
+
+        $rawContent  = (string) ($item['content'] ?? '');
+        $description = Str::limit(trim(strip_tags($rawContent)), 400, '');
+
+        return [
+            'crawler_id'               => $crawler->getKey(),
+            'external_source_id'       => (string) ($item['id'] ?? ''),
+            'external_source_url'      => (string) ($item['url'] ?? ''),
+            'name'                     => $this->limitGoZambiaField(trim((string) ($item['title'] ?? '')), 110),
+            'description'              => $description,
+            'content'                  => $rawContent ?: $description,
+            'company_id'               => $company->getKey(),
+            'address'                  => (string) ($item['location'] ?? 'Zambia'),
+            'country_id'               => 7, // Zambia
+            'apply_url'                => (string) ($item['apply_url'] ?? $item['url'] ?? ''),
+            'status'                   => JobStatusEnum::PUBLISHED,
+            'moderation_status'        => ModerationStatusEnum::APPROVED,
+            'salary_type'              => \Botble\JobBoard\Enums\SalaryTypeEnum::HIDDEN,
+            'career_level_id'          => 3,
+            'is_featured'              => false,
+            'expire_date'              => $expireDate,
+            'application_closing_date' => $expireDate,
+            'never_expired'            => false,
+            'created_at'               => $postedDate,
+            'updated_at'               => $postedDate,
         ];
     }
 }

@@ -6,6 +6,14 @@
 
 <p>{{ 'plugins/job-board::email.email_templates.job_alert_hiring' | trans({'job_name': '<strong>' ~ job_name ~ '</strong>', 'company_name': '<i>' ~ company_name ~ '</i>'}) | raw }}</p>
 
+{% if job_location %}
+<p>📍 {{ job_location }}</p>
+{% endif %}
+
+{% if job_deadline %}
+<p>⏳ {{ 'plugins/job-board::email.email_templates.job_alert_deadline' | trans({'job_deadline': '<strong>' ~ job_deadline ~ '</strong>'}) | raw }}</p>
+{% endif %}
+
 {{ 'plugins/job-board::email.email_templates.job_alert_apply_forward' | trans({'job_url': job_url}) | replace({'Apply': '<strong>Apply</strong>', 'Forward': '<strong>Forward</strong>'}) | raw }}
 
 {% if job_alert_quota_message %}

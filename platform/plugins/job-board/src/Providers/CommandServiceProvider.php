@@ -9,6 +9,7 @@ use Botble\JobBoard\Commands\UpdateCurrencyRatesCommand;
 use Botble\JobBoard\Console\Commands\ExpireSubscriptionsCommand;
 use Botble\JobBoard\Console\Commands\SendMonthlyHiringSnapshotCommand;
 use Botble\JobBoard\Console\Commands\SendProfileRefreshReminderCommand;
+use Botble\JobBoard\Console\Commands\SendPushNotificationsCommand;
 use Botble\JobBoard\Console\Commands\SendSubscriptionRenewalReminderCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
@@ -22,6 +23,7 @@ class CommandServiceProvider extends ServiceProvider
         }
 
         $this->commands([
+            SendPushNotificationsCommand::class,
             RenewJobsCommand::class,
             CheckExpiredJobsSoonCommand::class,
             RunJobCrawlersCommand::class,

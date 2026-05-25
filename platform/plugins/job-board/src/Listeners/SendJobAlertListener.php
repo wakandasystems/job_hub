@@ -241,11 +241,15 @@ class SendJobAlertListener
 
     protected function jobAlertEmailVariables(Account $account, $job, bool $includeQuota = true): array
     {
+        $deadline = $job->application_closing_date ?? $job->expire_date ?? null;
+
         return [
             'job_name' => $job->name,
             'job_url' => $job->url,
-            'company_name' => ($job->hide_company ?? false) ? $job->company->name : '',
+            'company_name' => ! ($job->hide_company ?? false) ? ($job->company->name ?? '') : '',
             'account_name' => $account->name,
+            'job_location' => $job->location ?? '',
+            'job_deadline' => $deadline ? $deadline->format('M j, Y') : '',
             'job_alert_source_message' => 'This email was sent from your Wakanda Jobs Job Alerts.',
             'job_alert_quota_message' => $includeQuota ? $this->lowQuotaMessage($account->id) : '',
             'job_alert_packages_url' => route('public.account.job-alert.packages.index'),

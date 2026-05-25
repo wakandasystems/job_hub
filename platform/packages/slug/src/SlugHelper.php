@@ -127,14 +127,24 @@ class SlugHelper
             'prefix' => $this->getPrefix($model::class),
         ]);
 
-        if ($this->turnOffAutomaticUrlTranslationIntoLatin()) {
-            $slug->key = $name ?: $model->{$this->getColumnNameToGenerateSlug($model::class)};
-        } else {
-            $slug->key = Str::slug($name ?: $model->{$this->getColumnNameToGenerateSlug($model::class)});
+        $sourceName = $name ?: $model->{$this->getColumnNameToGenerateSlug($model::class)};
+        $baseKey = $this->turnOffAutomaticUrlTranslationIntoLatin()
+            ? $sourceName
+            : Str::slug($sourceName);
+
+        $key = $baseKey;
+        $prefix = $this->getPrefix($model::class);
+
+        while (Slug::query()
+            ->where('key', $key)
+            ->where('prefix', $prefix)
+            ->where('reference_id', '!=', $model->getKey())
+            ->exists()) {
+            $key = $baseKey . '-' . strtolower(Str::random(6));
         }
 
+        $slug->key = $key;
         $slug->ensureIdCanBeCreated();
-
         $slug->saveQuietly();
 
         return $slug;

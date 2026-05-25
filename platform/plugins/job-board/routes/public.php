@@ -144,6 +144,12 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middlew
     });
 });
 
+Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middleware' => ['web', 'core'], 'prefix' => 'push'], function (): void {
+    Route::get('vapid-key', 'PushSubscriptionController@vapidKey')->name('push.vapid-key');
+    Route::post('subscribe', 'PushSubscriptionController@store')->name('push.subscribe');
+    Route::post('unsubscribe', 'PushSubscriptionController@destroy')->name('push.unsubscribe');
+});
+
 Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers', 'middleware' => ['web', 'core']], function (): void {
     Route::get('download-cv/{account}', [
         'as' => 'public.candidate.download-cv',
