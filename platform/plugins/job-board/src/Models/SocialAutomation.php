@@ -24,6 +24,7 @@ class SocialAutomation extends BaseModel
         'facebook'  => 'Facebook Page',
         'linkedin'  => 'LinkedIn Company Page',
         'whatsapp'  => 'WhatsApp',
+        'telegram'  => 'Telegram',
     ];
 
     public function getPlatformLabelAttribute(): string

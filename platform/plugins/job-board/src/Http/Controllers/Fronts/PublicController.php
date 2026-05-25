@@ -144,6 +144,10 @@ class PublicController extends BaseController
             }
         }
 
+        if (! $meta->getProperty('image') && ($defaultOgImage = theme_option('og_image'))) {
+            $meta->setImage(RvMedia::getImageUrl($defaultOgImage));
+        }
+
         SeoHelper::setSeoOpenGraph($meta);
 
         Theme::breadcrumb()

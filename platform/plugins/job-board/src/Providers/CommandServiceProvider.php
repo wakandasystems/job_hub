@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Providers;
 
 use Botble\JobBoard\Commands\CheckExpiredJobsSoonCommand;
+use Botble\JobBoard\Commands\RegisterTelegramWebhookCommand;
 use Botble\JobBoard\Commands\RenewJobsCommand;
 use Botble\JobBoard\Commands\RunJobCrawlersCommand;
 use Botble\JobBoard\Commands\UpdateCurrencyRatesCommand;
@@ -11,6 +12,7 @@ use Botble\JobBoard\Console\Commands\SendMonthlyHiringSnapshotCommand;
 use Botble\JobBoard\Console\Commands\SendProfileRefreshReminderCommand;
 use Botble\JobBoard\Console\Commands\SendPushNotificationsCommand;
 use Botble\JobBoard\Console\Commands\SendSubscriptionRenewalReminderCommand;
+use Botble\JobBoard\Console\Commands\SocialPublishJobCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
 
@@ -23,6 +25,7 @@ class CommandServiceProvider extends ServiceProvider
         }
 
         $this->commands([
+            RegisterTelegramWebhookCommand::class,
             SendPushNotificationsCommand::class,
             RenewJobsCommand::class,
             CheckExpiredJobsSoonCommand::class,
@@ -32,6 +35,7 @@ class CommandServiceProvider extends ServiceProvider
             SendSubscriptionRenewalReminderCommand::class,
             SendMonthlyHiringSnapshotCommand::class,
             SendProfileRefreshReminderCommand::class,
+            SocialPublishJobCommand::class,
         ]);
 
         $this->app->afterResolving(Schedule::class, function (Schedule $schedule): void {

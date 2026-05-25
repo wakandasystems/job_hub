@@ -31,6 +31,16 @@
                     'recipient'       => ['label' => 'Recipient Number', 'placeholder' => '+260977000000', 'help' => 'Target phone number in international format (for broadcasts/channels, use the group JID)'],
                 ],
             ],
+            'telegram' => [
+                'label' => 'Telegram Copy Queue',
+                'icon'  => 'ti ti-brand-telegram',
+                'color' => '#229ED9',
+                'fields' => [
+                    'chat_id'    => ['label' => 'Chat ID', 'placeholder' => 'e.g. 123456789', 'help' => 'Use the Telegram chat ID already receiving alerts.'],
+                    'bot_token'  => ['label' => 'Bot Token Override', 'placeholder' => 'Leave blank to use the saved Job Alert bot token', 'type' => 'password', 'required' => false, 'help' => 'Optional. Defaults to the Telegram Bot Token under Job Alert Settings.'],
+                    'country_id' => ['label' => 'Country Filter (optional)', 'placeholder' => 'e.g. 7 for Zambia — leave blank to send all countries', 'required' => false, 'help' => 'Only posts for jobs in this country ID will be sent. Leave blank to send jobs from all countries.'],
+                ],
+            ],
         ];
     @endphp
 
@@ -164,7 +174,7 @@
                                             name="settings[{{ $fieldKey }}]"
                                             class="form-control"
                                             placeholder="{{ $field['placeholder'] }}"
-                                            required>
+                                            @if(($field['required'] ?? true) !== false) required @endif>
                                         @if(!empty($field['help']))
                                             <div class="form-text text-muted">{{ $field['help'] }}</div>
                                         @endif
@@ -233,6 +243,26 @@
             @endforeach
         @endforeach
 
+        <div class="modal fade" id="deleteAutomationModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-sm">
+                <div class="modal-content">
+                    <div class="modal-body text-center py-4 px-4">
+                        <div class="mb-3">
+                            <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger bg-opacity-10" style="width:52px;height:52px;">
+                                <i class="ti ti-trash text-danger fs-3"></i>
+                            </span>
+                        </div>
+                        <h6 class="fw-semibold mb-1">Delete this automation?</h6>
+                        <p class="text-muted small mb-4" id="deleteAutomationLabel">This cannot be undone.</p>
+                        <div class="d-flex gap-2 justify-content-center">
+                            <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-danger px-4" id="confirmDeleteAutomation">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 @endsection
 
@@ -264,17 +294,34 @@ $(function () {
     });
 
     // Delete
-    $(document).on('click', '.automation-delete', function () {
-        const url  = $(this).data('url');
-        const name = $(this).data('name');
-        const $row = $(this).closest('.automation-row');
+    const deleteAutomationModalEl = document.getElementById('deleteAutomationModal');
+    const deleteAutomationModal = deleteAutomationModalEl ? new bootstrap.Modal(deleteAutomationModalEl) : null;
+    let pendingDelete = null;
 
-        if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    $(document).on('click', '.automation-delete', function () {
+        pendingDelete = {
+            url: $(this).data('url'),
+            name: $(this).data('name'),
+            row: $(this).closest('.automation-row'),
+        };
+
+        $('#deleteAutomationLabel').text(pendingDelete.name);
+        deleteAutomationModal?.show();
+    });
+
+    $('#confirmDeleteAutomation').on('click', function () {
+        if (!pendingDelete) {
+            return;
+        }
+
+        const { url, row } = pendingDelete;
 
         $httpClient.make().delete(url)
             .then(() => {
-                $row.fadeOut(200, () => $row.remove());
+                row.fadeOut(200, () => row.remove());
                 Botble.showSuccess('Automation deleted.');
+                deleteAutomationModal?.hide();
+                pendingDelete = null;
             })
             .catch(() => Botble.showError('Could not delete automation.'));
     });

@@ -29,6 +29,7 @@ use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Eloquent\Relations\Relation as EloquentRelation;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Support\Arr;
 
 class JobTable extends TableAbstract
 {
@@ -49,10 +50,79 @@ class JobTable extends TableAbstract
                 EditAction::make()->route('jobs.edit'),
                 DeleteAction::make()->route('jobs.destroy'),
             ]);
+
+        static $registeredCountryFilter = false;
+
+        if (! $registeredCountryFilter) {
+            add_filter(BASE_FILTER_TABLE_BEFORE_RENDER, function (?string $html, TableAbstract $table): ?string {
+                if (! $table instanceof self) {
+                    return $html;
+                }
+
+                return ($html ?: '') . $table->renderCountryFilter();
+            }, 20, 2);
+
+            $registeredCountryFilter = true;
+        }
+    }
+
+    protected function getCountriesWithJobs(): array
+    {
+        return \DB::table('jb_jobs')
+            ->join('countries', 'jb_jobs.country_id', '=', 'countries.id')
+            ->select('countries.id', 'countries.name', 'countries.code')
+            ->distinct()
+            ->orderBy('countries.name')
+            ->get()
+            ->mapWithKeys(fn ($row) => [$row->id => $row->name])
+            ->all();
+    }
+
+    public function renderCountryFilter(): string
+    {
+        $selectedId = (int) $this->request()->input('country_filter_id', 7);
+        $action = e($this->request()->url());
+        $query = Arr::except($this->request()->query(), ['country_filter_id']);
+        $hidden = '';
+
+        foreach ($query as $key => $value) {
+            if (is_array($value)) {
+                continue;
+            }
+
+            $hidden .= '<input type="hidden" name="' . e($key) . '" value="' . e((string) $value) . '">';
+        }
+
+        $options = '<option value=""' . ($selectedId === 0 ? ' selected' : '') . '>All countries</option>';
+        foreach ($this->getCountriesWithJobs() as $id => $name) {
+            $sel = ((int) $id === $selectedId) ? ' selected' : '';
+            $options .= '<option value="' . (int) $id . '"' . $sel . '>' . e($name) . '</option>';
+        }
+
+        return <<<HTML
+            <div class="card mb-3">
+                <div class="card-body py-2">
+                    <form method="GET" action="{$action}" class="row g-2 align-items-end">
+                        {$hidden}
+                        <div class="col-12 col-md-3">
+                            <label class="form-label mb-1">Country</label>
+                            <select name="country_filter_id" class="form-select" onchange="this.form.submit()">
+                                {$options}
+                            </select>
+                        </div>
+                        <div class="col-auto">
+                            <a href="{$action}" class="btn btn-outline-secondary">Reset</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        HTML;
     }
 
     public function query(): Relation|Builder|QueryBuilder
     {
+        $countryFilterId = (int) $this->request()->input('country_filter_id', 7);
+
         $query = $this
             ->getModel()
             ->query()
@@ -70,6 +140,10 @@ class JobTable extends TableAbstract
             ])
             ->with(['company:id,name,logo', 'country:id,name,code'])
             ->latest('created_at');
+
+        if ($countryFilterId > 0) {
+            $query->where('country_id', $countryFilterId);
+        }
 
         return $this->applyScopes($query);
     }

@@ -150,9 +150,18 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middlew
     Route::post('unsubscribe', 'PushSubscriptionController@destroy')->name('push.unsubscribe');
 });
 
+// Telegram webhook — no web/CSRF middleware; authenticated via X-Telegram-Bot-Api-Secret-Token header.
+Route::post('telegram/webhook', [\Botble\JobBoard\Http\Controllers\TelegramWebhookController::class, 'handle'])
+    ->name('public.telegram-webhook');
+
 Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers', 'middleware' => ['web', 'core']], function (): void {
     Route::get('download-cv/{account}', [
         'as' => 'public.candidate.download-cv',
         'uses' => 'AccountDownloadCvController@__invoke',
     ]);
+
+    Route::get('telegram/social-message/remove', [
+        'as' => 'public.telegram-social-delete',
+        'uses' => 'TelegramSocialMessageController@destroy',
+    ])->middleware('signed');
 });

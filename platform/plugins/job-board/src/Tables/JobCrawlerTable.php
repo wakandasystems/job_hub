@@ -23,6 +23,8 @@ use Illuminate\Support\Arr;
 
 class JobCrawlerTable extends TableAbstract
 {
+    protected bool $bStateSave = false;
+
     public function setup(): void
     {
         $this
@@ -72,6 +74,7 @@ class JobCrawlerTable extends TableAbstract
         // Static map for parsers that always target one country
         $staticMap = [
             'gozambiajobs' => ['flag' => '🇿🇲', 'name' => 'Zambia'],
+            'jobsearchzm'  => ['flag' => '🇿🇲', 'name' => 'Zambia'],
             'careers24'    => ['flag' => '🇿🇦', 'name' => 'South Africa'],
             'myjobmu'      => ['flag' => '🇲🇺', 'name' => 'Mauritius'],
             'jobstanzania' => ['flag' => '🇹🇿', 'name' => 'Tanzania'],
@@ -181,25 +184,97 @@ class JobCrawlerTable extends TableAbstract
         return $this->toJson($data);
     }
 
+    protected function resolveAllCrawlerCountries(): array
+    {
+        $staticNameMap = [
+            'gozambiajobs' => 'Zambia',
+            'jobsearchzm'  => 'Zambia',
+            'careers24'    => 'South Africa',
+            'myjobmu'      => 'Mauritius',
+            'jobstanzania' => 'Tanzania',
+            'jobinrwanda'  => 'Rwanda',
+            'keejob'       => 'Tunisia',
+        ];
+
+        $crawlers = JobCrawler::query()->select(['id', 'parser_type', 'field_mappings'])->get();
+
+        $countryIds = [];
+        foreach ($crawlers as $crawler) {
+            $mappings = $crawler->field_mappings;
+            if (is_array($mappings) && ! empty($mappings['country_id'])) {
+                $countryIds[] = (int) $mappings['country_id'];
+            }
+        }
+
+        $countriesById = [];
+        if ($countryIds) {
+            \DB::table('countries')
+                ->whereIn('id', array_unique($countryIds))
+                ->get(['id', 'name'])
+                ->each(function ($row) use (&$countriesById) {
+                    $countriesById[(int) $row->id] = $row->name;
+                });
+        }
+
+        $result = [];
+        foreach ($crawlers as $crawler) {
+            $mappings = $crawler->field_mappings;
+            $countryId = is_array($mappings) ? (int) ($mappings['country_id'] ?? 0) : 0;
+
+            if ($countryId > 0 && isset($countriesById[$countryId])) {
+                $result[$crawler->id] = $countriesById[$countryId];
+            } elseif (isset($staticNameMap[$crawler->parser_type]) && ! $countryId) {
+                $result[$crawler->id] = $staticNameMap[$crawler->parser_type];
+            }
+        }
+
+        return $result;
+    }
+
+    protected function getCountryFilterOptions(): array
+    {
+        $countries = array_unique(array_values($this->resolveAllCrawlerCountries()));
+        sort($countries);
+
+        return $countries;
+    }
+
+    protected function crawlerIdsForCountry(string $countryName): array
+    {
+        return array_keys(array_filter(
+            $this->resolveAllCrawlerCountries(),
+            fn (string $name) => strcasecmp($name, $countryName) === 0
+        ));
+    }
+
     public function query(): Relation|Builder|QueryBuilder
     {
         $range = $this->statsRange();
         $from = $range['from']->toDateTimeString();
         $to = $range['to']->toDateTimeString();
 
+        $countryFilter = (string) $this->request()->input('country_filter', 'Zambia');
+
+        $baseQuery = $this->getModel()->query()
+            ->select([
+                'id',
+                'name',
+                'source_url',
+                'parser_type',
+                'field_mappings',
+                'is_active',
+                'last_status',
+                'last_run_at',
+                'created_at',
+            ]);
+
+        if ($countryFilter !== '') {
+            $ids = $this->crawlerIdsForCountry($countryFilter);
+            $baseQuery->whereIn('id', $ids ?: [0]);
+        }
+
         return $this->applyScopes(
-            $this->getModel()->query()
-                ->select([
-                    'id',
-                    'name',
-                    'source_url',
-                    'parser_type',
-                    'field_mappings',
-                    'is_active',
-                    'last_status',
-                    'last_run_at',
-                    'created_at',
-                ])
+            $baseQuery
                 ->selectRaw(
                     '(SELECT COUNT(*) FROM jb_jobs WHERE jb_jobs.crawler_id = jb_job_crawlers.id) AS total_jobs'
                 )
@@ -339,8 +414,9 @@ class JobCrawlerTable extends TableAbstract
         $period = $range['period'];
         $from = e((string) $this->request()->input('stats_from', $range['from']->toDateString()));
         $to = e((string) $this->request()->input('stats_to', $range['to']->toDateString()));
+        $countryFilter = (string) $this->request()->input('country_filter', 'Zambia');
         $action = e($this->request()->url());
-        $query = Arr::except($this->request()->query(), ['stats_period', 'stats_from', 'stats_to']);
+        $query = Arr::except($this->request()->query(), ['stats_period', 'stats_from', 'stats_to', 'country_filter']);
         $hidden = '';
 
         foreach ($query as $key => $value) {
@@ -362,11 +438,23 @@ class JobCrawlerTable extends TableAbstract
             $option('custom', 'Custom range'),
         ]);
 
+        $countryOptions = '<option value=""' . ($countryFilter === '' ? ' selected' : '') . '>All countries</option>';
+        foreach ($this->getCountryFilterOptions() as $name) {
+            $sel = strcasecmp($name, $countryFilter) === 0 ? ' selected' : '';
+            $countryOptions .= '<option value="' . e($name) . '"' . $sel . '>' . e($name) . '</option>';
+        }
+
         return <<<HTML
             <div class="card mb-3">
                 <div class="card-body">
-                    <form method="GET" action="{$action}" class="row g-2 align-items-end">
+                    <form method="GET" action="{$action}" id="crawler-filter-form" class="row g-2 align-items-end">
                         {$hidden}
+                        <div class="col-12 col-md-2">
+                            <label class="form-label mb-1">Country</label>
+                            <select name="country_filter" class="form-select">
+                                {$countryOptions}
+                            </select>
+                        </div>
                         <div class="col-12 col-md-3">
                             <label class="form-label mb-1">Stats period</label>
                             <select name="stats_period" class="form-select">
@@ -391,6 +479,11 @@ class JobCrawlerTable extends TableAbstract
                     </form>
                 </div>
             </div>
+            <script>
+            document.getElementById('crawler-filter-form').addEventListener('submit', function() {
+                Object.keys(localStorage).filter(k => k.startsWith('DataTables_')).forEach(k => localStorage.removeItem(k));
+            });
+            </script>
         HTML;
     }
 

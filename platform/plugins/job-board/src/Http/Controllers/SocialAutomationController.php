@@ -33,7 +33,7 @@ class SocialAutomationController extends BaseController
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'platform' => ['required', Rule::in(['facebook', 'linkedin', 'whatsapp'])],
+            'platform' => ['required', Rule::in(['facebook', 'linkedin', 'whatsapp', 'telegram'])],
             'name'     => ['required', 'string', 'max:150'],
             'settings' => ['nullable', 'array'],
         ]);

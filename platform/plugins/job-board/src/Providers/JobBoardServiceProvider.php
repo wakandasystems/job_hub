@@ -125,6 +125,8 @@ class JobBoardServiceProvider extends ServiceProvider
 
     public function register(): void
     {
+        $this->app->register(CommandServiceProvider::class);
+
         $this->app->singleton(\Botble\JobBoard\Supports\SubscriptionService::class);
         $this->app->singleton(\Botble\JobBoard\Supports\CvRevealService::class);
 
@@ -883,8 +885,6 @@ class JobBoardServiceProvider extends ServiceProvider
             $router->aliasMiddleware('account.guest', RedirectIfAccount::class);
             $router->aliasMiddleware('enable-credits', EnabledCreditsSystem::class);
         });
-
-        $this->app->register(CommandServiceProvider::class);
 
         SiteMapManager::registerKey([
             'job-categories-((?:19|20|21|22)\d{2})-(0?[1-9]|1[012])',

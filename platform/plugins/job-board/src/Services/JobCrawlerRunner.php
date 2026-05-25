@@ -3476,172 +3476,199 @@ class JobCrawlerRunner
             ->flip()
             ->toArray();
 
-        $isFirstRun = empty($existingIds);
-        $isFullPull = $this->runMode === 'full';
-        $maxPages   = $isFullPull ? 50 : 10;
-        $jobs       = [];
-        $seenIds    = [];
-
-        // Strategy 1: WP REST API — job_listing custom post type (WP Job Manager)
-        $apiBase = 'https://jobsearchzm.com/wp-json/wp/v2/';
-
-        for ($page = 1; $page <= $maxPages; $page++) {
-            $this->saveProgress($page, count($jobs));
-
-            if ($page > 1) {
-                sleep($isFullPull ? rand(3, 6) : rand(1, 3));
-            }
-
-            $items = $this->jobSearchZmFetchPage($apiBase, $page);
-
-            if (empty($items)) {
-                break;
-            }
-
-            $newOnPage = 0;
-
-            foreach ($items as $item) {
-                $id = (string) ($item['id'] ?? '');
-                if ($id === '' || isset($seenIds[$id])) {
-                    continue;
-                }
-                $seenIds[$id] = true;
-                $jobs[]       = $item;
-
-                if (! array_key_exists($id, $existingIds)) {
-                    $newOnPage++;
-                }
-            }
-
-            // Early stop: caught up with known jobs
-            if (! $isFullPull && ! $isFirstRun && $newOnPage === 0) {
-                break;
-            }
+        $sitemapUrl = (string) $crawler->source_url;
+        if (! str_ends_with(parse_url($sitemapUrl, PHP_URL_PATH) ?: '', '.xml')) {
+            $sitemapUrl = 'https://jobsearchzm.com/job_listing-sitemap.xml';
         }
+        $headers = $this->jobSearchZmHeaders('application/xml,text/xml;q=0.9,*/*;q=0.8');
+
+        $response = Http::withHeaders($headers)->timeout(30)->get($sitemapUrl);
+        $response->throw();
+
+        $sitemapItems = $this->parseJobSearchZmSitemap($response->body());
+        $total = count($sitemapItems);
+        $jobs = [];
+        $maxNewDetails = $this->runMode === 'full' ? 200 : 20;
+        $newDetails = 0;
+
+        foreach ($sitemapItems as $index => $item) {
+            $sourceId = (string) $item['id'];
+            $this->saveProgress($index + 1, count($jobs));
+
+            if (array_key_exists($sourceId, $existingIds)) {
+                continue;
+            }
+
+            $detail = $this->fetchJobSearchZmJobDetail($item['url']);
+
+            if ($detail) {
+                $jobs[] = array_merge($item, $detail);
+                $newDetails++;
+            }
+
+            if ($newDetails >= $maxNewDetails) {
+                break;
+            }
+
+            $this->saveMeta([
+                'stage' => 'scanning',
+                'current_page' => $index + 1,
+                'total_pages' => $total,
+                'jobs_found_so_far' => count($jobs),
+            ]);
+        }
+
+        DB::reconnect();
 
         return $jobs;
     }
 
-    /**
-     * Try WP Job Manager post type first; fall back to regular posts filtered by jobs category.
-     */
-    protected function jobSearchZmFetchPage(string $apiBase, int $page): array
+    protected function jobSearchZmHeaders(string $accept = 'text/html,application/xhtml+xml'): array
     {
-        $headers = [
-            'User-Agent'      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept'          => 'application/json',
+        return [
+            'User-Agent' => 'WakandaJobsCrawler/1.0 (+https://www.wakandajobs.com)',
+            'Accept' => $accept,
             'Accept-Language' => 'en-US,en;q=0.9',
         ];
+    }
 
-        // Try WP Job Manager custom post type
-        $response = Http::withHeaders($headers)->timeout(15)->get($apiBase . 'job_listing', [
-            'per_page' => 20,
-            'page'     => $page,
-            '_fields'  => 'id,title,link,date,modified,content,excerpt,meta,_links',
-            'status'   => 'publish',
-            'orderby'  => 'date',
-            'order'    => 'desc',
-        ]);
+    protected function parseJobSearchZmSitemap(string $xml): array
+    {
+        $document = @simplexml_load_string($xml);
 
-        if ($response->successful()) {
-            $data = $response->json();
-            if (is_array($data) && ! empty($data)) {
-                return $this->normalizeJobSearchZmWpItems($data, 'job_listing');
-            }
+        if (! $document) {
+            return [];
         }
 
-        // Fallback: regular posts — find posts in "jobs" category
-        $catResponse = Http::withHeaders($headers)->timeout(15)->get($apiBase . 'categories', [
-            'slug'      => 'jobs,job-listings,vacancies',
-            '_fields'   => 'id,name,slug',
-            'per_page'  => 5,
-        ]);
+        $items = [];
 
-        $categoryIds = [];
-        if ($catResponse->successful()) {
-            foreach ((array) $catResponse->json() as $cat) {
-                if (isset($cat['id'])) {
-                    $categoryIds[] = $cat['id'];
-                }
+        foreach ($document->url as $urlNode) {
+            $url = trim((string) $urlNode->loc);
+
+            if ($url === '' || ! str_contains($url, '/job/')) {
+                continue;
             }
+
+            $items[] = [
+                'id' => $url,
+                'title' => $this->titleFromJobSearchZmUrl($url),
+                'url' => $url,
+                'company' => 'JobSearchZM',
+                'location' => 'Zambia',
+                'apply_url' => $url,
+                'content' => '',
+                'date' => trim((string) $urlNode->lastmod) ?: null,
+                'deadline' => null,
+            ];
         }
 
-        $postParams = [
-            'per_page' => 20,
-            'page'     => $page,
-            '_fields'  => 'id,title,link,date,content,excerpt,categories',
-            'status'   => 'publish',
-            'orderby'  => 'date',
-            'order'    => 'desc',
+        return array_reverse($items);
+    }
+
+    protected function titleFromJobSearchZmUrl(string $url): string
+    {
+        $path = trim((string) parse_url($url, PHP_URL_PATH), '/');
+        $slug = basename($path);
+        $slug = preg_replace('/-\d+$/', '', $slug) ?: $slug;
+
+        return Str::headline(str_replace('-', ' ', $slug));
+    }
+
+    protected function fetchJobSearchZmJobDetail(string $url): ?array
+    {
+        $response = Http::withHeaders($this->jobSearchZmHeaders())->timeout(30)->get($url);
+
+        if (! $response->successful()) {
+            return null;
+        }
+
+        return $this->parseJobSearchZmJobPage($response->body(), $url);
+    }
+
+    protected function parseJobSearchZmJobPage(string $html, string $url): array
+    {
+        $data = $this->extractJobSearchZmStructuredData($html);
+
+        $title = trim(html_entity_decode((string) data_get($data, 'title'), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $company = trim(html_entity_decode((string) data_get($data, 'hiringOrganization.name'), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $location = trim(html_entity_decode((string) data_get($data, 'jobLocation.address', 'Zambia'), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $description = (string) data_get($data, 'description', '');
+        $applyUrl = $this->extractJobSearchZmApplyUrl($html) ?: $url;
+
+        return [
+            'title' => $title ?: $this->titleFromJobSearchZmUrl($url),
+            'company' => $company ?: 'JobSearchZM',
+            'location' => $location ?: 'Zambia',
+            'apply_url' => $applyUrl,
+            'content' => $description ?: $this->extractJobSearchZmArticleHtml($html),
+            'date' => data_get($data, 'datePosted') ?: null,
+            'deadline' => data_get($data, 'validThrough') ?: null,
         ];
+    }
 
-        if (! empty($categoryIds)) {
-            $postParams['categories'] = implode(',', $categoryIds);
+    protected function extractJobSearchZmStructuredData(string $html): array
+    {
+        if (! preg_match_all('/<script[^>]+type=["\']application\/ld\+json["\'][^>]*>(.*?)<\/script>/is', $html, $matches)) {
+            return [];
         }
 
-        $postsResponse = Http::withHeaders($headers)->timeout(15)->get($apiBase . 'posts', $postParams);
+        foreach ($matches[1] as $json) {
+            $decoded = json_decode(html_entity_decode(trim($json), ENT_QUOTES | ENT_HTML5, 'UTF-8'), true);
 
-        if ($postsResponse->successful()) {
-            $data = $postsResponse->json();
-            if (is_array($data) && ! empty($data)) {
-                return $this->normalizeJobSearchZmWpItems($data, 'post');
+            foreach ($this->flattenJobSearchZmJsonLd($decoded) as $entry) {
+                if (($entry['@type'] ?? null) === 'JobPosting') {
+                    return $entry;
+                }
             }
         }
 
         return [];
     }
 
-    protected function normalizeJobSearchZmWpItems(array $items, string $type): array
+    protected function flattenJobSearchZmJsonLd(mixed $value): array
     {
-        $normalized = [];
+        if (! is_array($value)) {
+            return [];
+        }
+
+        $items = Arr::isAssoc($value) ? [$value] : $value;
+        $flat = [];
 
         foreach ($items as $item) {
-            $id    = (string) ($item['id'] ?? '');
-            $title = html_entity_decode(strip_tags($item['title']['rendered'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            $url   = $item['link'] ?? '';
-            $date  = $item['date'] ?? null;
-
-            $rawContent = $item['content']['rendered'] ?? $item['excerpt']['rendered'] ?? '';
-
-            // Extract company name from meta (WP Job Manager) or content
-            $company  = '';
-            $location = 'Zambia';
-            $applyUrl = $url;
-            $deadline = null;
-
-            if ($type === 'job_listing') {
-                $meta     = $item['meta'] ?? [];
-                $company  = trim((string) ($meta['_company_name'] ?? $meta['company_name'] ?? ''));
-                $location = trim((string) ($meta['_job_location'] ?? $meta['job_location'] ?? 'Zambia'));
-                $applyUrl = trim((string) ($meta['_application'] ?? $meta['application'] ?? $url));
-                $deadline = $meta['_job_expires'] ?? null;
-            }
-
-            if ($company === '') {
-                // Try to extract "Company: Acme Ltd" — stop at sentence boundary or next field
-                if (preg_match('/(?:company|employer|organisation|organization)\s*[:–\-]\s*([^.<\n,]{3,60})(?:[.<,\n]|$)/i', strip_tags($rawContent), $m)) {
-                    $company = trim($m[1]);
-                }
-            }
-
-            if ($title === '' || $id === '') {
+            if (! is_array($item)) {
                 continue;
             }
 
-            $normalized[] = [
-                'id'          => $id,
-                'title'       => $title,
-                'url'         => $url,
-                'company'     => $company ?: 'JobSearchZM',
-                'location'    => $location,
-                'apply_url'   => $applyUrl,
-                'content'     => $rawContent,
-                'date'        => $date,
-                'deadline'    => $deadline,
-            ];
+            $flat[] = $item;
+
+            if (isset($item['@graph'])) {
+                $flat = array_merge($flat, $this->flattenJobSearchZmJsonLd($item['@graph']));
+            }
         }
 
-        return $normalized;
+        return $flat;
+    }
+
+    protected function extractJobSearchZmApplyUrl(string $html): ?string
+    {
+        if (preg_match('/<section[^>]+class=["\'][^"\']*rw-how-to-apply[^"\']*["\'][\s\S]*?<a[^>]+href=["\']([^"\']+)["\']/i', $html, $match)) {
+            return html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        }
+
+        if (preg_match('/<a[^>]+href=["\']([^"\']+)["\'][^>]*>\s*Apply/i', $html, $match)) {
+            return html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        }
+
+        return null;
+    }
+
+    protected function extractJobSearchZmArticleHtml(string $html): string
+    {
+        if (preg_match('/<div[^>]+class=["\'][^"\']*job_description[^"\']*["\'][^>]*>(.*?)<\/div>/is', $html, $match)) {
+            return trim($match[1]);
+        }
+
+        return '';
     }
 
     protected function importJobSearchZmJobs(JobCrawler $crawler, array $items): array
