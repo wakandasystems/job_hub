@@ -1,5 +1,6 @@
 <?php
 
+use Botble\JobBoard\Http\Middleware\AuthenticateAccountApi;
 use Illuminate\Support\Facades\Route;
 
 Route::group([
@@ -7,6 +8,14 @@ Route::group([
     'prefix' => 'api/v1',
     'namespace' => 'Botble\JobBoard\Http\Controllers\API',
 ], function (): void {
+    Route::group(['prefix' => 'auth'], function (): void {
+        Route::post('/login', 'AuthController@login');
+        Route::group(['middleware' => ['auth:sanctum', AuthenticateAccountApi::class]], function (): void {
+            Route::get('/me', 'AuthController@me');
+            Route::post('/logout', 'AuthController@logout');
+        });
+    });
+
     // Public Jobs API
     Route::group(['prefix' => 'jobs'], function (): void {
         Route::get('/', 'JobController@index');
@@ -18,7 +27,7 @@ Route::group([
     });
 
     // Protected Jobs API (requires authentication)
-    Route::group(['prefix' => 'jobs', 'middleware' => ['auth:sanctum']], function (): void {
+    Route::group(['prefix' => 'jobs', 'middleware' => ['auth:sanctum', AuthenticateAccountApi::class]], function (): void {
         Route::post('/{id}/apply', 'JobController@apply')->wherePrimaryKey();
     });
 
@@ -108,18 +117,18 @@ Route::group([
     });
 
     // Protected Reviews API (requires authentication)
-    Route::group(['prefix' => 'reviews', 'middleware' => ['auth:sanctum']], function (): void {
+    Route::group(['prefix' => 'reviews', 'middleware' => ['auth:sanctum', AuthenticateAccountApi::class]], function (): void {
         Route::post('/', 'ReviewController@store');
     });
 
     // Protected Analytics API (requires authentication)
-    Route::group(['prefix' => 'analytics', 'middleware' => ['auth:sanctum']], function (): void {
+    Route::group(['prefix' => 'analytics', 'middleware' => ['auth:sanctum', AuthenticateAccountApi::class]], function (): void {
         Route::get('/jobs/{id}', 'AnalyticsController@jobAnalytics')->wherePrimaryKey();
         Route::get('/companies/{id}', 'AnalyticsController@companyAnalytics')->wherePrimaryKey();
     });
 
     // Protected Account Management API (requires authentication)
-    Route::group(['prefix' => 'account', 'middleware' => ['auth:sanctum']], function (): void {
+    Route::group(['prefix' => 'account', 'middleware' => ['auth:sanctum', AuthenticateAccountApi::class]], function (): void {
         Route::get('/profile', 'AccountController@profile');
         Route::put('/profile', 'AccountController@updateProfile');
         Route::post('/avatar', 'AccountController@uploadAvatar');
@@ -140,7 +149,7 @@ Route::group([
     });
 
     // Protected Job Applications Management API (requires authentication)
-    Route::group(['prefix' => 'job-applications', 'middleware' => ['auth:sanctum']], function (): void {
+    Route::group(['prefix' => 'job-applications', 'middleware' => ['auth:sanctum', AuthenticateAccountApi::class]], function (): void {
         Route::get('/', 'JobApplicationController@index'); // For employers to view applications
         Route::get('/{id}', 'JobApplicationController@show')->wherePrimaryKey();
         Route::put('/{id}', 'JobApplicationController@update')->wherePrimaryKey(); // Update application status
