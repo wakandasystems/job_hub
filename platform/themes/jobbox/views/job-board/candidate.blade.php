@@ -306,11 +306,7 @@
                                     <div class="profile-paywall-plans">
                                         <div class="paywall-plan-card featured">
                                             <span class="plan-label">{{ __('Per profile') }}</span>
-                                            @if($revealPriceLabel)
-                                                <span class="plan-price">{{ $revealPriceLabel }}</span>
-                                            @else
-                                                <span class="plan-price">{{ $revealCost }} {{ __('credit(s)') }}</span>
-                                            @endif
+                                            <span class="plan-price">1 {{ __('credit') }}</span>
                                             <span class="plan-label">{{ __('one-time access') }}</span>
                                         </div>
                                         <div class="paywall-plan-card">
@@ -338,11 +334,7 @@
                                     <div class="profile-paywall-plans">
                                         <div class="paywall-plan-card featured">
                                             <span class="plan-label">{{ __('Per profile') }}</span>
-                                            @if($revealPriceLabel)
-                                                <span class="plan-price">{{ $revealPriceLabel }}</span>
-                                            @else
-                                                <span class="plan-price">{{ $revealCost }} {{ __('credit(s)') }}</span>
-                                            @endif
+                                            <span class="plan-price">1 {{ __('credit') }}</span>
                                             <span class="plan-label">{{ __('one-time access') }}</span>
                                         </div>
                                         <div class="paywall-plan-card">

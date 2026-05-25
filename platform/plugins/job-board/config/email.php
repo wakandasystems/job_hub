@@ -196,6 +196,21 @@ return [
                 'job_alert_packages_url' => 'plugins/job-board::email.variables.job_alert_packages_url',
             ],
         ],
+        'newsletter-job-alert' => [
+            'title' => 'Newsletter Job Alert',
+            'description' => 'Sent to newsletter subscribers (non-account holders) when a new job is published',
+            'subject' => 'New Job: {{ job_name }} at {{ company_name }} - Wakanda Jobs',
+            'can_off' => true,
+            'variables' => [
+                'job_name' => 'plugins/job-board::email.variables.job_name',
+                'job_url' => 'plugins/job-board::email.variables.job_url',
+                'company_name' => 'plugins/job-board::email.variables.company_name',
+                'subscriber_name' => 'The newsletter subscriber name',
+                'job_location' => 'plugins/job-board::email.variables.job_location',
+                'job_deadline' => 'The job application deadline',
+                'sign_up_url' => 'URL to sign up for an account',
+            ],
+        ],
         'job-approved' => [
             'title' => 'plugins/job-board::email.templates.job-approved.title',
             'description' => 'plugins/job-board::email.templates.job-approved.description',
