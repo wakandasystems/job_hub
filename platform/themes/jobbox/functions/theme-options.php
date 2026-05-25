@@ -210,7 +210,7 @@ app()->booted(function (): void {
             'label' => __('Primary color'),
             'attributes' => [
                 'name' => 'primary_color',
-                'value' => '#3C65F5',
+                'value' => '#581090',
             ],
         ])
         ->setField([
@@ -220,7 +220,7 @@ app()->booted(function (): void {
             'label' => __('Primary color when hovering'),
             'attributes' => [
                 'name' => 'primary_color_hover',
-                'value' => '#b4c0e0',
+                'value' => '#B89BD3',
             ],
         ])
         ->setField([
@@ -230,7 +230,7 @@ app()->booted(function (): void {
             'label' => __('Secondary color'),
             'attributes' => [
                 'name' => 'secondary_color',
-                'value' => '#05264E',
+                'value' => '#08080A',
             ],
         ])
         ->setField([
