@@ -37,10 +37,13 @@ use Botble\JobBoard\Models\SalaryReportPurchase;
 use Botble\JobBoard\Services\CouponService;
 use Botble\JobBoard\Supports\InvoiceHelper;
 use Botble\JobBoard\Supports\TwigExtension;
+use Botble\Dashboard\Events\RenderingDashboardWidgets;
+use Botble\Dashboard\Supports\DashboardWidgetInstance;
 use Botble\Media\Facades\RvMedia;
 use Botble\Menu\Events\RenderingMenuOptions;
 use Botble\Menu\Facades\Menu;
 use Botble\Page\Models\Page;
+use Illuminate\Support\Collection;
 use Botble\Payment\Enums\PaymentMethodEnum;
 use Botble\Payment\Enums\PaymentStatusEnum;
 use Botble\Payment\Models\Payment;
@@ -66,6 +69,10 @@ class HookServiceProvider extends ServiceProvider
     {
         add_filter(BASE_FILTER_APPEND_MENU_NAME, [$this, 'countPendingApplications'], 26, 2);
         add_filter(BASE_FILTER_MENU_ITEMS_COUNT, [$this, 'getMenuItemCount'], 26);
+
+        $this->app['events']->listen(RenderingDashboardWidgets::class, function (): void {
+            add_filter(DASHBOARD_FILTER_ADMIN_LIST, [$this, 'registerDashboardStats'], 5, 2);
+        });
 
         add_filter('social_login_view_path', function (string $view) {
             if (Route::currentRouteName() === 'public.account.register') {
@@ -1418,5 +1425,101 @@ class HookServiceProvider extends ServiceProvider
         } catch (\Throwable) {
             // Non-fatal
         }
+    }
+
+    public function registerDashboardStats(array $widgets, Collection $widgetSettings): array
+    {
+        (new DashboardWidgetInstance())
+            ->setType('stats')
+            ->setPermission('jobs.index')
+            ->setTitle('Total Jobs')
+            ->setKey('widget_total_jobs')
+            ->setIcon('ti ti-briefcase')
+            ->setColor('blue')
+            ->setStatsTotal(fn () => Job::query()->count())
+            ->setRoute(route('jobs.index'))
+            ->setColumn('col-12 col-md-6 col-lg-2')
+            ->setPriority(1)
+            ->init($widgets, $widgetSettings);
+
+        (new DashboardWidgetInstance())
+            ->setType('stats')
+            ->setPermission('job-applications.index')
+            ->setTitle('Applications')
+            ->setKey('widget_total_applications')
+            ->setIcon('ti ti-file-description')
+            ->setColor('cyan')
+            ->setStatsTotal(fn () => JobApplication::query()->count())
+            ->setRoute(route('job-applications.index'))
+            ->setColumn('col-12 col-md-6 col-lg-2')
+            ->setPriority(2)
+            ->init($widgets, $widgetSettings);
+
+        (new DashboardWidgetInstance())
+            ->setType('stats')
+            ->setPermission('payments.logs.index')
+            ->setTitle('Payments')
+            ->setKey('widget_total_payments')
+            ->setIcon('ti ti-credit-card')
+            ->setColor('green')
+            ->setStatsTotal(fn () => Payment::query()->where('status', PaymentStatusEnum::COMPLETED)->count())
+            ->setRoute(route('payments.logs.index'))
+            ->setColumn('col-12 col-md-6 col-lg-2')
+            ->setPriority(3)
+            ->init($widgets, $widgetSettings);
+
+        (new DashboardWidgetInstance())
+            ->setType('stats')
+            ->setPermission('newsletter.index')
+            ->setTitle('Subscribers')
+            ->setKey('widget_total_subscribers')
+            ->setIcon('ti ti-bell')
+            ->setColor('purple')
+            ->setStatsTotal(function () {
+                $newsletters = \DB::table('newsletters')->count();
+                $jobAlerts = \DB::table('jb_job_alerts')->count();
+
+                return $newsletters + $jobAlerts;
+            })
+            ->setRoute(route('newsletter.index'))
+            ->setColumn('col-12 col-md-6 col-lg-2')
+            ->setPriority(4)
+            ->init($widgets, $widgetSettings);
+
+        (new DashboardWidgetInstance())
+            ->setType('stats')
+            ->setPermission('accounts.index')
+            ->setTitle('Candidates')
+            ->setKey('widget_total_candidates')
+            ->setIcon('ti ti-users')
+            ->setColor('orange')
+            ->setStatsTotal(fn () => Account::query()->count())
+            ->setRoute(route('accounts.index'))
+            ->setColumn('col-12 col-md-6 col-lg-2')
+            ->setPriority(5)
+            ->init($widgets, $widgetSettings);
+
+        (new DashboardWidgetInstance())
+            ->setType('stats')
+            ->setPermission('companies.index')
+            ->setTitle('Active Now')
+            ->setKey('widget_active_sessions')
+            ->setIcon('ti ti-activity')
+            ->setColor('teal')
+            ->setStatsTotal(function () {
+                $sessionPath = storage_path('framework/sessions');
+                if (! is_dir($sessionPath)) {
+                    return 0;
+                }
+                $cutoff = time() - 900;
+
+                return count(array_filter((array) glob($sessionPath . '/*'), fn ($f) => @filemtime($f) >= $cutoff));
+            })
+            ->setRoute(route('companies.index'))
+            ->setColumn('col-12 col-md-6 col-lg-2')
+            ->setPriority(6)
+            ->init($widgets, $widgetSettings);
+
+        return $widgets;
     }
 }
