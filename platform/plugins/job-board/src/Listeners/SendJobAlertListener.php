@@ -19,7 +19,7 @@ class SendJobAlertListener
     public function handle(JobPublishedEvent $event): void
     {
         $job = $event->job;
-        $job->loadMissing(['categories', 'skills', 'tags', 'company']);
+        $job->loadMissing(['categories', 'skills', 'tags', 'company', 'country']);
 
         // ----------------------------------------------------------------
         // Legacy behavior: match by favoriteTags / favoriteSkills → email
@@ -243,13 +243,18 @@ class SendJobAlertListener
     {
         $deadline = $job->application_closing_date ?? $job->expire_date ?? null;
 
+        $rawDescription = $job->description ?? strip_tags((string) ($job->content ?? ''));
+        $description    = trim(Str::limit(strip_tags($rawDescription), 400, '...'));
+
         return [
             'job_name' => $job->name,
             'job_url' => $job->url,
             'company_name' => ! ($job->hide_company ?? false) ? ($job->company->name ?? '') : '',
             'account_name' => $account->name,
             'job_location' => $job->location ?? '',
+            'job_country' => $job->country->name ?? '',
             'job_deadline' => $deadline ? $deadline->format('M j, Y') : '',
+            'job_description' => $description,
             'job_alert_source_message' => 'This email was sent from your Wakanda Jobs Job Alerts.',
             'job_alert_quota_message' => $includeQuota ? $this->lowQuotaMessage($account->id) : '',
             'job_alert_packages_url' => route('public.account.job-alert.packages.index'),

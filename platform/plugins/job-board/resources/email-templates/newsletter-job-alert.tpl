@@ -7,11 +7,17 @@
 <p style="font-size: 18px;"><strong>{{ job_name }}</strong>{% if company_name %} at <i>{{ company_name }}</i>{% endif %}</p>
 
 {% if job_location %}
-<p>📍 {{ job_location }}</p>
+<p>📍 {{ job_location }}{% if job_country %}, {{ job_country }}{% endif %}</p>
+{% elseif job_country %}
+<p>📍 {{ job_country }}</p>
 {% endif %}
 
 {% if job_deadline %}
 <p>⏳ Apply before <strong>{{ job_deadline }}</strong></p>
+{% endif %}
+
+{% if job_description %}
+<p style="margin-top: 12px; padding: 14px 16px; background: #f8fafc; border-left: 4px solid #6366f1; border-radius: 4px; color: #374151; font-size: 14px; line-height: 1.6;">{{ job_description }}</p>
 {% endif %}
 
 <p style="margin-top: 16px;">

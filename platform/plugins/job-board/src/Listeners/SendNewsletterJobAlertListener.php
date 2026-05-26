@@ -15,7 +15,7 @@ class SendNewsletterJobAlertListener
     public function handle(JobPublishedEvent $event): void
     {
         $job = $event->job;
-        $job->loadMissing(['company']);
+        $job->loadMissing(['company', 'country']);
 
         // Get all active newsletter subscribers
         $subscribers = Newsletter::query()
@@ -62,7 +62,9 @@ class SendNewsletterJobAlertListener
                         'company_name' => !($job->hide_company ?? false) ? ($job->company->name ?? '') : '',
                         'subscriber_name' => $subscriber->name ?: 'Job Seeker',
                         'job_location' => $job->location ?? '',
+                        'job_country' => $job->country->name ?? '',
                         'job_deadline' => ($job->application_closing_date ?? $job->expire_date)?->format('M j, Y') ?? '',
+                        'job_description' => \Illuminate\Support\Str::limit(strip_tags($job->description ?? $job->content ?? ''), 400, '...'),
                         'sign_up_url' => $signUpUrl,
                     ])
                     ->sendUsingTemplate('newsletter-job-alert', $subscriber->email);
