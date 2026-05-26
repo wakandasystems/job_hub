@@ -114,14 +114,38 @@ class JobCrawlerRunner
                 $botToken  = setting('telegram_bot_token');
                 $adminChat = setting('telegram_admin_chat_id');
                 if ($botToken && $adminChat) {
+                    $fullError = $exception->getMessage();
                     $msg = "🚨 *Crawler Failed*\n"
                         . "*Agent:* " . $crawler->name . "\n"
-                        . "*Error:* " . mb_substr($exception->getMessage(), 0, 300);
-                    Http::timeout(10)->post("https://api.telegram.org/bot{$botToken}/sendMessage", [
+                        . "*Error:* " . mb_substr($fullError, 0, 300);
+
+                    $resp = Http::timeout(10)->post("https://api.telegram.org/bot{$botToken}/sendMessage", [
                         'chat_id'    => $adminChat,
                         'text'       => $msg,
                         'parse_mode' => 'Markdown',
                     ]);
+
+                    $messageId = data_get($resp->json(), 'result.message_id');
+                    if ($messageId) {
+                        $cacheKey = 'tg_crawler_err_' . Str::uuid();
+                        \Illuminate\Support\Facades\Cache::put($cacheKey, $fullError, now()->addDays(7));
+
+                        $copyUrl = \Illuminate\Support\Facades\URL::temporarySignedRoute(
+                            'public.telegram-crawler-error-copy',
+                            now()->addDays(7),
+                            ['cache_key' => $cacheKey, 'crawler_name' => $crawler->name]
+                        );
+
+                        Http::timeout(10)->post("https://api.telegram.org/bot{$botToken}/editMessageReplyMarkup", [
+                            'chat_id'      => $adminChat,
+                            'message_id'   => $messageId,
+                            'reply_markup' => [
+                                'inline_keyboard' => [[
+                                    ['text' => '📋 Copy Error', 'url' => $copyUrl],
+                                ]],
+                            ],
+                        ]);
+                    }
                 }
             } catch (Throwable) {
                 // Don't let Telegram failure mask the crawler error

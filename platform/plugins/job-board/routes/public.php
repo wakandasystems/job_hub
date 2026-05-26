@@ -164,4 +164,9 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers', 'middleware' =>
         'as' => 'public.telegram-social-delete',
         'uses' => 'TelegramSocialMessageController@destroy',
     ])->middleware('signed');
+
+    Route::get('telegram/crawler-error/copy', [
+        'as' => 'public.telegram-crawler-error-copy',
+        'uses' => 'TelegramCrawlerErrorController@show',
+    ])->middleware('signed');
 });
