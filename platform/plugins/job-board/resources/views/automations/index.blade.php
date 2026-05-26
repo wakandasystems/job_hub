@@ -36,9 +36,10 @@
                 'icon'  => 'ti ti-brand-telegram',
                 'color' => '#229ED9',
                 'fields' => [
-                    'chat_id'    => ['label' => 'Chat ID', 'placeholder' => 'e.g. 123456789', 'help' => 'Use the Telegram chat ID already receiving alerts.'],
-                    'bot_token'  => ['label' => 'Bot Token Override', 'placeholder' => 'Leave blank to use the saved Job Alert bot token', 'type' => 'password', 'required' => false, 'help' => 'Optional. Defaults to the Telegram Bot Token under Job Alert Settings.'],
-                    'country_id' => ['label' => 'Country Filter (optional)', 'placeholder' => 'e.g. 7 for Zambia — leave blank to send all countries', 'required' => false, 'help' => 'Only posts for jobs in this country ID will be sent. Leave blank to send jobs from all countries.'],
+                    'chat_id'        => ['label' => 'Chat ID', 'placeholder' => 'e.g. 123456789', 'help' => 'Use the Telegram chat ID already receiving alerts.'],
+                    'bot_token'      => ['label' => 'Bot Token Override', 'placeholder' => 'Leave blank to use the saved Job Alert bot token', 'type' => 'password', 'required' => false, 'help' => 'Optional. Defaults to the Telegram Bot Token under Job Alert Settings.'],
+                    'country_id'     => ['label' => 'Country Filter (optional)', 'placeholder' => 'e.g. 7 for Zambia — leave blank to send all countries', 'required' => false, 'help' => 'Only posts for jobs in this country ID will be sent. Leave blank to send jobs from all countries.'],
+                    'generate_image' => ['label' => 'Generate AI image with each post', 'type' => 'checkbox', 'required' => false, 'help' => 'Uses DALL-E 3 to create a job banner image. Requires OPENAI_API_KEY in .env or openai_api_key in site settings. ~$0.04 per post.'],
                 ],
             ],
         ];
@@ -168,13 +169,24 @@
                                 </div>
                                 @foreach($platform['fields'] as $fieldKey => $field)
                                     <div class="mb-3">
-                                        <label class="form-label fw-semibold">{{ $field['label'] }} <span class="text-danger">*</span></label>
-                                        <input
-                                            type="{{ $field['type'] ?? 'text' }}"
-                                            name="settings[{{ $fieldKey }}]"
-                                            class="form-control"
-                                            placeholder="{{ $field['placeholder'] }}"
-                                            @if(($field['required'] ?? true) !== false) required @endif>
+                                        @if(($field['type'] ?? 'text') === 'checkbox')
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox"
+                                                    name="settings[{{ $fieldKey }}]"
+                                                    value="1" id="add-{{ $platformKey }}-{{ $fieldKey }}">
+                                                <label class="form-check-label fw-semibold" for="add-{{ $platformKey }}-{{ $fieldKey }}">
+                                                    {{ $field['label'] }}
+                                                </label>
+                                            </div>
+                                        @else
+                                            <label class="form-label fw-semibold">{{ $field['label'] }} @if(($field['required'] ?? true) !== false)<span class="text-danger">*</span>@endif</label>
+                                            <input
+                                                type="{{ $field['type'] ?? 'text' }}"
+                                                name="settings[{{ $fieldKey }}]"
+                                                class="form-control"
+                                                placeholder="{{ $field['placeholder'] ?? '' }}"
+                                                @if(($field['required'] ?? true) !== false) required @endif>
+                                        @endif
                                         @if(!empty($field['help']))
                                             <div class="form-text text-muted">{{ $field['help'] }}</div>
                                         @endif
@@ -214,18 +226,30 @@
                                     </div>
                                     @foreach($platform['fields'] as $fieldKey => $field)
                                         <div class="mb-3">
-                                            <label class="form-label fw-semibold">{{ $field['label'] }}</label>
-                                            <input
-                                                type="{{ $field['type'] ?? 'text' }}"
-                                                name="settings[{{ $fieldKey }}]"
-                                                class="form-control"
-                                                placeholder="{{ $field['placeholder'] }}"
-                                                value="{{ ($field['type'] ?? 'text') === 'password' ? '' : ($automation->settings[$fieldKey] ?? '') }}">
+                                            @if(($field['type'] ?? 'text') === 'checkbox')
+                                                <div class="form-check form-switch">
+                                                    <input class="form-check-input" type="checkbox"
+                                                        name="settings[{{ $fieldKey }}]"
+                                                        value="1" id="edit-{{ $automation->id }}-{{ $fieldKey }}"
+                                                        {{ !empty($automation->settings[$fieldKey]) ? 'checked' : '' }}>
+                                                    <label class="form-check-label fw-semibold" for="edit-{{ $automation->id }}-{{ $fieldKey }}">
+                                                        {{ $field['label'] }}
+                                                    </label>
+                                                </div>
+                                            @else
+                                                <label class="form-label fw-semibold">{{ $field['label'] }}</label>
+                                                <input
+                                                    type="{{ $field['type'] ?? 'text' }}"
+                                                    name="settings[{{ $fieldKey }}]"
+                                                    class="form-control"
+                                                    placeholder="{{ $field['placeholder'] ?? '' }}"
+                                                    value="{{ ($field['type'] ?? 'text') === 'password' ? '' : ($automation->settings[$fieldKey] ?? '') }}">
+                                                @if(($field['type'] ?? 'text') === 'password' && !empty($automation->settings[$fieldKey]))
+                                                    <div class="form-text text-success"><i class="ti ti-check me-1"></i>Token is saved. Enter a new value to replace it.</div>
+                                                @endif
+                                            @endif
                                             @if(!empty($field['help']))
                                                 <div class="form-text text-muted">{{ $field['help'] }}</div>
-                                            @endif
-                                            @if(($field['type'] ?? 'text') === 'password' && !empty($automation->settings[$fieldKey]))
-                                                <div class="form-text text-success"><i class="ti ti-check me-1"></i>Token is saved. Enter a new value to replace it.</div>
                                             @endif
                                         </div>
                                     @endforeach

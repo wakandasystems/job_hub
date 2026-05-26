@@ -58,9 +58,18 @@ class SocialAutomationController extends BaseController
         ]);
 
         // Merge new settings over existing — blank password fields keep the saved value.
+        // Checkbox keys are absent when unchecked, so explicitly set them to 0 if missing.
+        $checkboxKeys = ['generate_image'];
         $existing = $automation->settings ?? [];
         $incoming = $validated['settings'] ?? [];
-        $merged   = array_merge($existing, array_filter($incoming, fn ($v) => $v !== null && $v !== ''));
+        foreach ($checkboxKeys as $key) {
+            $incoming[$key] = isset($incoming[$key]) ? 1 : 0;
+        }
+        $merged = array_merge($existing, array_filter($incoming, fn ($v) => $v !== null && $v !== ''));
+        // Allow checkbox=0 to override existing=1
+        foreach ($checkboxKeys as $key) {
+            $merged[$key] = $incoming[$key];
+        }
 
         $automation->fill([
             'name'     => $validated['name'],

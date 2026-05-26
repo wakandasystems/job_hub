@@ -4,6 +4,7 @@ namespace Botble\JobBoard\Services;
 
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\SocialAutomation;
+use Botble\JobBoard\Services\JobImageGeneratorService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\URL;
@@ -202,6 +203,7 @@ class SocialPublisherService
         $countryId = isset($settings['country_id']) && $settings['country_id'] !== ''
             ? (int) $settings['country_id']
             : null;
+        $generateImage = ! empty($settings['generate_image']);
 
         if ($token === '' || $chatId === '') {
             return false;
@@ -211,19 +213,39 @@ class SocialPublisherService
             return false;
         }
 
-        return $this->sendTelegramCopyPost($token, $chatId, $job, $automation->getKey());
+        return $this->sendTelegramCopyPost($token, $chatId, $job, $automation->getKey(), $generateImage);
     }
 
-    public function sendTelegramCopyPost(string $token, string $chatId, Job $job, ?int $automationId = null): bool
+    public function sendTelegramCopyPost(string $token, string $chatId, Job $job, ?int $automationId = null, bool $generateImage = false): bool
     {
-        $postText = $this->buildManualSocialPost($job);
-        $message  = $postText;
+        $postText  = $this->buildManualSocialPost($job);
+        $imagePath = null;
 
-        $response = Http::timeout(20)->post("https://api.telegram.org/bot{$token}/sendMessage", [
-            'chat_id'                  => $chatId,
-            'text'                     => $message,
-            'disable_web_page_preview' => true,
-        ]);
+        if ($generateImage) {
+            try {
+                $imagePath = app(JobImageGeneratorService::class)->generate($job);
+            } catch (Throwable) {
+                $imagePath = null;
+            }
+        }
+
+        if ($imagePath && file_exists($imagePath)) {
+            // sendPhoto: caption is capped at 1024 chars by Telegram.
+            $caption  = Str::limit($postText, 1020, '…');
+            $response = Http::timeout(30)
+                ->attach('photo', file_get_contents($imagePath), 'job_banner.jpg')
+                ->post("https://api.telegram.org/bot{$token}/sendPhoto", [
+                    'chat_id' => $chatId,
+                    'caption' => $caption,
+                ]);
+            @unlink($imagePath);
+        } else {
+            $response = Http::timeout(20)->post("https://api.telegram.org/bot{$token}/sendMessage", [
+                'chat_id'                  => $chatId,
+                'text'                     => $postText,
+                'disable_web_page_preview' => true,
+            ]);
+        }
 
         if (! $response->successful() || ! data_get($response->json(), 'ok')) {
             return false;
@@ -269,4 +291,5 @@ class SocialPublisherService
 
         return true;
     }
+
 }
