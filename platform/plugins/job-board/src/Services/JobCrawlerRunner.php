@@ -110,6 +110,23 @@ class JobCrawlerRunner
                 // Don't let email failure mask the crawler error
             }
 
+            try {
+                $botToken  = setting('telegram_bot_token');
+                $adminChat = setting('telegram_admin_chat_id');
+                if ($botToken && $adminChat) {
+                    $msg = "🚨 *Crawler Failed*\n"
+                        . "*Agent:* " . $crawler->name . "\n"
+                        . "*Error:* " . mb_substr($exception->getMessage(), 0, 300);
+                    Http::timeout(10)->post("https://api.telegram.org/bot{$botToken}/sendMessage", [
+                        'chat_id'    => $adminChat,
+                        'text'       => $msg,
+                        'parse_mode' => 'Markdown',
+                    ]);
+                }
+            } catch (Throwable) {
+                // Don't let Telegram failure mask the crawler error
+            }
+
             throw $exception;
         } finally {
             $this->currentRun = null;
