@@ -7,11 +7,14 @@ use Botble\JobBoard\Events\JobPublishedEvent;
 use Botble\JobBoard\Models\Account;
 use Botble\Newsletter\Models\Newsletter;
 use Botble\Newsletter\Enums\NewsletterStatusEnum;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
-class SendNewsletterJobAlertListener
+class SendNewsletterJobAlertListener implements ShouldQueue
 {
+    public string $queue = 'emails';
+    public int $tries = 2;
     public function handle(JobPublishedEvent $event): void
     {
         $job = $event->job;

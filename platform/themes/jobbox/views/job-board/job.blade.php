@@ -58,7 +58,12 @@
     // Location
     $address = ['@type' => 'PostalAddress'];
     if ($job->address)    { $address['streetAddress']   = $job->address; }
-    if ($job->city_name)  { $address['addressLocality'] = $job->city_name; }
+    if ($job->city_name) {
+        $address['addressLocality'] = $job->city_name;
+    } elseif ($job->location) {
+        // Free-text location (e.g. "Lusaka" or "Lusaka, Zambia") — use the part before the first comma
+        $address['addressLocality'] = trim(explode(',', $job->location)[0]);
+    }
     if ($job->state_name) { $address['addressRegion']   = $job->state_name; }
     if ($job->country?->code) { $address['addressCountry'] = $job->country->code; }
     if ($job->zip_code)   { $address['postalCode']      = $job->zip_code; }

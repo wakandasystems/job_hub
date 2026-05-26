@@ -4,9 +4,12 @@ namespace Botble\JobBoard\Listeners;
 
 use Botble\Base\Facades\EmailHandler;
 use Botble\JobBoard\Events\EmployerPostedJobEvent;
+use Illuminate\Contracts\Queue\ShouldQueue;
 
-class EmployerPostedJobListener
+class EmployerPostedJobListener implements ShouldQueue
 {
+    public string $queue = 'emails';
+    public int $tries = 2;
     public function handle(EmployerPostedJobEvent $event): void
     {
         $mailer = EmailHandler::setModule(JOB_BOARD_MODULE_SCREEN_NAME)

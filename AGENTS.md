@@ -61,6 +61,24 @@ Always scrape the live jobs listing page or its AJAX endpoint directly. **Never 
 
 For WP Job Manager sites the AJAX endpoint is `/jm-ajax/get_listings/` (POST, form-encoded). It returns `found_jobs`, `max_num_pages`, and `html` with the job cards. Parse that HTML, then fetch each detail page for the full description.
 
+## Crawlers — never run in parallel from the CLI
+
+When running crawlers manually via `php artisan cms:jobs:crawl <id>`, **run only one at a time**. Running multiple crawlers simultaneously forks several memory-heavy PHP processes, saturates the CPU on this 2-core server, pushes it into swap, and takes the site down.
+
+Always run:
+```bash
+php artisan cms:jobs:crawl 1   # wait for it to finish
+php artisan cms:jobs:crawl 60  # then the next
+```
+
+Never:
+```bash
+php artisan cms:jobs:crawl 1 &
+php artisan cms:jobs:crawl 60 &  # ← this caused a site outage
+```
+
+The scheduler already runs crawlers sequentially (one `foreach` loop) and uses `withoutOverlapping()` to prevent two scheduled runs from stacking. When triggering manually, respect the same constraint.
+
 ## Other rules
 
 - Always run `php artisan view:clear && php artisan cache:clear` after Blade or PHP changes.

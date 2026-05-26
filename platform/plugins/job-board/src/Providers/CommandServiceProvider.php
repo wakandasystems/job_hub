@@ -41,7 +41,7 @@ class CommandServiceProvider extends ServiceProvider
         $this->app->afterResolving(Schedule::class, function (Schedule $schedule): void {
             $schedule->command(RenewJobsCommand::class)->dailyAt('23:30');
             $schedule->command(CheckExpiredJobsSoonCommand::class)->dailyAt('23:30');
-            $schedule->command(RunJobCrawlersCommand::class)->everyFifteenMinutes();
+            $schedule->command(RunJobCrawlersCommand::class)->everyFifteenMinutes()->withoutOverlapping();
             $schedule->command(UpdateCurrencyRatesCommand::class)->dailyAt('02:45')->withoutOverlapping();
             $schedule->command(ExpireSubscriptionsCommand::class)->dailyAt('00:05');
             $schedule->command(SendSubscriptionRenewalReminderCommand::class)->dailyAt('09:00');

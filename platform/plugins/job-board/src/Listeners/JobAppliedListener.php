@@ -5,9 +5,12 @@ namespace Botble\JobBoard\Listeners;
 use Botble\Base\Facades\EmailHandler;
 use Botble\JobBoard\Events\JobAppliedEvent;
 use Botble\Media\Facades\RvMedia;
+use Illuminate\Contracts\Queue\ShouldQueue;
 
-class JobAppliedListener
+class JobAppliedListener implements ShouldQueue
 {
+    public string $queue = 'emails';
+    public int $tries = 2;
     public function handle(JobAppliedEvent $event)
     {
         $job = $event->job;

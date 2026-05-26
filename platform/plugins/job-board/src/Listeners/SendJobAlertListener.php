@@ -9,13 +9,16 @@ use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\JobAlert;
 use Botble\JobBoard\Models\JobAlertQuota;
 use Botble\JobBoard\Models\SocialAutomation;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Throwable;
 
-class SendJobAlertListener
+class SendJobAlertListener implements ShouldQueue
 {
+    public string $queue = 'emails';
+    public int $tries = 2;
     public function handle(JobPublishedEvent $event): void
     {
         $job = $event->job;

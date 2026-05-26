@@ -30,15 +30,45 @@ class TelegramSocialMessageController extends BaseController
             ]);
         }
 
-        $escapedText = htmlspecialchars((string) ($postText ?? ''), ENT_QUOTES, 'UTF-8');
-        $jsonText    = json_encode((string) ($postText ?? ''));
+        if (! $postText) {
+            $html = <<<HTML
+            <!doctype html>
+            <html lang=”en”>
+            <head>
+                <meta charset=”utf-8”>
+                <meta name=”viewport” content=”width=device-width,initial-scale=1”>
+                <title>Link Expired</title>
+                <style>
+                    *{box-sizing:border-box;margin:0;padding:0}
+                    body{font-family:system-ui,sans-serif;background:#f0f4f8;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+                    .card{background:#fff;border-radius:16px;padding:32px 24px;max-width:480px;width:100%;box-shadow:0 4px 20px rgba(0,0,0,.08);text-align:center}
+                    .icon{font-size:52px;margin-bottom:16px}
+                    h2{font-size:20px;color:#1a1a2e;margin-bottom:10px}
+                    p{color:#666;font-size:14px;line-height:1.6}
+                </style>
+            </head>
+            <body>
+                <div class=”card”>
+                    <div class=”icon”>⏳</div>
+                    <h2>This link has expired</h2>
+                    <p>The post text is no longer available — the link was only valid for 7 days.<br><br>The Telegram message has been removed. Generate a new post from the social automation panel if needed.</p>
+                </div>
+            </body>
+            </html>
+            HTML;
+
+            return response($html);
+        }
+
+        $escapedText = htmlspecialchars((string) $postText, ENT_QUOTES, 'UTF-8');
+        $jsonText    = json_encode((string) $postText);
 
         $html = <<<HTML
         <!doctype html>
-        <html lang="en">
+        <html lang=”en”>
         <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <meta charset=”utf-8”>
+            <meta name=”viewport” content=”width=device-width,initial-scale=1”>
             <title>Copied</title>
             <style>
                 *{box-sizing:border-box;margin:0;padding:0}
@@ -54,18 +84,17 @@ class TelegramSocialMessageController extends BaseController
             </style>
         </head>
         <body>
-            <div class="card">
-                <div class="icon">✅</div>
+            <div class=”card”>
+                <div class=”icon”>✅</div>
                 <h2>Telegram message removed</h2>
-                <p class="sub" id="status">Copying text to clipboard…</p>
-                <textarea id="pt" readonly>{$escapedText}</textarea>
-                <p class="ok" id="ok">Copied! Paste into LinkedIn or Facebook.</p>
-                <button class="copy-btn" id="copy-btn" onclick="doCopy()">Copy text</button>
+                <p class=”sub” id=”status”>Copying text to clipboard…</p>
+                <textarea id=”pt” readonly>{$escapedText}</textarea>
+                <p class=”ok” id=”ok”>Copied! Paste into LinkedIn or Facebook.</p>
+                <button class=”copy-btn” id=”copy-btn” onclick=”doCopy()”>Copy text</button>
             </div>
             <script>
                 const text = {$jsonText};
                 function doCopy() {
-                    if (!text) return;
                     if (navigator.clipboard && window.isSecureContext) {
                         navigator.clipboard.writeText(text).then(onCopied).catch(onFailed);
                     } else {
@@ -94,9 +123,7 @@ class TelegramSocialMessageController extends BaseController
                     ta.setSelectionRange(0, 99999);
                     document.getElementById('status').textContent = 'Tap “Copy” below or long-press the text to copy.';
                 }
-                window.addEventListener('load', function () {
-                    if (text) { doCopy(); }
-                });
+                window.addEventListener('load', doCopy);
             </script>
         </body>
         </html>

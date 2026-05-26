@@ -4,9 +4,12 @@ namespace Botble\JobBoard\Listeners;
 
 use Botble\Base\Facades\EmailHandler;
 use Botble\JobBoard\Events\AdminApprovedCompanyEvent;
+use Illuminate\Contracts\Queue\ShouldQueue;
 
-class AdminApprovedCompanyListener
+class AdminApprovedCompanyListener implements ShouldQueue
 {
+    public string $queue = 'emails';
+    public int $tries = 2;
     public function handle(AdminApprovedCompanyEvent $event)
     {
         $company = $event->company;
