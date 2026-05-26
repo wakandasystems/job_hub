@@ -4241,10 +4241,8 @@ class JobCrawlerRunner
             ->flip()
             ->toArray();
 
-        $base = rtrim((string) $crawler->source_url, '/');
-        if (! $base) {
-            $base = 'https://jobzambia.com';
-        }
+        $parsed = parse_url((string) $crawler->source_url);
+        $base   = ($parsed['scheme'] ?? 'https') . '://' . ($parsed['host'] ?? 'jobzambia.com');
 
         $sitemapUrl = $base . '/job_listing-sitemap.xml';
         $items      = $this->fetchJobZambiaSitemap($sitemapUrl);
