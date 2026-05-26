@@ -199,6 +199,10 @@ class JobCrawlerRunner
             return $this->fetchVacancyBoxJobs($crawler);
         }
 
+        if ($crawler->parser_type === 'jobzambia') {
+            return $this->fetchJobZambiaJobs($crawler);
+        }
+
         $sourceUrl = (string) $crawler->source_url;
         $paginated = str_contains($sourceUrl, '{page}');
 
@@ -377,6 +381,10 @@ class JobCrawlerRunner
 
         if ($crawler->parser_type === 'vacancybox') {
             return $this->importVacancyBoxJobs($crawler, $items);
+        }
+
+        if ($crawler->parser_type === 'jobzambia') {
+            return $this->importJobZambiaJobs($crawler, $items);
         }
 
         $stats = [
@@ -1538,12 +1546,11 @@ class JobCrawlerRunner
      */
     protected function persistNewJob(Job $job, JobCrawler $crawler, array &$stats, callable $configure): void
     {
-        // Content-duplicate guard: same title + company + address = same real job.
+        // Content-duplicate guard: same title + company across ALL crawlers catches the
+        // same job syndicated to multiple sites (e.g. jobzambia + gozambiajobs).
         $contentDupe = Job::query()
-            ->where('crawler_id', $crawler->getKey())
             ->where('name', $job->name)
             ->where('company_id', $job->company_id)
-            ->where('address', $job->address)
             ->exists();
 
         if ($contentDupe) {
@@ -4207,6 +4214,311 @@ class JobCrawlerRunner
             'company_id'               => $company->getKey(),
             'address'                  => (string) ($item['location'] ?? 'Zimbabwe'),
             'country_id'               => 60, // Zimbabwe
+            'apply_url'                => (string) ($item['apply_url'] ?? $item['url'] ?? ''),
+            'status'                   => JobStatusEnum::PUBLISHED,
+            'moderation_status'        => ModerationStatusEnum::APPROVED,
+            'salary_type'              => SalaryTypeEnum::HIDDEN,
+            'career_level_id'          => 3,
+            'is_featured'              => false,
+            'expire_date'              => $expireDate,
+            'application_closing_date' => $expireDate,
+            'never_expired'            => false,
+            'created_at'               => $postedDate,
+            'updated_at'               => $postedDate,
+        ];
+    }
+
+    // -------------------------------------------------------------------------
+    // JobZambia (jobzambia.com) — WordPress WP Job Manager, XML sitemap + HTML
+    // -------------------------------------------------------------------------
+
+    protected function fetchJobZambiaJobs(JobCrawler $crawler): array
+    {
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->toArray();
+
+        $base = rtrim((string) $crawler->source_url, '/');
+        if (! $base) {
+            $base = 'https://jobzambia.com';
+        }
+
+        $sitemapUrl = $base . '/job_listing-sitemap.xml';
+        $items      = $this->fetchJobZambiaSitemap($sitemapUrl);
+
+        // Newest-first for incremental runs.
+        $items = array_reverse($items);
+
+        $jobs        = [];
+        $maxNew      = $this->runMode === 'full' ? 300 : 40;
+        $newDetails  = 0;
+        $total       = count($items);
+
+        foreach ($items as $idx => $item) {
+            $sourceId = $item['id'];
+
+            $this->saveMeta([
+                'stage'             => 'scanning',
+                'current_page'      => $idx + 1,
+                'total_pages'       => $total,
+                'jobs_found_so_far' => count($jobs),
+            ]);
+
+            if (array_key_exists($sourceId, $existingIds)) {
+                if (! $this->disableEarlyStop && $this->runMode !== 'full' && count($jobs) > 0) {
+                    return $jobs;
+                }
+                continue;
+            }
+
+            $detail = $this->fetchJobZambiaDetail($item['url']);
+
+            if ($detail) {
+                $jobs[]     = array_merge($item, $detail);
+                $newDetails++;
+            }
+
+            if ($newDetails >= $maxNew) {
+                return $jobs;
+            }
+        }
+
+        return $jobs;
+    }
+
+    protected function fetchJobZambiaSitemap(string $url): array
+    {
+        $headers = $this->jobZambiaHeaders('application/xml,text/xml;q=0.9,*/*;q=0.8');
+
+        try {
+            $resp = Http::withHeaders($headers)->timeout(20)->get($url);
+        } catch (Throwable) {
+            return [];
+        }
+
+        if (! $resp->successful()) {
+            return [];
+        }
+
+        $xml = @simplexml_load_string($resp->body());
+        if (! $xml) {
+            return [];
+        }
+
+        $xml->registerXPathNamespace('image', 'http://www.google.com/schemas/sitemap-image/1.1');
+
+        $items = [];
+        foreach ($xml->url as $node) {
+            $loc = trim((string) $node->loc);
+            if (! str_contains($loc, '/job/')) {
+                continue;
+            }
+
+            $lastmod = trim((string) $node->lastmod) ?: null;
+
+            // Grab first image:image as logo hint.
+            $images = $node->xpath('image:image/image:loc');
+            $logo   = $images ? trim((string) $images[0]) : null;
+
+            $items[] = [
+                'id'      => $loc,
+                'url'     => $loc,
+                'lastmod' => $lastmod,
+                'logo'    => $logo,
+            ];
+        }
+
+        return $items;
+    }
+
+    protected function fetchJobZambiaDetail(string $url): ?array
+    {
+        $headers = $this->jobZambiaHeaders();
+
+        try {
+            $resp = Http::withHeaders($headers)->timeout(20)->get($url);
+        } catch (Throwable) {
+            return null;
+        }
+
+        if (! $resp->successful()) {
+            return null;
+        }
+
+        return $this->parseJobZambiaPage($resp->body(), $url);
+    }
+
+    protected function parseJobZambiaPage(string $html, string $url): ?array
+    {
+        $doc = new \DOMDocument();
+        @$doc->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        $xpath = new \DOMXPath($doc);
+
+        $title = $this->xpathText($xpath, '//*[contains(@class,"entry-title")]');
+        if ($title === '') {
+            return null;
+        }
+
+        $company  = $this->xpathText($xpath, '//*[contains(@class,"company")]//a');
+        if ($company === '') {
+            $company = $this->xpathText($xpath, '//*[contains(@class,"company_header")]');
+        }
+
+        $location = $this->xpathText($xpath, '//*[contains(@class,"location")]');
+
+        // Description: prefer .job_description, fall back to .entry-content
+        $descNode = $xpath->query('//*[contains(@class,"job_description")]')->item(0)
+            ?? $xpath->query('//*[contains(@class,"entry-content")]')->item(0);
+        $content  = $descNode ? $doc->saveHTML($descNode) : '';
+
+        // Application deadline from description text.
+        $deadline = null;
+        $plain    = strip_tags($content);
+        if (preg_match('/(?:deadline|closing date|apply by|close(?:s|d)?)\s*[:\-]?\s*(\d{1,2}(?:st|nd|rd|th)?\s+\w+,?\s+\d{4}|\w+\s+\d{1,2},?\s+\d{4})/i', $plain, $m)) {
+            try {
+                $deadline = Carbon::parse($m[1])->toDateString();
+            } catch (Throwable) {
+                $deadline = null;
+            }
+        }
+
+        return [
+            'title'    => $title,
+            'company'  => $company ?: 'JobZambia',
+            'location' => $location ?: 'Zambia',
+            'content'  => $content,
+            'deadline' => $deadline,
+            'apply_url' => $url,
+        ];
+    }
+
+    protected function xpathText(\DOMXPath $xpath, string $query): string
+    {
+        $node = $xpath->query($query)->item(0);
+        return $node ? trim($node->textContent) : '';
+    }
+
+    protected function jobZambiaHeaders(string $accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'): array
+    {
+        return [
+            'User-Agent'      => 'WakandaJobsCrawler/1.0 (+https://www.wakandajobs.com)',
+            'Accept'          => $accept,
+            'Accept-Language' => 'en-US,en;q=0.9',
+        ];
+    }
+
+    protected function importJobZambiaJobs(JobCrawler $crawler, array $items): array
+    {
+        $stats = [
+            'jobs_found'   => count($items),
+            'jobs_created' => 0,
+            'jobs_updated' => 0,
+            'jobs_skipped' => 0,
+        ];
+
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->toArray();
+
+        $newItems = array_values(array_filter(
+            $items,
+            fn ($i) => ! array_key_exists($i['id'] ?? '', $existingIds)
+        ));
+        $newTotal = count($newItems);
+
+        $this->saveNewImportProgress(0, $newTotal, $stats);
+
+        foreach ($newItems as $index => $item) {
+            $sourceId = (string) ($item['id'] ?? '');
+            $title    = trim((string) ($item['title'] ?? ''));
+
+            if ($sourceId === '' || $title === '') {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
+            $company = $this->firstOrCreateJobZambiaCompany($item);
+            if (! $company) {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
+            $attributes = $this->buildJobZambiaAttributes($crawler, $item, $company);
+
+            $newJob = new Job();
+            $newJob->forceFill($attributes);
+            $this->persistNewJob($newJob, $crawler, $stats, function (Job $j): void {
+                $j->jobTypes()->syncWithoutDetaching([3]);
+                $this->dispatchNewJobEvents($j);
+            });
+
+            $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+        }
+
+        return $stats;
+    }
+
+    protected function firstOrCreateJobZambiaCompany(array $item): ?Company
+    {
+        $name = trim((string) ($item['company'] ?? ''));
+        if ($name === '') {
+            return null;
+        }
+
+        $company = $this->findGoZambiaCompany($name, null);
+
+        if (! $company) {
+            $company = $this->firstOrCreateCompany([
+                'name'        => $this->limitGoZambiaField($name, 110),
+                'country_id'  => 7, // Zambia
+                'status'      => \Botble\Base\Enums\BaseStatusEnum::PUBLISHED,
+                'is_verified' => false,
+            ], $name);
+            SlugHelper::createSlug($company);
+
+            $logoUrl = $item['logo'] ?? null;
+            if ($logoUrl) {
+                $logoPath = $this->uploadCompanyLogo($logoUrl);
+                if ($logoPath) {
+                    $company->logo = $logoPath;
+                    $company->saveQuietly();
+                }
+            }
+        }
+
+        return $company;
+    }
+
+    protected function buildJobZambiaAttributes(JobCrawler $crawler, array $item, Company $company): array
+    {
+        $lastmod    = $item['lastmod'] ?? null;
+        $deadline   = $item['deadline'] ?? null;
+        $postedDate = $lastmod ? Carbon::parse($lastmod) : Carbon::now();
+        $expireDate = $deadline
+            ? Carbon::parse($deadline)
+            : $postedDate->copy()->addDays(45);
+
+        $rawContent  = (string) ($item['content'] ?? '');
+        $description = Str::limit(trim(strip_tags($rawContent)), 400, '');
+
+        return [
+            'crawler_id'               => $crawler->getKey(),
+            'external_source_id'       => (string) ($item['id'] ?? ''),
+            'external_source_url'      => (string) ($item['url'] ?? $item['id'] ?? ''),
+            'name'                     => $this->limitGoZambiaField($item['title'] ?? '', 110),
+            'description'              => $description,
+            'content'                  => $rawContent ?: $description,
+            'company_id'               => $company->getKey(),
+            'address'                  => (string) ($item['location'] ?? 'Zambia'),
+            'country_id'               => 7, // Zambia
             'apply_url'                => (string) ($item['apply_url'] ?? $item['url'] ?? ''),
             'status'                   => JobStatusEnum::PUBLISHED,
             'moderation_status'        => ModerationStatusEnum::APPROVED,
