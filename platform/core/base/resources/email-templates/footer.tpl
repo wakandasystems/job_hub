@@ -25,6 +25,15 @@
                     {% endif %}
 
                     <tr>
+                        <td class="bb-pb-md bb-pt-sm" align="center">
+                            <a href="https://whatsapp.com/channel/0029Vb7umsx2ZjClLN546U3f" target="_blank" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;color:#25D366;font-weight:600;font-size:14px;">
+                                <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" width="20" height="20" alt="WhatsApp" style="vertical-align:middle;" />
+                                Follow our WhatsApp Channel for job updates
+                            </a>
+                        </td>
+                    </tr>
+
+                    <tr>
                         <td class="bb-px-lg">
                             {{ site_copyright }}
                         </td>
