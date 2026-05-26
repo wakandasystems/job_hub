@@ -46,6 +46,7 @@ class JobCrawlerForm extends FormAbstract
                     'html' => 'HTML page using CSS selectors',
                     'json' => 'JSON feed using dot-path mappings',
                     'gozambiajobs' => 'Go Zambia Jobs listing + detail pages',
+                    'vacancybox' => 'VacancyBox Zimbabwe (XML sitemaps + JSON-LD)',
                 ],
                 'colspan' => 6,
             ])

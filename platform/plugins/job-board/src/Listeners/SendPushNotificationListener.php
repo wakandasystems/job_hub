@@ -14,9 +14,7 @@ class SendPushNotificationListener
         // Quick check — no subscribers for this country means nothing to do
         $jobCountryId = $job->country_id;
         $exists = PushSubscription::query()
-            ->when($jobCountryId, fn ($q) => $q->where(function ($q) use ($jobCountryId): void {
-                $q->where('country_id', $jobCountryId)->orWhereNull('country_id');
-            }))
+            ->when($jobCountryId, fn ($q) => $q->where('country_id', $jobCountryId))
             ->exists();
 
         if (! $exists) {

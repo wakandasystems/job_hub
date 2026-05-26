@@ -195,6 +195,10 @@ class JobCrawlerRunner
             return $this->fetchJobSearchZmJobs($crawler);
         }
 
+        if ($crawler->parser_type === 'vacancybox') {
+            return $this->fetchVacancyBoxJobs($crawler);
+        }
+
         $sourceUrl = (string) $crawler->source_url;
         $paginated = str_contains($sourceUrl, '{page}');
 
@@ -369,6 +373,10 @@ class JobCrawlerRunner
 
         if ($crawler->parser_type === 'jobsearchzm') {
             return $this->importJobSearchZmJobs($crawler, $items);
+        }
+
+        if ($crawler->parser_type === 'vacancybox') {
+            return $this->importVacancyBoxJobs($crawler, $items);
         }
 
         $stats = [
@@ -3823,6 +3831,386 @@ class JobCrawlerRunner
             'status'                   => JobStatusEnum::PUBLISHED,
             'moderation_status'        => ModerationStatusEnum::APPROVED,
             'salary_type'              => \Botble\JobBoard\Enums\SalaryTypeEnum::HIDDEN,
+            'career_level_id'          => 3,
+            'is_featured'              => false,
+            'expire_date'              => $expireDate,
+            'application_closing_date' => $expireDate,
+            'never_expired'            => false,
+            'created_at'               => $postedDate,
+            'updated_at'               => $postedDate,
+        ];
+    }
+
+    // -------------------------------------------------------------------------
+    // VacancyBox (vacancybox.co.zw) — WordPress WP Job Manager, XML sitemaps
+    // -------------------------------------------------------------------------
+
+    protected function fetchVacancyBoxJobs(JobCrawler $crawler): array
+    {
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->toArray();
+
+        $base = rtrim((string) $crawler->source_url, '/');
+        if (! $base) {
+            $base = 'https://vacancybox.co.zw';
+        }
+
+        // Discover all job_listing sitemap pages via the sitemap index.
+        $sitemapUrls = $this->discoverVacancyBoxSitemaps($base);
+
+        // Process sitemaps newest-first for incremental runs.
+        $sitemapUrls = array_reverse($sitemapUrls);
+
+        $jobs = [];
+        $maxNewDetails = $this->runMode === 'full' ? 300 : 30;
+        $newDetails = 0;
+        $totalSitemaps = count($sitemapUrls);
+
+        foreach ($sitemapUrls as $sitemapIndex => $sitemapUrl) {
+            $sitemapItems = $this->fetchVacancyBoxSitemap($sitemapUrl);
+
+            // Sitemaps list oldest-first; reverse so we process newest jobs first.
+            $sitemapItems = array_reverse($sitemapItems);
+
+            foreach ($sitemapItems as $item) {
+                $sourceId = $item['id'];
+
+                $this->saveMeta([
+                    'stage'             => 'scanning',
+                    'current_page'      => $sitemapIndex + 1,
+                    'total_pages'       => $totalSitemaps,
+                    'jobs_found_so_far' => count($jobs),
+                ]);
+
+                if (array_key_exists($sourceId, $existingIds)) {
+                    if (! $this->disableEarlyStop && $this->runMode !== 'full' && count($jobs) > 0) {
+                        return $jobs;
+                    }
+                    continue;
+                }
+
+                $detail = $this->fetchVacancyBoxJobDetail($item['url']);
+
+                if ($detail) {
+                    $jobs[] = array_merge($item, $detail);
+                    $newDetails++;
+                }
+
+                if ($newDetails >= $maxNewDetails) {
+                    return $jobs;
+                }
+            }
+
+            DB::reconnect();
+        }
+
+        return $jobs;
+    }
+
+    protected function discoverVacancyBoxSitemaps(string $base): array
+    {
+        $indexUrl = $base . '/sitemap_index.xml';
+        $headers  = $this->vacancyBoxHeaders('application/xml,text/xml;q=0.9,*/*;q=0.8');
+
+        try {
+            $resp = Http::withHeaders($headers)->timeout(20)->get($indexUrl);
+        } catch (Throwable) {
+            return [$base . '/job_listing-sitemap.xml'];
+        }
+
+        if (! $resp->successful()) {
+            return [$base . '/job_listing-sitemap.xml'];
+        }
+
+        $xml = @simplexml_load_string($resp->body());
+        if (! $xml) {
+            return [$base . '/job_listing-sitemap.xml'];
+        }
+
+        $urls = [];
+        foreach ($xml->sitemap as $node) {
+            $loc = trim((string) $node->loc);
+            if (str_contains($loc, 'job_listing-sitemap')) {
+                $urls[] = $loc;
+            }
+        }
+
+        return $urls ?: [$base . '/job_listing-sitemap.xml'];
+    }
+
+    protected function fetchVacancyBoxSitemap(string $url): array
+    {
+        $headers = $this->vacancyBoxHeaders('application/xml,text/xml;q=0.9,*/*;q=0.8');
+
+        try {
+            $resp = Http::withHeaders($headers)->timeout(20)->get($url);
+        } catch (Throwable) {
+            return [];
+        }
+
+        if (! $resp->successful()) {
+            return [];
+        }
+
+        $xml = @simplexml_load_string($resp->body());
+        if (! $xml) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($xml->url as $node) {
+            $loc = trim((string) $node->loc);
+            if (! str_contains($loc, '/job/')) {
+                continue;
+            }
+
+            $lastmod = trim((string) $node->lastmod) ?: null;
+
+            $items[] = [
+                'id'      => $loc,
+                'url'     => $loc,
+                'lastmod' => $lastmod,
+            ];
+        }
+
+        return $items;
+    }
+
+    protected function fetchVacancyBoxJobDetail(string $url): ?array
+    {
+        $headers = $this->vacancyBoxHeaders();
+
+        try {
+            $resp = Http::withHeaders($headers)->timeout(20)->get($url);
+        } catch (Throwable) {
+            return null;
+        }
+
+        if (! $resp->successful()) {
+            return null;
+        }
+
+        return $this->parseVacancyBoxJobPage($resp->body(), $url);
+    }
+
+    protected function parseVacancyBoxJobPage(string $html, string $url): ?array
+    {
+        $data = $this->extractVacancyBoxJsonLd($html);
+
+        if (empty($data)) {
+            return null;
+        }
+
+        $title    = trim(html_entity_decode((string) ($data['title'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $company  = trim(html_entity_decode((string) data_get($data, 'hiringOrganization.name', ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $logo     = (string) data_get($data, 'hiringOrganization.logo', '');
+
+        $rawAddress = data_get($data, 'jobLocation.address', 'Zimbabwe');
+        if (is_array($rawAddress)) {
+            $rawAddress = $rawAddress['addressLocality'] ?? $rawAddress['addressRegion'] ?? $rawAddress['addressCountry'] ?? 'Zimbabwe';
+        }
+        $location = trim(html_entity_decode((string) $rawAddress, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $content  = html_entity_decode((string) ($data['description'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $datePosted = (string) ($data['datePosted'] ?? '');
+
+        // Try to extract deadline from description text (e.g. "DUE: 26 MAY 2026")
+        $deadline = null;
+        if (preg_match('/DUE[:\s]+(\d{1,2}\s+\w+\s+\d{4}|\w+\s+\d{1,2},?\s+\d{4})/i', strip_tags($content), $m)) {
+            try {
+                $deadline = Carbon::parse($m[1])->toDateString();
+            } catch (Throwable) {
+                $deadline = null;
+            }
+        }
+
+        if ($title === '') {
+            return null;
+        }
+
+        return [
+            'title'     => $title,
+            'company'   => $company ?: 'VacancyBox',
+            'logo'      => $logo,
+            'location'  => $location ?: 'Zimbabwe',
+            'content'   => $content,
+            'apply_url' => $url,
+            'date'      => $datePosted ?: null,
+            'deadline'  => $deadline,
+        ];
+    }
+
+    protected function extractVacancyBoxJsonLd(string $html): array
+    {
+        if (! preg_match_all('/<script[^>]+type=["\']application\/ld\+json["\'][^>]*>(.*?)<\/script>/is', $html, $matches)) {
+            return [];
+        }
+
+        $candidates = [];
+
+        foreach ($matches[1] as $json) {
+            $decoded = json_decode(trim($json), true);
+            if (! is_array($decoded)) {
+                continue;
+            }
+
+            foreach ($this->flattenJobSearchZmJsonLd($decoded) as $entry) {
+                if (($entry['@type'] ?? null) === 'JobPosting') {
+                    $candidates[] = $entry;
+                }
+            }
+        }
+
+        if (empty($candidates)) {
+            return [];
+        }
+
+        // Prefer the entry with the most complete data (description + real company name).
+        // WP Job Manager's script always has a description; the Yoast stub does not.
+        usort($candidates, function (array $a, array $b): int {
+            $scoreA = (isset($a['description']) ? 2 : 0) + (isset($a['hiringOrganization']['logo']) ? 1 : 0);
+            $scoreB = (isset($b['description']) ? 2 : 0) + (isset($b['hiringOrganization']['logo']) ? 1 : 0);
+            return $scoreB <=> $scoreA;
+        });
+
+        return $candidates[0];
+    }
+
+    protected function vacancyBoxHeaders(string $accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'): array
+    {
+        return [
+            'User-Agent'      => 'WakandaJobsCrawler/1.0 (+https://www.wakandajobs.com)',
+            'Accept'          => $accept,
+            'Accept-Language' => 'en-US,en;q=0.9',
+        ];
+    }
+
+    protected function importVacancyBoxJobs(JobCrawler $crawler, array $items): array
+    {
+        $stats = [
+            'jobs_found'   => count($items),
+            'jobs_created' => 0,
+            'jobs_updated' => 0,
+            'jobs_skipped' => 0,
+        ];
+
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->toArray();
+
+        $newItems = array_values(array_filter(
+            $items,
+            fn ($i) => ! array_key_exists($i['id'] ?? '', $existingIds)
+        ));
+        $newTotal = count($newItems);
+
+        $this->saveNewImportProgress(0, $newTotal, $stats);
+
+        foreach ($newItems as $index => $item) {
+            $sourceId = (string) ($item['id'] ?? '');
+            $title    = trim((string) ($item['title'] ?? ''));
+
+            if ($sourceId === '' || $title === '') {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
+            $company = $this->firstOrCreateVacancyBoxCompany($item);
+            if (! $company) {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
+            $existing = Job::query()
+                ->where('crawler_id', $crawler->getKey())
+                ->where('external_source_id', $sourceId)
+                ->first();
+
+            $attributes = $this->buildVacancyBoxAttributes($crawler, $item, $company);
+
+            if ($existing) {
+                $existing->forceFill($attributes)->save();
+                $stats['jobs_updated']++;
+            } else {
+                $newJob = new Job();
+                $newJob->forceFill($attributes);
+                $this->persistNewJob($newJob, $crawler, $stats, function (Job $j): void {
+                    $j->jobTypes()->syncWithoutDetaching([3]);
+                    $this->dispatchNewJobEvents($j);
+                });
+            }
+
+            $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+        }
+
+        return $stats;
+    }
+
+    protected function firstOrCreateVacancyBoxCompany(array $item): ?Company
+    {
+        $name = trim((string) ($item['company'] ?? ''));
+        if ($name === '') {
+            return null;
+        }
+
+        $company = $this->findGoZambiaCompany($name, 60);
+
+        if (! $company) {
+            $company = $this->firstOrCreateCompany([
+                'name'        => $this->limitGoZambiaField($name, 110),
+                'country_id'  => 60, // Zimbabwe
+                'status'      => \Botble\Base\Enums\BaseStatusEnum::PUBLISHED,
+                'is_verified' => false,
+            ], $name);
+            SlugHelper::createSlug($company);
+
+            if (! empty($item['logo'])) {
+                $logoPath = $this->uploadCompanyLogo($item['logo']);
+                if ($logoPath) {
+                    $company->logo = $logoPath;
+                    $company->saveQuietly();
+                }
+            }
+        }
+
+        return $company;
+    }
+
+    protected function buildVacancyBoxAttributes(JobCrawler $crawler, array $item, Company $company): array
+    {
+        $date     = $item['date'] ?? null;
+        $deadline = $item['deadline'] ?? null;
+
+        $postedDate = $date ? Carbon::parse($date) : Carbon::now();
+        $expireDate = $deadline
+            ? Carbon::parse($deadline)
+            : $postedDate->copy()->addDays(45);
+
+        $rawContent  = (string) ($item['content'] ?? '');
+        $description = Str::limit(trim(strip_tags($rawContent)), 400, '');
+
+        return [
+            'crawler_id'               => $crawler->getKey(),
+            'external_source_id'       => (string) ($item['id'] ?? ''),
+            'external_source_url'      => (string) ($item['url'] ?? $item['id'] ?? ''),
+            'name'                     => $this->limitGoZambiaField($item['title'] ?? '', 110),
+            'description'              => $description,
+            'content'                  => $rawContent ?: $description,
+            'company_id'               => $company->getKey(),
+            'address'                  => (string) ($item['location'] ?? 'Zimbabwe'),
+            'country_id'               => 60, // Zimbabwe
+            'apply_url'                => (string) ($item['apply_url'] ?? $item['url'] ?? ''),
+            'status'                   => JobStatusEnum::PUBLISHED,
+            'moderation_status'        => ModerationStatusEnum::APPROVED,
+            'salary_type'              => SalaryTypeEnum::HIDDEN,
             'career_level_id'          => 3,
             'is_featured'              => false,
             'expire_date'              => $expireDate,

@@ -25,9 +25,7 @@ class SendPushNotificationsCommand extends Command
         $jobCountryId = $job->country_id;
 
         $subscriptions = PushSubscription::query()
-            ->when($jobCountryId, fn ($q) => $q->where(function ($q) use ($jobCountryId): void {
-                $q->where('country_id', $jobCountryId)->orWhereNull('country_id');
-            }))
+            ->when($jobCountryId, fn ($q) => $q->where('country_id', $jobCountryId))
             ->get();
 
         if ($subscriptions->isEmpty()) {
