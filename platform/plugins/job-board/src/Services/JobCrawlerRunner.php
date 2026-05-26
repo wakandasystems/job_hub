@@ -1575,6 +1575,13 @@ class JobCrawlerRunner
     protected function dispatchNewJobEvents(Job $job): void
     {
         event(new CreatedContentEvent(JOB_MODULE_SCREEN_NAME, request(), $job));
+
+        // Don't send job alerts for jobs that are already past their deadline at import time.
+        $deadline = $job->application_closing_date ?? $job->expire_date ?? null;
+        if ($deadline && $deadline->isPast()) {
+            return;
+        }
+
         event(new JobPublishedEvent($job));
     }
 
