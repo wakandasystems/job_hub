@@ -55,6 +55,12 @@ All destructive or irreversible admin actions **must** use a Bootstrap modal dia
 
 Use `bg-success` / `ti ti-check` for approve actions, `bg-danger` / `ti ti-x` for reject/delete. Wire the form `action` via the `show.bs.modal` event — never hardcode it in the modal HTML.
 
+## Crawlers — never use sitemaps
+
+Always scrape the live jobs listing page or its AJAX endpoint directly. **Never use XML sitemaps** (`sitemap.xml`, `job_listing-sitemap.xml`, etc.) as a crawl source — sitemaps lag behind the live site and miss newly posted jobs.
+
+For WP Job Manager sites the AJAX endpoint is `/jm-ajax/get_listings/` (POST, form-encoded). It returns `found_jobs`, `max_num_pages`, and `html` with the job cards. Parse that HTML, then fetch each detail page for the full description.
+
 ## Other rules
 
 - Always run `php artisan view:clear && php artisan cache:clear` after Blade or PHP changes.

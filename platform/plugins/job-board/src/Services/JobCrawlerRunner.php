@@ -4229,7 +4229,7 @@ class JobCrawlerRunner
     }
 
     // -------------------------------------------------------------------------
-    // JobZambia (jobzambia.com) — WordPress WP Job Manager, XML sitemap + HTML
+    // JobZambia (jobzambia.com) — WP Job Manager AJAX endpoint + detail pages
     // -------------------------------------------------------------------------
 
     protected function fetchJobZambiaJobs(JobCrawler $crawler): array
@@ -4241,103 +4241,163 @@ class JobCrawlerRunner
             ->flip()
             ->toArray();
 
-        $parsed = parse_url((string) $crawler->source_url);
-        $base   = ($parsed['scheme'] ?? 'https') . '://' . ($parsed['host'] ?? 'jobzambia.com');
+        $isFirstRun = empty($existingIds);
 
-        $sitemapUrl = $base . '/job_listing-sitemap.xml';
-        $items      = $this->fetchJobZambiaSitemap($sitemapUrl);
+        $parsed  = parse_url((string) $crawler->source_url);
+        $base    = ($parsed['scheme'] ?? 'https') . '://' . ($parsed['host'] ?? 'jobzambia.com');
+        $ajaxUrl = $base . '/jm-ajax/get_listings/';
 
-        // Newest-first for incremental runs.
-        $items = array_reverse($items);
+        $jobs    = [];
+        $seenIds = [];
+        $maxNew  = $this->runMode === 'full' ? 300 : 40;
+        $newFetched = 0;
 
-        $jobs        = [];
-        $maxNew      = $this->runMode === 'full' ? 300 : 40;
-        $newDetails  = 0;
-        $total       = count($items);
-
-        foreach ($items as $idx => $item) {
-            $sourceId = $item['id'];
-
+        for ($page = 1; $page <= 20; $page++) {
             $this->saveMeta([
                 'stage'             => 'scanning',
-                'current_page'      => $idx + 1,
-                'total_pages'       => $total,
+                'current_page'      => $page,
                 'jobs_found_so_far' => count($jobs),
             ]);
 
-            if (array_key_exists($sourceId, $existingIds)) {
-                if (! $this->disableEarlyStop && $this->runMode !== 'full' && count($jobs) > 0) {
+            if ($page > 1) {
+                usleep(500_000);
+            }
+
+            try {
+                $resp = Http::withHeaders($this->jobZambiaHeaders('application/json,*/*;q=0.8'))
+                    ->asForm()
+                    ->timeout(20)
+                    ->post($ajaxUrl, [
+                        'search_keywords'  => '',
+                        'search_location'  => '',
+                        'per_page'         => 16,
+                        'orderby'          => 'featured',
+                        'order'            => 'DESC',
+                        'page'             => $page,
+                        'show_pagination'  => 'false',
+                        'post_id'          => 13,
+                    ]);
+            } catch (Throwable) {
+                break;
+            }
+
+            if (! $resp->successful()) {
+                break;
+            }
+
+            $json = $resp->json();
+
+            if (empty($json['found_jobs']) || empty($json['html'])) {
+                break;
+            }
+
+            $maxPages = (int) ($json['max_num_pages'] ?? 1);
+            $cards    = $this->parseJobZambiaListingCards($json['html'], $base);
+
+            if (empty($cards)) {
+                break;
+            }
+
+            $newOnPage = 0;
+
+            foreach ($cards as $card) {
+                $sourceId = $card['id'];
+
+                if (isset($seenIds[$sourceId])) {
+                    continue;
+                }
+                $seenIds[$sourceId] = true;
+
+                if (array_key_exists($sourceId, $existingIds)) {
+                    continue;
+                }
+
+                $detail = $this->fetchJobZambiaDetail($card['url']);
+                if (! $detail) {
+                    continue;
+                }
+
+                $jobs[] = array_merge($card, $detail);
+                $newOnPage++;
+                $newFetched++;
+
+                if ($newFetched >= $maxNew) {
                     return $jobs;
                 }
-                continue;
             }
 
-            $detail = $this->fetchJobZambiaDetail($item['url']);
-
-            if ($detail) {
-                $jobs[]     = array_merge($item, $detail);
-                $newDetails++;
+            // Caught up — entire page was already known.
+            if (! $this->disableEarlyStop && ! $isFirstRun && $page > 1 && $newOnPage === 0) {
+                break;
             }
 
-            if ($newDetails >= $maxNew) {
-                return $jobs;
+            if ($page >= $maxPages) {
+                break;
             }
+
+            DB::reconnect();
         }
 
         return $jobs;
     }
 
-    protected function fetchJobZambiaSitemap(string $url): array
+    protected function parseJobZambiaListingCards(string $html, string $base): array
     {
-        $headers = $this->jobZambiaHeaders('application/xml,text/xml;q=0.9,*/*;q=0.8');
+        $doc = new \DOMDocument();
+        @$doc->loadHTML('<?xml encoding="utf-8" ?><ul>' . $html . '</ul>');
+        $xpath = new \DOMXPath($doc);
 
-        try {
-            $resp = Http::withHeaders($headers)->timeout(20)->get($url);
-        } catch (Throwable) {
-            return [];
-        }
+        $cards = [];
 
-        if (! $resp->successful()) {
-            return [];
-        }
-
-        $xml = @simplexml_load_string($resp->body());
-        if (! $xml) {
-            return [];
-        }
-
-        $xml->registerXPathNamespace('image', 'http://www.google.com/schemas/sitemap-image/1.1');
-
-        $items = [];
-        foreach ($xml->url as $node) {
-            $loc = trim((string) $node->loc);
-            if (! str_contains($loc, '/job/')) {
+        foreach ($xpath->query('//li[contains(@class,"job_listing")]') as $li) {
+            // Post ID from class="post-{id} job_listing ..."
+            preg_match('/\bpost-(\d+)\b/', $li->getAttribute('class'), $idMatch);
+            $postId = $idMatch[1] ?? null;
+            if (! $postId) {
                 continue;
             }
 
-            $lastmod = trim((string) $node->lastmod) ?: null;
+            $link    = $xpath->query('.//a', $li)->item(0);
+            $url     = $link ? trim($link->getAttribute('href')) : '';
+            if (! $url) {
+                continue;
+            }
 
-            // Grab first image:image as logo hint.
-            $images = $node->xpath('image:image/image:loc');
-            $logo   = $images ? trim((string) $images[0]) : null;
+            $logo    = '';
+            $logoImg = $xpath->query('.//img[contains(@class,"company_logo")]', $li)->item(0);
+            if ($logoImg) {
+                // Use alt for company name fallback; src for the logo URL.
+                $logo = trim($logoImg->getAttribute('src'));
+                // Strip -150x150 thumbnail suffix to get full-size image.
+                $logo = preg_replace('/-\d+x\d+(\.\w+)$/', '$1', $logo);
+            }
 
-            $items[] = [
-                'id'      => $loc,
-                'url'     => $loc,
-                'lastmod' => $lastmod,
-                'logo'    => $logo,
+            $title   = $this->xpathText($xpath, './/div[contains(@class,"position")]//h3', $li);
+            $company = $this->xpathText($xpath, './/div[contains(@class,"company")]/strong', $li);
+            $location = $this->xpathText($xpath, './/div[contains(@class,"location")]', $li);
+
+            // ISO date from <time datetime="YYYY-MM-DD">
+            $timeNode = $xpath->query('.//time', $li)->item(0);
+            $dateStr  = $timeNode ? $timeNode->getAttribute('datetime') : null;
+
+            $cards[] = [
+                'id'       => $postId,
+                'url'      => $url,
+                'logo'     => $logo,
+                'title'    => html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+                'company'  => html_entity_decode($company, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+                'location' => html_entity_decode($location, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+                'date'     => $dateStr,
             ];
         }
 
-        return $items;
+        return $cards;
     }
 
     protected function fetchJobZambiaDetail(string $url): ?array
     {
-        $headers = $this->jobZambiaHeaders();
-
         try {
-            $resp = Http::withHeaders($headers)->timeout(20)->get($url);
+            $resp = Http::withHeaders($this->jobZambiaHeaders())->timeout(20)->get($url);
         } catch (Throwable) {
             return null;
         }
@@ -4346,33 +4406,17 @@ class JobCrawlerRunner
             return null;
         }
 
-        return $this->parseJobZambiaPage($resp->body(), $url);
-    }
-
-    protected function parseJobZambiaPage(string $html, string $url): ?array
-    {
-        $doc = new \DOMDocument();
+        $html  = $resp->body();
+        $doc   = new \DOMDocument();
         @$doc->loadHTML('<?xml encoding="utf-8" ?>' . $html);
         $xpath = new \DOMXPath($doc);
-
-        $title = $this->xpathText($xpath, '//*[contains(@class,"entry-title")]');
-        if ($title === '') {
-            return null;
-        }
-
-        $company  = $this->xpathText($xpath, '//*[contains(@class,"company")]//a');
-        if ($company === '') {
-            $company = $this->xpathText($xpath, '//*[contains(@class,"company_header")]');
-        }
-
-        $location = $this->xpathText($xpath, '//*[contains(@class,"location")]');
 
         // Description: prefer .job_description, fall back to .entry-content
         $descNode = $xpath->query('//*[contains(@class,"job_description")]')->item(0)
             ?? $xpath->query('//*[contains(@class,"entry-content")]')->item(0);
         $content  = $descNode ? $doc->saveHTML($descNode) : '';
 
-        // Application deadline from description text.
+        // Application deadline from body text.
         $deadline = null;
         $plain    = strip_tags($content);
         if (preg_match('/(?:deadline|closing date|apply by|close(?:s|d)?)\s*[:\-]?\s*(\d{1,2}(?:st|nd|rd|th)?\s+\w+,?\s+\d{4}|\w+\s+\d{1,2},?\s+\d{4})/i', $plain, $m)) {
@@ -4384,18 +4428,17 @@ class JobCrawlerRunner
         }
 
         return [
-            'title'    => $title,
-            'company'  => $company ?: 'JobZambia',
-            'location' => $location ?: 'Zambia',
-            'content'  => $content,
-            'deadline' => $deadline,
+            'content'   => $content,
+            'deadline'  => $deadline,
             'apply_url' => $url,
         ];
     }
 
-    protected function xpathText(\DOMXPath $xpath, string $query): string
+    protected function xpathText(\DOMXPath $xpath, string $query, ?\DOMNode $context = null): string
     {
-        $node = $xpath->query($query)->item(0);
+        $node = $context
+            ? $xpath->query($query, $context)->item(0)
+            : $xpath->query($query)->item(0);
         return $node ? trim($node->textContent) : '';
     }
 
@@ -4497,9 +4540,9 @@ class JobCrawlerRunner
 
     protected function buildJobZambiaAttributes(JobCrawler $crawler, array $item, Company $company): array
     {
-        $lastmod    = $item['lastmod'] ?? null;
+        $date       = $item['date'] ?? null;
         $deadline   = $item['deadline'] ?? null;
-        $postedDate = $lastmod ? Carbon::parse($lastmod) : Carbon::now();
+        $postedDate = $date ? Carbon::parse($date) : Carbon::now();
         $expireDate = $deadline
             ? Carbon::parse($deadline)
             : $postedDate->copy()->addDays(45);
@@ -4510,7 +4553,7 @@ class JobCrawlerRunner
         return [
             'crawler_id'               => $crawler->getKey(),
             'external_source_id'       => (string) ($item['id'] ?? ''),
-            'external_source_url'      => (string) ($item['url'] ?? $item['id'] ?? ''),
+            'external_source_url'      => (string) ($item['url'] ?? ''),
             'name'                     => $this->limitGoZambiaField($item['title'] ?? '', 110),
             'description'              => $description,
             'content'                  => $rawContent ?: $description,
