@@ -4168,7 +4168,7 @@ class JobCrawlerRunner
             return null;
         }
 
-        $company = $this->findGoZambiaCompany($name, 60);
+        $company = $this->findGoZambiaCompany($name, null);
 
         if (! $company) {
             $company = $this->firstOrCreateCompany([
