@@ -9,6 +9,7 @@ use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\JobAlert;
 use Botble\JobBoard\Models\JobAlertQuota;
 use Botble\JobBoard\Models\SocialAutomation;
+use Botble\JobBoard\Services\JobImageGeneratorService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -25,7 +26,7 @@ class SendJobAlertListener implements ShouldQueue
         $job->loadMissing(['categories', 'skills', 'tags', 'company', 'country']);
 
         // ----------------------------------------------------------------
-        // Legacy behavior: match by favoriteTags / favoriteSkills → email
+        // Legacy behavior: match by favoriteTags / favoriteSkills -> email
         // ----------------------------------------------------------------
         $tagIds   = $job->tags->pluck('id')->all();
         $skillIds = $job->skills->pluck('id')->all();
@@ -57,7 +58,7 @@ class SendJobAlertListener implements ShouldQueue
             ->with('account')
             ->get();
 
-        $jobText       = Str::lower($job->name . ' ' . strip_tags((string) ($job->content ?? '')));
+        $jobText       = Str::lower($job->name);
         $jobCategoryIds = $job->categories->pluck('id');
 
         foreach ($activeAlerts as $alert) {
@@ -94,11 +95,7 @@ class SendJobAlertListener implements ShouldQueue
                 $token = setting('telegram_bot_token');
                 if ($token) {
                     try {
-                        Http::post("https://api.telegram.org/bot{$token}/sendMessage", [
-                            'chat_id'    => $account->telegram_chat_id,
-                            'text'       => "New job: {$job->name}\n" . ($job->url ?? ''),
-                            'parse_mode' => 'HTML',
-                        ]);
+                        $this->sendTelegramJobAlert($token, (string) $account->telegram_chat_id, $job);
                     } catch (Throwable) {
                         // Silently continue
                     }
@@ -178,6 +175,40 @@ class SendJobAlertListener implements ShouldQueue
         return true;
     }
 
+    protected function sendTelegramJobAlert(string $token, string $chatId, $job): void
+    {
+        $text = "New job: {$job->name}\n" . ($job->url ?? '');
+        $imagePath = null;
+
+        try {
+            $imagePath = app(JobImageGeneratorService::class)->generate($job);
+        } catch (Throwable) {
+            $imagePath = null;
+        }
+
+        if ($imagePath && file_exists($imagePath)) {
+            try {
+                $response = Http::timeout(30)
+                    ->attach('photo', file_get_contents($imagePath), 'job-alert.jpg')
+                    ->post("https://api.telegram.org/bot{$token}/sendPhoto", [
+                        'chat_id' => $chatId,
+                        'caption' => Str::limit($text, 1020, '...'),
+                    ]);
+
+                if ($response->successful() && data_get($response->json(), 'ok')) {
+                    return;
+                }
+            } finally {
+                @unlink($imagePath);
+            }
+        }
+
+        Http::timeout(20)->post("https://api.telegram.org/bot{$token}/sendMessage", [
+            'chat_id' => $chatId,
+            'text'    => $text,
+        ]);
+    }
+
     protected function accountCanReceiveAlert(int $accountId): bool
     {
         $period    = JobAlertQuota::currentPeriod();
@@ -249,18 +280,36 @@ class SendJobAlertListener implements ShouldQueue
         $rawDescription = $job->description ?? strip_tags((string) ($job->content ?? ''));
         $description    = trim(Str::limit(strip_tags($rawDescription), 400, '...'));
 
+        $jobUrl = route('public.job', $job->slugable?->key ?? $job->id);
+
+        $telegramChannelMap = [
+            7  => 'https://t.me/wakanda_jobs_zambia',
+            53 => 'https://t.me/wakanda_jobs_south_africa',
+            46 => 'https://t.me/wakanda_jobs_nigeria',
+            41 => 'https://t.me/wakanda_jobs_mauritius',
+            58 => 'https://t.me/wakanda_jobs_tunisia',
+            30 => 'https://t.me/wakanda_jobs_ghana',
+            33 => 'https://t.me/wakanda_jobs_kenya',
+            42 => 'https://t.me/wakanda_jobs_morocco',
+            15 => 'https://t.me/wakanda_jobs_cameroon',
+            59 => 'https://t.me/wakanda_jobs_uganda',
+        ];
+        $telegramChannelUrl = $telegramChannelMap[(int) $job->country_id] ?? '';
+
         return [
             'job_name' => $job->name,
-            'job_url' => $job->url,
+            'job_url' => $jobUrl,
             'company_name' => ! ($job->hide_company ?? false) ? ($job->company->name ?? '') : '',
             'account_name' => $account->name,
-            'job_location' => $job->location ?? '',
+            'job_location' => $job->address ?? '',
             'job_country' => $job->country->name ?? '',
             'job_deadline' => $deadline ? $deadline->format('M j, Y') : '',
             'job_description' => $description,
             'job_alert_source_message' => 'This email was sent from your Wakanda Jobs Job Alerts.',
             'job_alert_quota_message' => $includeQuota ? $this->lowQuotaMessage($account->id) : '',
             'job_alert_packages_url' => route('public.account.job-alert.packages.index'),
+            'telegram_channel_url' => $telegramChannelUrl,
+            'telegram_channel_label' => $telegramChannelUrl ? 'Join Wakanda Jobs ' . ($job->country->name ?? '') . ' on Telegram for real-time updates' : '',
         ];
     }
 

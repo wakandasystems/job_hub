@@ -1,5 +1,6 @@
 <?php
 
+use Botble\JobBoard\Http\Middleware\BlockScrapers;
 use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\Category;
 use Botble\JobBoard\Models\Company;
@@ -9,6 +10,7 @@ use Botble\Location\Models\City;
 use Botble\Location\Models\State;
 use Botble\Slug\Facades\SlugHelper;
 use Botble\Theme\Facades\Theme;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
 
 Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middleware' => ['web', 'core']], function (): void {
@@ -55,7 +57,7 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middlew
         Route::get(SlugHelper::getPrefix(Job::class, 'jobs') . '/{slug}', [
             'as' => 'public.job',
             'uses' => 'PublicController@getJob',
-        ]);
+        ])->middleware([BlockScrapers::class, 'throttle:job-pages']);
 
         Route::get(SlugHelper::getPrefix(Category::class, 'job-categories') . '/{slug}', [
             'as' => 'public.job-category',
@@ -150,6 +152,12 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middlew
     Route::post('unsubscribe', 'PushSubscriptionController@destroy')->name('push.unsubscribe');
 });
 
+// Honeypot — bots that ignore robots.txt and follow hidden links get their IP blocked for 24 h.
+Route::get('jobs-archive', function (\Illuminate\Http\Request $request) {
+    Cache::put('blocked_scraper_' . $request->ip(), true, now()->addHours(24));
+    return response('', 410);
+})->name('public.honeypot');
+
 // Telegram webhook — no web/CSRF middleware; authenticated via X-Telegram-Bot-Api-Secret-Token header.
 Route::post('telegram/webhook', [\Botble\JobBoard\Http\Controllers\TelegramWebhookController::class, 'handle'])
     ->name('public.telegram-webhook');
@@ -159,6 +167,11 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers', 'middleware' =>
         'as' => 'public.candidate.download-cv',
         'uses' => 'AccountDownloadCvController@__invoke',
     ]);
+
+    Route::get('telegram/social-message/prompt', [
+        'as' => 'public.telegram-social-prompt',
+        'uses' => 'TelegramSocialMessageController@show',
+    ])->middleware('signed');
 
     Route::get('telegram/social-message/remove', [
         'as' => 'public.telegram-social-delete',

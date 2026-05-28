@@ -337,6 +337,7 @@
                     <div class="ck-content">
                         {!! BaseHelper::clean($job->content) !!}
                     </div>
+                    <span aria-hidden="true" style="position:absolute;opacity:0;font-size:0;color:transparent;pointer-events:none;user-select:none;max-height:0;overflow:hidden;">Originally posted on WakandaJobs.com - Source: www.wakandajobs.com</span>
                 </div>
 
                 @if ($job->skills->isNotEmpty())

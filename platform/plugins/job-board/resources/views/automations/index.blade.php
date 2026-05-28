@@ -66,12 +66,22 @@
         <div class="col-12">
             <x-core::card>
                 <x-core::card.body class="py-3">
-                    <div class="d-flex align-items-center gap-3">
-                        <i class="ti ti-info-circle text-primary fs-4"></i>
-                        <div>
+                    <div class="d-flex align-items-center gap-3 flex-wrap">
+                        <i class="ti ti-info-circle text-primary fs-4 flex-shrink-0"></i>
+                        <div class="flex-grow-1">
                             <strong>How automations work:</strong>
                             When a job is published — whether posted directly by an admin or imported by a crawler agent — it is automatically shared to all <strong>active</strong> automations below.
                             Toggle the switch on each automation to enable or disable it.
+                        </div>
+                        <div class="d-flex gap-2 flex-shrink-0">
+                            <button type="button" class="btn btn-sm btn-outline-danger" id="btn-clear-chats"
+                                    data-url="{{ route('job-board.automations.clear-all-chats') }}">
+                                <i class="ti ti-trash me-1"></i> Delete All Chats
+                            </button>
+                            <button type="button" class="btn btn-sm btn-primary" id="btn-regen-today"
+                                    data-url="{{ route('job-board.automations.regenerate-today') }}">
+                                <i class="ti ti-refresh me-1"></i> Regenerate Today's Jobs
+                            </button>
                         </div>
                     </div>
                 </x-core::card.body>
@@ -359,6 +369,32 @@ $(function () {
                 $(this).prop('disabled', true);
             }
         });
+    });
+
+    // Delete All Chats
+    $('#btn-clear-chats').on('click', function () {
+        const $btn = $(this);
+        if (!confirm('Delete all tracked Telegram messages from all chats? This cannot be undone.')) return;
+        $btn.prop('disabled', true).html('<i class="ti ti-loader-2 ti-spin me-1"></i> Deleting…');
+        $httpClient.make().post($btn.data('url'))
+            .then(({ data: resp }) => {
+                Botble.showSuccess(resp.message || 'All chats cleared.');
+            })
+            .catch(() => Botble.showError('Failed to delete chats. Check the bot token in settings.'))
+            .finally(() => $btn.prop('disabled', false).html('<i class="ti ti-trash me-1"></i> Delete All Chats'));
+    });
+
+    // Regenerate Today's Jobs
+    $('#btn-regen-today').on('click', function () {
+        const $btn = $(this);
+        if (!confirm('This will re-post all of today\'s jobs to all active Telegram automations. Continue?')) return;
+        $btn.prop('disabled', true).html('<i class="ti ti-loader-2 ti-spin me-1"></i> Posting…');
+        $httpClient.make().post($btn.data('url'))
+            .then(({ data: resp }) => {
+                Botble.showSuccess(resp.message || 'Today\'s jobs sent.');
+            })
+            .catch(() => Botble.showError('Failed to regenerate jobs.'))
+            .finally(() => $btn.prop('disabled', false).html('<i class="ti ti-refresh me-1"></i> Regenerate Today\'s Jobs'));
     });
 });
 </script>

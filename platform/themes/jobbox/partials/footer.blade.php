@@ -9,6 +9,29 @@
             <div class="row">
                 {!! dynamic_sidebar('footer_sidebar') !!}
             </div>
+            @php
+                $footerSelectedCountry = wakanda_selected_country();
+                $footerTgChannels      = wakanda_all_telegram_channels();
+            @endphp
+            <div class="row border-top pt-4 mt-4">
+                <div class="col-12 text-center">
+                    <p class="font-xs color-text-paragraph mb-2">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#229ED9" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;margin-right:4px;"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.065 13.85l-2.947-.924c-.64-.204-.657-.64.136-.954l11.57-4.46c.532-.194.998.13.82.95l-.75-.241z"/></svg>
+                        Join our Telegram channels for real-time job updates:
+                    </p>
+                    <div class="d-flex flex-wrap justify-content-center gap-2">
+                        @foreach($footerTgChannels as $ch)
+                            @php $isSelected = $footerSelectedCountry && (int)$footerSelectedCountry->id === (int)$ch['country_id']; @endphp
+                            <a href="{{ $ch['url'] }}" target="_blank" rel="noopener"
+                               class="badge text-decoration-none px-2 py-1 font-xs {{ $isSelected ? 'text-white' : 'bg-light text-dark border' }}"
+                               style="{{ $isSelected ? 'background:#229ED9;' : '' }}">
+                                {{ $ch['name'] }}
+                            </a>
+                        @endforeach
+                    </div>
+                </div>
+            </div>
+
             <div class="footer-bottom mt-50">
                 <div class="row">
                     <div class="col-md-6">

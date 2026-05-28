@@ -370,8 +370,14 @@
     <div class="row showing-of-results">
         {!! Theme::partial('loading') !!}
 
+        @php $featuredOnPage = 0; @endphp
         @forelse($jobs as $job)
-            @include(Theme::getThemeNamespace('views.job-board.partials.job-item-' . $template), ['job' => $job])
+            @php
+                $jobIsFeaturedNow = $job->is_featured && (! $job->featured_until || $job->featured_until->isFuture());
+                if ($jobIsFeaturedNow) { $featuredOnPage++; }
+                $showFeaturedBadge = $jobIsFeaturedNow && $featuredOnPage <= 8;
+            @endphp
+            @include(Theme::getThemeNamespace('views.job-board.partials.job-item-' . $template), ['job' => $job, 'showFeaturedBadge' => $showFeaturedBadge])
         @empty
             @include(Theme::getThemeNamespace('views.job-board.partials.job-item-empty'))
         @endforelse
@@ -395,3 +401,5 @@
 @if(! $isMapActive)
     {!! $jobs->withQueryString()->links(Theme::getThemeNamespace('partials.pagination')) !!}
 @endif
+{{-- honeypot: legitimate bots respect robots.txt Disallow; scrapers that ignore it will be blocked --}}
+<a href="{{ url('jobs-archive') }}" style="display:none !important;visibility:hidden;position:absolute;left:-9999px;" aria-hidden="true" tabindex="-1" rel="nofollow noindex"><!-- --></a>

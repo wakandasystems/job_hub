@@ -252,6 +252,43 @@ if (! function_exists('wakanda_country_from_host')) {
     }
 }
 
+if (! function_exists('wakanda_telegram_channel_url')) {
+    function wakanda_telegram_channel_url(?int $countryId): ?string
+    {
+        static $map = [
+            7  => 'https://t.me/wakanda_jobs_zambia',
+            53 => 'https://t.me/wakanda_jobs_south_africa',
+            46 => 'https://t.me/wakanda_jobs_nigeria',
+            41 => 'https://t.me/wakanda_jobs_mauritius',
+            58 => 'https://t.me/wakanda_jobs_tunisia',
+            30 => 'https://t.me/wakanda_jobs_ghana',
+            33 => 'https://t.me/wakanda_jobs_kenya',
+            42 => 'https://t.me/wakanda_jobs_morocco',
+            15 => 'https://t.me/wakanda_jobs_cameroon',
+            59 => 'https://t.me/wakanda_jobs_uganda',
+        ];
+        return ($countryId && isset($map[$countryId])) ? $map[$countryId] : null;
+    }
+}
+
+if (! function_exists('wakanda_all_telegram_channels')) {
+    function wakanda_all_telegram_channels(): array
+    {
+        return [
+            ['country_id' => 53, 'name' => 'South Africa', 'url' => 'https://t.me/wakanda_jobs_south_africa'],
+            ['country_id' => 46, 'name' => 'Nigeria',       'url' => 'https://t.me/wakanda_jobs_nigeria'],
+            ['country_id' => 7,  'name' => 'Zambia',        'url' => 'https://t.me/wakanda_jobs_zambia'],
+            ['country_id' => 41, 'name' => 'Mauritius',     'url' => 'https://t.me/wakanda_jobs_mauritius'],
+            ['country_id' => 58, 'name' => 'Tunisia',       'url' => 'https://t.me/wakanda_jobs_tunisia'],
+            ['country_id' => 30, 'name' => 'Ghana',         'url' => 'https://t.me/wakanda_jobs_ghana'],
+            ['country_id' => 42, 'name' => 'Morocco',       'url' => 'https://t.me/wakanda_jobs_morocco'],
+            ['country_id' => 33, 'name' => 'Kenya',         'url' => 'https://t.me/wakanda_jobs_kenya'],
+            ['country_id' => 15, 'name' => 'Cameroon',      'url' => 'https://t.me/wakanda_jobs_cameroon'],
+            ['country_id' => 59, 'name' => 'Uganda',        'url' => 'https://t.me/wakanda_jobs_uganda'],
+        ];
+    }
+}
+
 if (! function_exists('wakanda_selected_country')) {
     function wakanda_selected_country()
     {

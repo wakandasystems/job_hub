@@ -22,6 +22,7 @@ class JobApplication extends BaseModel
         'job_id',
         'account_id',
         'status',
+        'boost_bid',
     ];
 
     protected $casts = [

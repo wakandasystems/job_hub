@@ -65,6 +65,7 @@ class FeaturedOrder extends BaseModel
             if ($job) {
                 $job->is_featured    = 1;
                 $job->featured_until = $expiresAt;
+                $job->featured_bid   = max((int) $job->featured_bid, (int) $this->amount);
                 $job->save();
             }
         }

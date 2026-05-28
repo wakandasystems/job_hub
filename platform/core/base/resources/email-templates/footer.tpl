@@ -33,6 +33,17 @@
                         </td>
                     </tr>
 
+                    {% if telegram_channel_url %}
+                    <tr>
+                        <td class="bb-pb-md" align="center">
+                            <a href="{{ telegram_channel_url }}" target="_blank" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;color:#229ED9;font-weight:600;font-size:14px;">
+                                <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Telegram_2019_Logo.svg/512px-Telegram_2019_Logo.svg.png" width="20" height="20" alt="Telegram" style="vertical-align:middle;" />
+                                {{ telegram_channel_label }}
+                            </a>
+                        </td>
+                    </tr>
+                    {% endif %}
+
                     <tr>
                         <td class="bb-px-lg">
                             {{ site_copyright }}

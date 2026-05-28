@@ -244,6 +244,14 @@ class JobCrawlerRunner
             return $this->fetchJobZambiaJobs($crawler);
         }
 
+        if ($crawler->parser_type === 'jobmail') {
+            return $this->fetchJobMailJobs($crawler);
+        }
+
+        if ($crawler->parser_type === 'myjobmag') {
+            return $this->fetchMyJobMagJobs($crawler);
+        }
+
         $sourceUrl = (string) $crawler->source_url;
         $paginated = str_contains($sourceUrl, '{page}');
 
@@ -426,6 +434,14 @@ class JobCrawlerRunner
 
         if ($crawler->parser_type === 'jobzambia') {
             return $this->importJobZambiaJobs($crawler, $items);
+        }
+
+        if ($crawler->parser_type === 'jobmail') {
+            return $this->importJobMailJobs($crawler, $items);
+        }
+
+        if ($crawler->parser_type === 'myjobmag') {
+            return $this->importMyJobMagJobs($crawler, $items);
         }
 
         $stats = [
@@ -1606,6 +1622,14 @@ class JobCrawlerRunner
             return;
         }
 
+        // Content-moderation guard: block jobs that mention our own site or contain
+        // watermark text from competitors re-posting our content.
+        if ($this->hasBannedContent($job->name . ' ' . $job->description . ' ' . $job->content)) {
+            $this->sendBannedContentAlert($job, $crawler);
+            $stats['jobs_skipped']++;
+            return;
+        }
+
         try {
             $job->save();
         } catch (\Illuminate\Database\QueryException $e) {
@@ -1619,6 +1643,69 @@ class JobCrawlerRunner
         SlugHelper::createSlug($job);
         $configure($job);
         $stats['jobs_created']++;
+    }
+
+    /**
+     * Returns true if $text contains content that must never be imported.
+     * This catches jobs scraped from sites that have re-posted our content,
+     * including our own anti-scraping watermark messages.
+     */
+    protected function hasBannedContent(string $text): bool
+    {
+        $patterns = [
+            // Our own site mentioned in crawled content = stolen from us
+            '/wakandajobs\.com/i',
+            '/wakanda\s+jobs\.com/i',
+            // Known offending site
+            '/\bjobwebzambia\b/i',
+            // Anti-scraping watermark text we've placed on our site
+            '/stop\s+trying\s+to\s+copy\s+our\s+site/i',
+            '/stop\s+copying\s+our/i',
+            '/reposting\s+the\s+same\s+content\s+shortly\s+after/i',
+            '/build\s+your\s+own\s+ideas.*create\s+your\s+own\s+content/is',
+            '/waiting\s+for\s+us\s+to\s+post\s+jobs/i',
+            '/operating\s+from\s+ghana.*copy\s+our/is',
+            '/shadowing\s+others.*wakanda/is',
+            '/tired\s+of\s+the\s+copying/i',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $text)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Send a Telegram alert to the admin personal chat when a banned job is caught.
+     */
+    protected function sendBannedContentAlert(Job $job, JobCrawler $crawler): void
+    {
+        try {
+            $token  = setting('telegram_bot_token', '');
+            $chatId = '5777916704'; // Admin personal chat
+
+            if ($token === '' || $chatId === '') {
+                return;
+            }
+
+            $excerpt = mb_substr(strip_tags((string) ($job->description ?: $job->content)), 0, 300);
+            $msg     = "🚨 *Banned Content Blocked*\n\n"
+                . "*Job:* " . $job->name . "\n"
+                . "*Crawler:* " . $crawler->name . "\n"
+                . "*Source:* " . ($job->external_source_url ?: 'unknown') . "\n\n"
+                . "*Excerpt:*\n" . $excerpt;
+
+            Http::timeout(10)->post("https://api.telegram.org/bot{$token}/sendMessage", [
+                'chat_id'    => $chatId,
+                'text'       => $msg,
+                'parse_mode' => 'Markdown',
+            ]);
+        } catch (Throwable) {
+            // Never let the alert prevent normal crawler operation
+        }
     }
 
     /**
@@ -4620,5 +4707,651 @@ class JobCrawlerRunner
             'created_at'               => $postedDate,
             'updated_at'               => $postedDate,
         ];
+    }
+
+    // -------------------------------------------------------------------------
+    // JobMail South Africa (jobmail.co.za)
+    // -------------------------------------------------------------------------
+
+    protected function fetchJobMailJobs(JobCrawler $crawler): array
+    {
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->toArray();
+
+        $isFirstRun = empty($existingIds);
+        $isFullPull = $this->runMode === 'full';
+        $maxPages   = $isFullPull ? 50 : 20;
+        $jobs       = [];
+        $seenIds    = [];
+
+        for ($page = 1; $page <= $maxPages; $page++) {
+            $this->saveProgress($page, count($jobs));
+
+            if ($page > 1) {
+                sleep($isFullPull ? rand(3, 7) : rand(2, 4));
+            }
+
+            $url = $page === 1
+                ? 'https://www.jobmail.co.za/jobs'
+                : "https://www.jobmail.co.za/jobs/page{$page}";
+
+            $response = $this->jobMailRequest($url);
+
+            if (! $response->successful()) {
+                break;
+            }
+
+            $pageJobs = $this->extractJobMailList($response->body());
+
+            if (empty($pageJobs)) {
+                break;
+            }
+
+            $newOnPage = 0;
+
+            foreach ($pageJobs as $job) {
+                $id = (string) ($job['id'] ?? '');
+                if ($id !== '' && isset($seenIds[$id])) {
+                    continue;
+                }
+                if ($id !== '') {
+                    $seenIds[$id] = true;
+                }
+                $jobs[] = $job;
+
+                if ($id !== '' && ! array_key_exists($id, $existingIds)) {
+                    $newOnPage++;
+                }
+            }
+
+            if (! $isFullPull && ! $isFirstRun && $newOnPage === 0) {
+                break;
+            }
+        }
+
+        return $jobs;
+    }
+
+    protected function importJobMailJobs(JobCrawler $crawler, array $items): array
+    {
+        $deletedDuplicates = $this->deleteDuplicateCrawledJobs($crawler);
+
+        $stats = [
+            'jobs_found'   => count($items),
+            'jobs_created' => 0,
+            'jobs_updated' => 0,
+            'jobs_skipped' => 0,
+        ];
+
+        if ($deletedDuplicates > 0) {
+            $stats['jobs_deleted'] = $deletedDuplicates;
+            $this->saveMeta(['jobs_deleted' => $deletedDuplicates]);
+        }
+
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->toArray();
+
+        $newItems      = [];
+        $existingItems = [];
+
+        foreach ($items as $item) {
+            $id = (string) ($item['id'] ?? '');
+            if ($id !== '' && array_key_exists($id, $existingIds)) {
+                $existingItems[] = $item;
+            } else {
+                $newItems[] = $item;
+            }
+        }
+
+        $newTotal      = count($newItems);
+        $existingTotal = count($existingItems);
+        $isFullPull    = $this->runMode === 'full';
+
+        $this->saveNewImportProgress(0, $newTotal, $stats);
+
+        foreach ($newItems as $index => $item) {
+            $sourceId = (string) ($item['id'] ?? '');
+            $title    = trim((string) ($item['title'] ?? ''));
+
+            if ($sourceId === '' || $title === '') {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
+            $detailUrl = $this->absoluteJobMailUrl((string) ($item['url'] ?? ''));
+            $detail    = [];
+
+            if (! $isFullPull && $detailUrl) {
+                try {
+                    sleep(rand(1, 3));
+                    $detailResponse = $this->jobMailRequest($detailUrl);
+                    if ($detailResponse->successful()) {
+                        $detail = $this->extractJobMailDetail($detailResponse->body());
+                    }
+                } catch (Throwable) {
+                    // keep list data
+                }
+            }
+
+            $companyName = trim($detail['company_name'] ?? $item['company'] ?? '');
+            if ($companyName === '') {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
+            $company = $this->findGoZambiaCompany($companyName, null);
+            if (! $company) {
+                $company = $this->firstOrCreateCompany([
+                    'name'        => $this->limitGoZambiaField($companyName, 110),
+                    'country_id'  => 53,
+                    'status'      => BaseStatusEnum::PUBLISHED,
+                    'is_verified' => false,
+                ], $companyName);
+                SlugHelper::createSlug($company);
+            }
+
+            $attrs = $this->buildJobMailAttributes($crawler, $item, $detail, $company, $detailUrl);
+
+            $existing = Job::query()
+                ->where('crawler_id', $crawler->getKey())
+                ->where('external_source_id', $sourceId)
+                ->first();
+
+            if ($existing) {
+                $existing->forceFill($attrs)->save();
+                $this->assignGoZambiaCategory($existing, ['category' => ['name' => $detail['industry'] ?? '']]);
+                $stats['jobs_updated']++;
+            } else {
+                $newJob = new Job();
+                $newJob->forceFill($attrs);
+                $this->persistNewJob($newJob, $crawler, $stats, function (Job $j) use ($detail): void {
+                    $this->assignGoZambiaCategory($j, ['category' => ['name' => $detail['industry'] ?? '']]);
+                    $j->jobTypes()->syncWithoutDetaching([3]);
+                    $this->dispatchNewJobEvents($j);
+                });
+            }
+
+            $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+        }
+
+        $this->saveExistingUpdateProgress(0, $existingTotal, $stats);
+
+        foreach ($existingItems as $index => $item) {
+            $sourceId = (string) ($item['id'] ?? '');
+            if ($sourceId !== '') {
+                $job = Job::query()
+                    ->where('crawler_id', $crawler->getKey())
+                    ->where('external_source_id', $sourceId)
+                    ->first();
+
+                if ($job) {
+                    $job->forceFill(['expire_date' => Carbon::now()->addDays(30)])->save();
+                    $stats['jobs_updated']++;
+                } else {
+                    $stats['jobs_skipped']++;
+                }
+            } else {
+                $stats['jobs_skipped']++;
+            }
+
+            if ($index % 10 === 9 || $index === $existingTotal - 1) {
+                $this->saveExistingUpdateProgress($index + 1, $existingTotal, $stats);
+            }
+        }
+
+        return $stats;
+    }
+
+    protected function extractJobMailList(string $html): array
+    {
+        $jobs   = [];
+        $needle = 'class="results-item';
+        $offset = 0;
+
+        while (($pos = strpos($html, $needle, $offset)) !== false) {
+            $chunk = substr($html, $pos, 4000);
+
+            if (! preg_match('/id="results-item-(\d+)"/', $chunk, $idM)) {
+                $offset = $pos + strlen($needle);
+                continue;
+            }
+            $jobId = $idM[1];
+
+            $title = '';
+            if (preg_match('/<h3>([^<]+)<\/h3>/', $chunk, $titleM)) {
+                $title = html_entity_decode(trim($titleM[1]));
+            }
+
+            $url = '';
+            if (preg_match('/id="jobDetailUrl-' . $jobId . '"[^>]+href="([^"]+)"/', $chunk, $urlM)) {
+                $url = $urlM[1];
+            } elseif (preg_match('/href="([^"]+)"[^>]+id="jobDetailUrl-' . $jobId . '"/', $chunk, $urlM)) {
+                $url = $urlM[1];
+            }
+
+            $company = '';
+            if (preg_match('/<span class="company">\s*([^<]+)\s*<\/span>/', $chunk, $compM)) {
+                $company = html_entity_decode(trim($compM[1]));
+            }
+
+            $location = '';
+            if (preg_match('/class="job-location">([^<]+)</', $chunk, $locM)) {
+                $location = html_entity_decode(trim($locM[1]));
+            }
+
+            $jobs[] = [
+                'id'       => $jobId,
+                'title'    => $title,
+                'url'      => $url,
+                'company'  => $company,
+                'location' => $location,
+            ];
+
+            $offset = $pos + strlen($needle);
+        }
+
+        return $jobs;
+    }
+
+    protected function extractJobMailDetail(string $html): array
+    {
+        preg_match_all('/<script[^>]+type="application\/ld\+json"[^>]*>(.*?)<\/script>/s', $html, $matches);
+        foreach ($matches[1] as $jsonStr) {
+            // JobMail embeds raw CR/LF in the description string — strip to make parseable.
+            $clean = preg_replace('/[\x00-\x1F]/', ' ', trim($jsonStr));
+            $data  = json_decode($clean, true);
+            if (! is_array($data) || ($data['@type'] ?? '') !== 'JobPosting') {
+                continue;
+            }
+
+            $org      = $data['hiringOrganization'] ?? [];
+            $location = $data['jobLocation']['address'] ?? [];
+            $parts    = array_filter([
+                trim($location['addressLocality'] ?? ''),
+                trim($location['addressRegion'] ?? ''),
+            ]);
+
+            return [
+                'title'        => (string) ($data['title'] ?? ''),
+                'company_name' => trim((string) ($org['name'] ?? '')),
+                'location'     => implode(', ', $parts),
+                'industry'     => (string) ($data['industry'] ?? ''),
+                'datePosted'   => $data['datePosted'] ?? null,
+                'validThrough' => $data['validThrough'] ?? null,
+                'description'  => html_entity_decode((string) ($data['description'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+            ];
+        }
+
+        return [];
+    }
+
+    protected function buildJobMailAttributes(JobCrawler $crawler, array $item, array $detail, Company $company, ?string $detailUrl): array
+    {
+        $postedAt  = $detail['datePosted'] ?? null;
+        $expiresAt = $detail['validThrough'] ?? null;
+
+        $postedDate = $postedAt ? Carbon::parse($postedAt) : Carbon::now();
+        $expireDate = $expiresAt
+            ? Carbon::parse($expiresAt)
+            : $postedDate->copy()->addDays(60);
+
+        $rawDesc  = (string) ($detail['description'] ?? '');
+        $location = $detail['location'] ?? $item['location'] ?? 'South Africa';
+
+        return [
+            'crawler_id'               => $crawler->getKey(),
+            'external_source_id'       => (string) ($item['id'] ?? ''),
+            'external_source_url'      => $detailUrl ?? $this->absoluteJobMailUrl((string) ($item['url'] ?? '')),
+            'name'                     => $this->limitGoZambiaField($detail['title'] ?: ($item['title'] ?? ''), 110),
+            'description'              => Str::limit(trim(strip_tags($rawDesc)), 400, ''),
+            'content'                  => $rawDesc ?: Str::limit(trim(strip_tags($rawDesc)), 400, ''),
+            'company_id'               => $company->getKey(),
+            'address'                  => (string) $location,
+            'country_id'               => 53, // South Africa
+            'apply_url'                => $detailUrl ?? '',
+            'status'                   => JobStatusEnum::PUBLISHED,
+            'moderation_status'        => ModerationStatusEnum::APPROVED,
+            'salary_type'              => SalaryTypeEnum::HIDDEN,
+            'currency_id'              => 46, // ZAR
+            'career_level_id'          => 3,
+            'is_featured'              => false,
+            'expire_date'              => $expireDate,
+            'application_closing_date' => $expireDate,
+            'never_expired'            => false,
+            'created_at'               => $postedDate,
+            'updated_at'               => $postedDate,
+        ];
+    }
+
+    protected function absoluteJobMailUrl(string $path): ?string
+    {
+        $path = trim($path);
+        if ($path === '') {
+            return null;
+        }
+
+        if (Str::startsWith($path, ['http://', 'https://'])) {
+            return $path;
+        }
+
+        return 'https://www.jobmail.co.za' . (Str::startsWith($path, '/') ? $path : '/' . $path);
+    }
+
+    protected function jobMailRequest(string $url): \Illuminate\Http\Client\Response
+    {
+        return Http::timeout(20)->withHeaders([
+            'User-Agent'      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept'          => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language' => 'en-ZA,en-GB;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Referer'         => 'https://www.jobmail.co.za/',
+        ])->get($url);
+    }
+
+    // -------------------------------------------------------------------------
+    // MyJobMag (myjobmag.com / myjobmag.co.ke)
+    // -------------------------------------------------------------------------
+
+    protected function fetchMyJobMagJobs(JobCrawler $crawler): array
+    {
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->toArray();
+
+        $isFirstRun = empty($existingIds);
+        $isFullPull = $this->runMode === 'full';
+        $maxPages   = $isFullPull ? 50 : 20;
+        $sourceUrl  = rtrim((string) $crawler->source_url, '/');
+        $baseUrl    = $this->myJobMagBaseUrl($sourceUrl);
+        $jobs       = [];
+        $seenSlugs  = [];
+
+        for ($page = 1; $page <= $maxPages; $page++) {
+            $this->saveProgress($page, count($jobs));
+
+            if ($page > 1) {
+                sleep($isFullPull ? rand(3, 6) : rand(1, 3));
+            }
+
+            $url = $page === 1 ? $sourceUrl : $sourceUrl . '/page/' . $page;
+
+            $response = $this->myJobMagRequest($url);
+
+            if (! $response->successful()) {
+                break;
+            }
+
+            $pageJobs = $this->extractMyJobMagList($response->body(), $baseUrl);
+
+            if (empty($pageJobs)) {
+                break;
+            }
+
+            $newOnPage = 0;
+
+            foreach ($pageJobs as $job) {
+                $slug = (string) ($job['slug'] ?? '');
+                if ($slug !== '' && isset($seenSlugs[$slug])) {
+                    continue;
+                }
+                if ($slug !== '') {
+                    $seenSlugs[$slug] = true;
+                }
+                $jobs[] = $job;
+
+                if ($slug !== '' && ! array_key_exists($slug, $existingIds)) {
+                    $newOnPage++;
+                }
+            }
+
+            if (! $isFullPull && ! $isFirstRun && $newOnPage === 0) {
+                break;
+            }
+        }
+
+        return $jobs;
+    }
+
+    protected function importMyJobMagJobs(JobCrawler $crawler, array $items): array
+    {
+        $mappings        = $crawler->field_mappings ?? [];
+        $countryId       = (int) ($mappings['country_id'] ?? 46);
+        $currencyId      = isset($mappings['currency_id']) ? (int) $mappings['currency_id'] : null;
+        $defaultLocation = (string) ($mappings['default_location'] ?? 'Nigeria');
+
+        $stats = [
+            'jobs_found'   => count($items),
+            'jobs_created' => 0,
+            'jobs_updated' => 0,
+            'jobs_skipped' => 0,
+        ];
+
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->toArray();
+
+        $newItems = [];
+
+        foreach ($items as $item) {
+            $slug = (string) ($item['slug'] ?? '');
+            if ($slug === '' || ! array_key_exists($slug, $existingIds)) {
+                $newItems[] = $item;
+            }
+        }
+
+        $newTotal   = count($newItems);
+        $isFullPull = $this->runMode === 'full';
+
+        $this->saveNewImportProgress(0, $newTotal, $stats);
+
+        foreach ($newItems as $index => $item) {
+            $slug = (string) ($item['slug'] ?? '');
+            $url  = (string) ($item['url'] ?? '');
+
+            if (! $slug) {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
+            $detail = [];
+
+            if (! $isFullPull && $url) {
+                try {
+                    sleep(rand(1, 3));
+                    $detailResponse = $this->myJobMagRequest($url);
+                    if ($detailResponse->successful()) {
+                        $detail = $this->extractMyJobMagDetail($detailResponse->body());
+                    }
+                } catch (Throwable) {
+                    // use list data
+                }
+            }
+
+            $title       = trim($detail['title'] ?? $item['title'] ?? '');
+            $companyName = trim($detail['company_name'] ?? $item['company'] ?? '');
+
+            if (! $title || ! $companyName) {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
+            $company = $this->findGoZambiaCompany($companyName, null);
+            if (! $company) {
+                $company = $this->firstOrCreateCompany([
+                    'name'        => $this->limitGoZambiaField($companyName, 110),
+                    'country_id'  => $countryId,
+                    'status'      => BaseStatusEnum::PUBLISHED,
+                    'is_verified' => false,
+                ], $companyName);
+                SlugHelper::createSlug($company);
+            }
+
+            $postedAt   = $detail['datePosted'] ?? null;
+            $expiresAt  = $detail['validThrough'] ?? null;
+            $postedDate = $postedAt ? Carbon::parse($postedAt) : Carbon::now();
+            $expireDate = $expiresAt ? Carbon::parse($expiresAt) : $postedDate->copy()->addDays(60);
+            $rawDesc    = (string) ($detail['description'] ?? $item['short_desc'] ?? '');
+            $location   = (string) ($detail['location'] ?? $defaultLocation);
+
+            $attrs = [
+                'crawler_id'               => $crawler->getKey(),
+                'external_source_id'       => $slug,
+                'external_source_url'      => $url,
+                'name'                     => $this->limitGoZambiaField($title, 110),
+                'description'              => Str::limit(trim(strip_tags($rawDesc)), 400, ''),
+                'content'                  => $rawDesc ?: Str::limit(trim(strip_tags($rawDesc)), 400, ''),
+                'company_id'               => $company->getKey(),
+                'address'                  => $location,
+                'country_id'               => $countryId,
+                'apply_url'                => $url,
+                'status'                   => JobStatusEnum::PUBLISHED,
+                'moderation_status'        => ModerationStatusEnum::APPROVED,
+                'salary_type'              => SalaryTypeEnum::HIDDEN,
+                'currency_id'              => $currencyId,
+                'career_level_id'          => 3,
+                'is_featured'              => false,
+                'expire_date'              => $expireDate,
+                'application_closing_date' => $expireDate,
+                'never_expired'            => false,
+                'created_at'               => $postedDate,
+                'updated_at'               => $postedDate,
+            ];
+
+            $existing = Job::query()
+                ->where('crawler_id', $crawler->getKey())
+                ->where('external_source_id', $slug)
+                ->first();
+
+            if ($existing) {
+                $existing->forceFill($attrs)->save();
+                $this->assignGoZambiaCategory($existing, ['category' => ['name' => $detail['industry'] ?? '']]);
+                $stats['jobs_updated']++;
+            } else {
+                $newJob = new Job();
+                $newJob->forceFill($attrs);
+                $this->persistNewJob($newJob, $crawler, $stats, function (Job $j) use ($detail): void {
+                    $this->assignGoZambiaCategory($j, ['category' => ['name' => $detail['industry'] ?? '']]);
+                    $j->jobTypes()->syncWithoutDetaching([3]);
+                    $this->dispatchNewJobEvents($j);
+                });
+            }
+
+            $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+        }
+
+        return $stats;
+    }
+
+    protected function extractMyJobMagList(string $html, string $baseUrl): array
+    {
+        $jobs   = [];
+        $needle = 'class="job-list-li"';
+        $offset = 0;
+
+        while (($pos = strpos($html, $needle, $offset)) !== false) {
+            $chunk = substr($html, $pos, 1500);
+
+            if (! preg_match('/<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([^<]+)<\/a>/i', $chunk, $m)) {
+                $offset = $pos + strlen($needle);
+                continue;
+            }
+
+            $href  = $m[1];
+            $label = html_entity_decode(trim($m[2]));
+
+            $title   = $label;
+            $company = '';
+            if (preg_match('/^(.+?)\s+at\s+(.+)$/i', $label, $atM)) {
+                $title   = trim($atM[1]);
+                $company = trim($atM[2]);
+            }
+
+            $shortDesc = '';
+            if (preg_match('/class="job-desc">([^<]+)</i', $chunk, $descM)) {
+                $shortDesc = trim($descM[1]);
+            }
+
+            $url  = Str::startsWith($href, 'http') ? $href : rtrim($baseUrl, '/') . $href;
+            $slug = basename(parse_url($url, PHP_URL_PATH));
+
+            $jobs[] = [
+                'slug'       => $slug,
+                'url'        => $url,
+                'title'      => $title,
+                'company'    => $company,
+                'short_desc' => $shortDesc,
+            ];
+
+            $offset = $pos + strlen($needle);
+        }
+
+        return $jobs;
+    }
+
+    protected function extractMyJobMagDetail(string $html): array
+    {
+        preg_match_all('/<script[^>]+type="application\/ld\+json"[^>]*>(.*?)<\/script>/s', $html, $matches);
+        foreach ($matches[1] as $jsonStr) {
+            $clean = preg_replace('/[\x00-\x1F]/', ' ', trim($jsonStr));
+            $data  = json_decode($clean, true);
+            if (! is_array($data) || ($data['@type'] ?? '') !== 'JobPosting') {
+                continue;
+            }
+
+            $org      = $data['hiringOrganization'] ?? [];
+            $location = $data['jobLocation']['address'] ?? [];
+            $parts    = array_filter([
+                trim($location['addressLocality'] ?? ''),
+                trim($location['addressRegion'] ?? ''),
+            ]);
+
+            $rawDesc = html_entity_decode((string) ($data['description'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+            return [
+                'title'        => (string) ($data['title'] ?? ''),
+                'company_name' => trim((string) ($org['name'] ?? '')),
+                'location'     => implode(', ', $parts),
+                'industry'     => (string) ($data['industry'] ?? $data['occupationalCategory'] ?? ''),
+                'datePosted'   => $data['datePosted'] ?? null,
+                'validThrough' => $data['validThrough'] ?? null,
+                'description'  => $rawDesc,
+            ];
+        }
+
+        return [];
+    }
+
+    protected function myJobMagBaseUrl(string $url): string
+    {
+        $parts = parse_url($url);
+
+        return ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? 'www.myjobmag.com');
+    }
+
+    protected function myJobMagRequest(string $url): \Illuminate\Http\Client\Response
+    {
+        return Http::timeout(20)->withHeaders([
+            'User-Agent'      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept'          => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language' => 'en-US,en;q=0.9',
+            'Referer'         => $this->myJobMagBaseUrl($url) . '/',
+        ])->get($url);
     }
 }

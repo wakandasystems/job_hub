@@ -598,8 +598,11 @@ app()->booted(function (): void {
             };
 
             if (JobBoardHelper::isPinFeaturedJobsInTheTop()) {
-                $sortBy = ['jb_jobs.is_featured' => 'DESC', ...$sortBy];
+                $sortBy = ['jb_jobs.is_featured' => 'DESC', 'jb_jobs.featured_bid' => 'DESC', ...$sortBy];
             }
+
+            // Organic (site-posted) jobs always rank above crawled jobs
+            $sortBy = ['jb_jobs.is_organic' => 'DESC', ...$sortBy];
 
             if (is_plugin_active('location')) {
                 $with = array_merge($with, array_keys(Location::getSupported(Job::class)));

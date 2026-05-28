@@ -80,6 +80,9 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
         'availability',
         'talent_hub_consent',
         'profile_updated_at',
+        'wakanda_verified',
+        'wakanda_score',
+        'wakanda_verified_at',
     ];
 
     protected $hidden = [
@@ -92,8 +95,10 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
         'dob'                => 'datetime',
         'cv_score_data'      => 'array',
         'cv_score_history'   => 'array',
-        'talent_hub_consent' => 'boolean',
-        'profile_updated_at' => 'datetime',
+        'talent_hub_consent'  => 'boolean',
+        'profile_updated_at'  => 'datetime',
+        'wakanda_verified'    => 'boolean',
+        'wakanda_verified_at' => 'datetime',
     ];
 
     public static function experienceYearsOptions(): array
@@ -290,6 +295,19 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
     public function applications(): HasMany
     {
         return $this->hasMany(JobApplication::class, 'account_id');
+    }
+
+    public function wakandaBadgeHtml(): string
+    {
+        if (! $this->wakanda_verified) {
+            return '';
+        }
+
+        $stars = str_repeat('★', (int) $this->wakanda_score) . str_repeat('☆', max(0, 5 - (int) $this->wakanda_score));
+
+        return '<span class="wakanda-badge ms-1" title="Wakanda Verified — Score: ' . $this->wakanda_score . '/5" style="display:inline-flex;align-items:center;gap:2px;background:#6f42c1;color:#fff;border-radius:4px;padding:1px 5px;font-size:11px;font-weight:600;vertical-align:middle;">'
+            . '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>'
+            . ' Wakanda ' . $stars . '</span>';
     }
 
     public function applicants(): HasMany

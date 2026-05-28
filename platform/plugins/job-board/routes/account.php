@@ -193,6 +193,16 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
                     Route::delete('{id}', [AccountLanguageController::class, 'destroy'])->name('destroy');
                 });
 
+                Route::post('applications/{id}/boost', [
+                    'as'   => 'applications.boost',
+                    'uses' => 'ApplicationBoostController@store',
+                ])->whereNumber('id');
+
+                Route::post('wakanda-verification', [
+                    'as'   => 'wakanda-verification.store',
+                    'uses' => 'WakandaVerificationController@store',
+                ]);
+
                 Route::prefix('job-alerts')->name('job-alerts.')->group(function (): void {
                     Route::controller('JobAlertController')->group(function (): void {
                         Route::get('', ['as' => 'index', 'uses' => 'index']);
@@ -270,6 +280,11 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
 
             Route::controller('CandidateSearchController')->prefix('candidates')->name('candidates.')->group(function (): void {
                 Route::get('', ['as' => 'search', 'uses' => 'index']);
+            });
+
+            Route::controller('TalentPoolController')->prefix('talent-pool')->name('talent-pool.')->group(function (): void {
+                Route::get('', ['as' => 'index', 'uses' => 'index']);
+                Route::post('{candidate}/unlock', ['as' => 'unlock', 'uses' => 'unlock'])->whereNumber('candidate');
             });
 
             Route::controller('CvRevealController')->prefix('cv-reveal')->name('cv-reveal.')->group(function (): void {

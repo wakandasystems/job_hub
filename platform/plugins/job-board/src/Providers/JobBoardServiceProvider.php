@@ -112,10 +112,12 @@ use Botble\Slug\Facades\SlugHelper;
 use Botble\SocialLogin\Facades\SocialService;
 use Botble\Theme\Facades\SiteMapManager;
 use Illuminate\Foundation\AliasLoader;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Events\RouteMatched;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 
@@ -255,6 +257,10 @@ class JobBoardServiceProvider extends ServiceProvider
             ->loadRoutes(['web', 'api', 'account', 'public', 'review'])
             ->publishAssets()
             ->loadJsonTranslationsFrom($this->getPath() . '/resources/lang');
+
+        RateLimiter::for('job-pages', function (Request $request) {
+            return Limit::perMinute(60)->by($request->ip());
+        });
 
         if ($this->app->runningInConsole()) {
             $this->commands([
@@ -455,8 +461,16 @@ class JobBoardServiceProvider extends ServiceProvider
                     'permissions' => ['job-board.crawler-runs.index'],
                 ])
                 ->registerItem([
-                    'id' => 'cms-plugins-job-board-career-service-orders',
+                    'id' => 'cms-plugins-job-board-wakanda-verification',
                     'priority' => 7,
+                    'parent_id' => 'cms-plugins-job-board-main',
+                    'name' => 'Wakanda Verification',
+                    'icon' => 'ti ti-award',
+                    'url' => route('wakanda-verification.index'),
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-career-service-orders',
+                    'priority' => 8,
                     'parent_id' => 'cms-plugins-job-board-main',
                     'name' => 'Career Services',
                     'icon' => 'ti ti-user-star',
@@ -681,6 +695,15 @@ class JobBoardServiceProvider extends ServiceProvider
                     'icon' => 'ti ti-certificate',
                     'url' => route('degree-types.index'),
                     'permissions' => ['degree-types.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-documentation',
+                    'priority' => 999,
+                    'parent_id' => null,
+                    'name' => 'Documentation',
+                    'icon' => 'ti ti-book',
+                    'url' => route('documentation.index'),
+                    'permissions' => [],
                 ]);
         });
 
@@ -780,6 +803,14 @@ class JobBoardServiceProvider extends ServiceProvider
                         'name' => 'Find Talent',
                         'url' => fn () => route('public.account.candidates.search'),
                         'icon' => 'ti ti-users-group',
+                    ])
+                    ->registerItem([
+                        'id' => 'cms-account-talent-pool',
+                        'priority' => 82,
+                        'parent_id' => null,
+                        'name' => 'Talent Pool',
+                        'url' => fn () => route('public.account.talent-pool.index'),
+                        'icon' => 'ti ti-award',
                     ]);
             } else {
                 $dashboardMenu

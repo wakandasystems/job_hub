@@ -1,17 +1,51 @@
 User-agent: *
-Disallow:
+Disallow: /localization/
+Disallow: /*?c=
+Disallow: /jobs-archive
 Crawl-delay: 10
 
+# Legitimate search engines — no restrictions on job pages
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 5
+
+User-agent: Bingbot
+Allow: /
+Crawl-delay: 10
+
+# Known content scrapers — full block
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: DotBot
+Disallow: /
+
+User-agent: PetalBot
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+
+User-agent: DataForSeoBot
+Disallow: /
+
+# AI training crawlers — slow them down
 User-agent: GPTBot
-Crawl-delay: 30
+Crawl-delay: 60
 
 User-agent: ClaudeBot
-Crawl-delay: 30
+Crawl-delay: 60
 
 User-agent: anthropic-ai
-Crawl-delay: 30
+Crawl-delay: 60
 
 User-agent: Google-Extended
-Crawl-delay: 30
+Crawl-delay: 60
 
 Sitemap: https://www.wakandajobs.com/sitemap.xml

@@ -100,14 +100,17 @@ class ApplicantTable extends TableAbstract
                 'created_at',
                 'is_external_apply',
                 'status',
+                'boost_bid',
             ])
             ->whereHas('job.company.accounts', function (Builder $query) use ($account): void {
                 $query->where('account_id', $account->getKey());
             })
+            ->orderByDesc('boost_bid')
             ->with([
                 'job:id,name,company_id',
                 'job.slugable',
                 'job.company:id,name',
+                'account:id,first_name,last_name,is_public_profile,wakanda_verified,wakanda_score',
             ]);
 
         return $this->applyScopes($query);
@@ -127,11 +130,13 @@ class ApplicantTable extends TableAbstract
                         return $jobApplication->full_name ?: '&mdash;';
                     }
 
+                    $badge = $jobApplication->account?->wakandaBadgeHtml() ?? '';
+
                     if ($jobApplication->account->id && $jobApplication->account->is_public_profile) {
-                        return '<a href="' . $jobApplication->account->url . '">' . $jobApplication->account->name . ' ' . BaseHelper::renderIcon('ti ti-external-link') . '</a>';
+                        return '<a href="' . $jobApplication->account->url . '">' . $jobApplication->account->name . ' ' . BaseHelper::renderIcon('ti ti-external-link') . '</a>' . $badge;
                     }
 
-                    return $jobApplication->full_name ?: '&mdash;';
+                    return ($jobApplication->full_name ?: '&mdash;') . $badge;
                 }),
             Column::make('email')
                 ->title(trans('plugins/job-board::job-application.tables.email'))
@@ -149,6 +154,17 @@ class ApplicantTable extends TableAbstract
                 ->orderable(false),
             CreatedAtColumn::make(),
             StatusColumn::make(),
+            FormattedColumn::make('boost_bid')
+                ->title(trans('Boost'))
+                ->alignCenter()
+                ->getValueUsing(function (FormattedColumn $column) {
+                    $bid = (int) $column->getItem()->boost_bid;
+                    if (! $bid) {
+                        return '&mdash;';
+                    }
+
+                    return '<span class="badge bg-warning text-dark">🔥 ' . $bid . ' cr</span>';
+                }),
         ];
     }
 

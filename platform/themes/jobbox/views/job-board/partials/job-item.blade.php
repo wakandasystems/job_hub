@@ -22,16 +22,20 @@
             </a>
         </div>
     @endif
-    @if ($job->is_featured)
+    @if ($showFeaturedBadge ?? ($job->is_featured && (! $job->featured_until || $job->featured_until->isFuture())))
         <div class="featured-label">
             <span class="featured">{{ __('featured') }}</span>
         </div>
     @endif
     <div class="p-4 position-relative">
-        @if ($job->applicants_count)
-            <div class="job-applied-count">
-                <i class="fi fi-rr-flame text-danger"></i>
-                <small class="fw-medium">{{ __(':count application(s)', ['count' => $job->applicants_count]) }}</small>
+        @if ($job->applicants_count || $job->featured_bid)
+            <div class="job-applied-count d-flex gap-3">
+                @if ($job->applicants_count)
+                    <span><i class="fi fi-rr-flame text-danger"></i> <small class="fw-medium">{{ __(':count application(s)', ['count' => $job->applicants_count]) }}</small></span>
+                @endif
+                @if ($job->featured_bid)
+                    <span><i class="fi fi-rr-trophy text-warning"></i> <small class="fw-medium">{{ __('Bid: :bid', ['bid' => $job->featured_bid]) }}</small></span>
+                @endif
             </div>
         @endif
 

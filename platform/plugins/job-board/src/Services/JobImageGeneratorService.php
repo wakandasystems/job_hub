@@ -12,7 +12,6 @@ class JobImageGeneratorService
     private const FONT_BLACK   = '/usr/share/fonts/truetype/lato/Lato-Black.ttf';
     private const FONT_BOLD    = '/usr/share/fonts/truetype/lato/Lato-Bold.ttf';
     private const FONT_REGULAR = '/usr/share/fonts/truetype/lato/Lato-Regular.ttf';
-    private const LOGO_PATH    = '/var/www/jobs/storage/app/public/general/logo-light.png';
 
     // Brand palette
     private const BG_TOP    = [26,  5,  51];   // #1a0533
@@ -91,26 +90,8 @@ class JobImageGeneratorService
 
     private function drawLogo(\GdImage $img): void
     {
-        if (! file_exists(self::LOGO_PATH)) {
-            // Fallback: draw text logo
-            $c = imagecolorallocate($img, ...self::WHITE);
-            imagettftext($img, 18, 0, 60, 52, $c, self::FONT_BOLD, 'WAKANDA JOBS');
-            return;
-        }
-
-        $logo = @imagecreatefrompng(self::LOGO_PATH);
-        if (! $logo) {
-            return;
-        }
-
-        $lW = imagesx($logo);
-        $lH = imagesy($logo);
-        $scale = min(180 / $lW, 46 / $lH);
-        $dW = (int) ($lW * $scale);
-        $dH = (int) ($lH * $scale);
-
-        imagecopyresampled($img, $logo, 60, 24, 0, 0, $dW, $dH, $lW, $lH);
-        imagedestroy($logo);
+        $c = imagecolorallocate($img, ...self::WHITE);
+        imagettftext($img, 24, 0, 60, 54, $c, self::FONT_BLACK, 'WAKANDA JOBS');
     }
 
     private function drawContent(\GdImage $img, Job $job): void
@@ -127,7 +108,7 @@ class JobImageGeneratorService
         $sep = imagecolorallocatealpha($img, self::VIOLET[0], self::VIOLET[1], self::VIOLET[2], 60);
         imagefilledrectangle($img, 60, 140, 300, 142, $sep);
 
-        // Job title — wrap at ~48pt, max 2 lines
+        // Job title: wrap at ~48pt, max 2 lines
         $title      = mb_strtoupper($job->name);
         $titleLines = $this->wrapText($title, self::FONT_BLACK, 52, 1050);
         $titleLines = array_slice($titleLines, 0, 2); // cap at 2 lines

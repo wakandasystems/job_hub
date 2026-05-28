@@ -86,6 +86,21 @@ AdminHelper::registerRoutes(function (): void {
         Route::post('{order}/reject', [CreditOrderController::class, 'reject'])->name('reject');
     });
 
+    Route::group(['prefix' => 'documentation', 'as' => 'documentation.', 'middleware' => 'auth'], function (): void {
+        Route::get('', [\Botble\JobBoard\Http\Controllers\DocumentationController::class, 'index'])->name('index');
+        Route::get('create', [\Botble\JobBoard\Http\Controllers\DocumentationController::class, 'create'])->name('create');
+        Route::post('', [\Botble\JobBoard\Http\Controllers\DocumentationController::class, 'store'])->name('store');
+        Route::get('{documentation}/edit', [\Botble\JobBoard\Http\Controllers\DocumentationController::class, 'edit'])->name('edit');
+        Route::put('{documentation}', [\Botble\JobBoard\Http\Controllers\DocumentationController::class, 'update'])->name('update');
+        Route::delete('{documentation}', [\Botble\JobBoard\Http\Controllers\DocumentationController::class, 'destroy'])->name('destroy');
+    });
+
+    Route::group(['prefix' => 'wakanda-verification', 'as' => 'wakanda-verification.', 'middleware' => 'auth'], function (): void {
+        Route::get('', [\Botble\JobBoard\Http\Controllers\WakandaVerificationAdminController::class, 'index'])->name('index');
+        Route::post('{verificationRequest}/approve', [\Botble\JobBoard\Http\Controllers\WakandaVerificationAdminController::class, 'approve'])->name('approve');
+        Route::post('{verificationRequest}/reject', [\Botble\JobBoard\Http\Controllers\WakandaVerificationAdminController::class, 'reject'])->name('reject');
+    });
+
     Route::group(['prefix' => 'career-service-orders', 'as' => 'career-service-orders.', 'middleware' => 'auth'], function (): void {
         Route::resource('', CareerServiceOrderController::class)
             ->parameters(['' => 'career-service-order'])
@@ -199,6 +214,18 @@ AdminHelper::registerRoutes(function (): void {
                 'uses'       => 'SocialAutomationController@toggle',
                 'permission' => 'job-board.automations.index',
             ])->wherePrimaryKey();
+
+            Route::post('actions/clear-all-chats', [
+                'as'         => 'clear-all-chats',
+                'uses'       => 'SocialAutomationController@clearAllChats',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('actions/regenerate-today', [
+                'as'         => 'regenerate-today',
+                'uses'       => 'SocialAutomationController@regenerateTodayJobs',
+                'permission' => 'job-board.automations.index',
+            ]);
         });
 
         Route::group(['prefix' => 'agents', 'as' => 'job-board.crawlers.'], function (): void {

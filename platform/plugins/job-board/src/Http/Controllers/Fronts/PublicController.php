@@ -523,9 +523,17 @@ class PublicController extends BaseController
                 ? trans('plugins/job-board::job-application.email.external_redirect')
                 : trans('plugins/job-board::job-application.email.success');
 
+            $responseData = ['url' => $job->apply_url];
+
+            if (! $job->apply_url && $account && $account->credits > 0) {
+                $responseData['boost_available'] = true;
+                $responseData['application_id']  = $jobApplication->getKey();
+                $responseData['credits']          = (int) $account->credits;
+            }
+
             return $this
                 ->httpResponse()
-                ->setData(['url' => $job->apply_url])
+                ->setData($responseData)
                 ->setMessage($message);
         } catch (Exception) {
             return $this

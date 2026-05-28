@@ -911,13 +911,17 @@ $(document).ready(function () {
                     if (!res.data.url) {
                         showSuccess(res.message)
                     }
-                    setTimeout(function () {
-                        if (res.data && res.data.url) {
-                            window.location.replace(res.data.url)
-                        } else {
-                            window.location.reload()
-                        }
-                    }, 1000)
+                    if (res.data && res.data.boost_available && window.onApplyBoostAvailable) {
+                        window.onApplyBoostAvailable(res.data.application_id, res.data.credits)
+                    } else {
+                        setTimeout(function () {
+                            if (res.data && res.data.url) {
+                                window.location.replace(res.data.url)
+                            } else {
+                                window.location.reload()
+                            }
+                        }, 1000)
+                    }
                 } else {
                     showError(res.message)
                 }

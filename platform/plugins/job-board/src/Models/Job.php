@@ -75,6 +75,9 @@ class Job extends BaseModel
         'unique_id',
         'moderation_status',
         'never_expired',
+        'featured_until',
+        'featured_bid',
+        'is_organic',
     ];
 
     protected $casts = [
@@ -85,6 +88,8 @@ class Job extends BaseModel
         'expire_date' => 'datetime',
         'start_date' => 'date',
         'application_closing_date' => 'datetime',
+        'featured_until' => 'datetime',
+        'is_organic' => 'boolean',
         'name' => SafeContent::class,
         'description' => SafeContent::class,
         'content' => SafeContent::class,
@@ -486,6 +491,12 @@ class Job extends BaseModel
 
     protected static function booted(): void
     {
+        self::creating(function (Job $job): void {
+            if (! isset($job->is_organic)) {
+                $job->is_organic = empty($job->crawler_id);
+            }
+        });
+
         self::deleting(function (Job $job): void {
             $job->analytics()->delete();
             $job->applicants()->delete();

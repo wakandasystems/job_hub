@@ -4,8 +4,13 @@ namespace Botble\JobBoard\Http\Controllers;
 
 use Botble\Base\Http\Controllers\BaseController;
 use Botble\Base\Supports\Breadcrumb;
+use Botble\JobBoard\Enums\JobStatusEnum;
+use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\SocialAutomation;
+use Botble\JobBoard\Services\SocialPublisherService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\Rule;
 
 class SocialAutomationController extends BaseController
@@ -94,5 +99,105 @@ class SocialAutomationController extends BaseController
         $automation->save();
 
         return $this->httpResponse()->setData(['is_active' => $automation->is_active]);
+    }
+
+    public function clearAllChats()
+    {
+        $token = setting('telegram_bot_token', '');
+
+        if ($token === '') {
+            return $this->httpResponse()->setError()->setMessage('Telegram bot token is not configured.');
+        }
+
+        $rows = DB::table('telegram_message_log')->orderBy('id')->get(['id', 'chat_id', 'message_id']);
+
+        if ($rows->isEmpty()) {
+            return $this->httpResponse()->setMessage('No tracked messages to delete.');
+        }
+
+        $deleted = 0;
+        $ids     = [];
+
+        foreach ($rows as $row) {
+            $automationToken = SocialAutomation::query()
+                ->where('platform', 'telegram')
+                ->whereJsonContains('settings->chat_id', $row->chat_id)
+                ->value(DB::raw("JSON_UNQUOTE(JSON_EXTRACT(settings, '$.bot_token'))"));
+
+            $useToken = $automationToken ?: $token;
+
+            $resp = Http::timeout(10)->post("https://api.telegram.org/bot{$useToken}/deleteMessage", [
+                'chat_id'    => $row->chat_id,
+                'message_id' => $row->message_id,
+            ]);
+
+            if ($resp->successful() && data_get($resp->json(), 'result')) {
+                $deleted++;
+            }
+            $ids[] = $row->id;
+        }
+
+        DB::table('telegram_message_log')->whereIn('id', $ids)->delete();
+
+        return $this->httpResponse()->setMessage("Deleted {$deleted} of {$rows->count()} tracked messages.");
+    }
+
+    public function regenerateTodayJobs(SocialPublisherService $publisher)
+    {
+        $automations = SocialAutomation::query()
+            ->where('platform', 'telegram')
+            ->where('is_active', true)
+            ->get();
+
+        if ($automations->isEmpty()) {
+            return $this->httpResponse()->setError()->setMessage('No active Telegram automations configured.');
+        }
+
+        $totalSent = 0;
+
+        foreach ($automations as $automation) {
+            $settings  = $automation->settings ?? [];
+            $token     = trim((string) ($settings['bot_token'] ?? setting('telegram_bot_token')));
+            $chatId    = trim((string) ($settings['chat_id'] ?? ''));
+            $countryId = isset($settings['country_id']) && $settings['country_id'] !== ''
+                ? (int) $settings['country_id']
+                : null;
+            $generateImage   = ! empty($settings['generate_image']);
+            $noInlineButtons = ! empty($settings['no_inline_buttons']);
+
+            if ($token === '' || $chatId === '') {
+                continue;
+            }
+
+            $query = Job::query()
+                ->with(['company', 'slugable', 'country', 'currency', 'jobTypes'])
+                ->where('status', JobStatusEnum::PUBLISHED)
+                ->whereDate('created_at', today())
+                ->orderByDesc('created_at');
+
+            if ($countryId) {
+                $query->where('country_id', $countryId);
+            }
+
+            $jobs = $query->get();
+
+            if ($jobs->isEmpty()) {
+                continue;
+            }
+
+            Http::timeout(10)->post("https://api.telegram.org/bot{$token}/sendMessage", [
+                'chat_id'    => $chatId,
+                'text'       => "📅 Regenerating *{$jobs->count()} jobs* from today…",
+                'parse_mode' => 'Markdown',
+            ]);
+
+            foreach ($jobs as $job) {
+                $publisher->sendTelegramCopyPost($token, $chatId, $job, $automation->getKey(), $generateImage, $noInlineButtons);
+                usleep(500000);
+                $totalSent++;
+            }
+        }
+
+        return $this->httpResponse()->setMessage("Sent {$totalSent} job(s) to Telegram.");
     }
 }
