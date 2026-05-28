@@ -66,6 +66,7 @@ class TelegramSocialMessageController extends BaseController
 
         $platformsJson  = json_encode(array_map(fn($p) => $p[3], $platforms), JSON_UNESCAPED_UNICODE);
         $aiPromptJson   = json_encode($aiPrompt, JSON_UNESCAPED_UNICODE);
+        $step2UrlJson   = json_encode($step2Url ?? '', JSON_UNESCAPED_UNICODE);
 
         $platformCardsHtml = '';
         $idx = 0;
@@ -123,6 +124,13 @@ class TelegramSocialMessageController extends BaseController
                 .copy-platform-btn.ok{background:#16a34a !important}
                 .platform-card textarea{border:none;border-radius:0;background:#fff;padding:12px 14px;font-size:12.5px;border-top:1px solid #f0f4f8}
                 .tip{margin-top:6px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:9px 13px;font-size:12px;color:#92400e}
+                /* Dismiss */
+                .dismiss-bar{margin-top:28px;padding:18px;background:#fff;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,.07);text-align:center}
+                .dismiss-bar p{font-size:13px;color:#666;margin-bottom:12px}
+                .dismiss-btn{width:100%;padding:13px;background:#dc2626;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;transition:background .15s}
+                .dismiss-btn:hover{background:#b91c1c}
+                .dismiss-btn.done{background:#16a34a;cursor:default}
+                .close-tip{margin-top:10px;font-size:12px;color:#999;display:none}
             </style>
         </head>
         <body>
@@ -145,11 +153,46 @@ class TelegramSocialMessageController extends BaseController
                 <!-- Platform Posts -->
                 <div class="section-title">📲 Ready-to-Post Social Content</div>
                 {$platformCardsHtml}
+
+                <!-- Dismiss -->
+                <div class="dismiss-bar">
+                    <p>Done posting? Remove the Telegram notification and close this tab.</p>
+                    <button class="dismiss-btn" id="dismiss-btn" onclick="dismiss()">🗑 Dismiss from Telegram &amp; Close</button>
+                    <div class="close-tip" id="close-tip">✅ Telegram message deleted — you can close this tab.</div>
+                </div>
             </div>
 
             <script>
                 const posts = {$platformsJson};
                 const aiPromptText = {$aiPromptJson};
+                const step2Url = {$step2UrlJson};
+
+                function dismiss() {
+                    const btn = document.getElementById('dismiss-btn');
+                    const tip = document.getElementById('close-tip');
+                    btn.disabled = true;
+                    btn.textContent = '⏳ Dismissing…';
+                    if (!step2Url) {
+                        btn.textContent = '✅ Done';
+                        btn.classList.add('done');
+                        tip.style.display = 'block';
+                        window.close();
+                        return;
+                    }
+                    fetch(step2Url, {credentials: 'same-origin'})
+                        .then(() => {
+                            btn.textContent = '✅ Dismissed';
+                            btn.classList.add('done');
+                            tip.style.display = 'block';
+                            setTimeout(() => window.close(), 600);
+                        })
+                        .catch(() => {
+                            btn.textContent = '✅ Done';
+                            btn.classList.add('done');
+                            tip.style.display = 'block';
+                            window.close();
+                        });
+                }
 
                 function copyAi() {
                     const btn = document.getElementById('ai-copy-btn');
