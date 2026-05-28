@@ -9,7 +9,7 @@ class UploadResumeRequest extends Request
     public function rules(): array
     {
         return [
-            'file' => ['required', 'mimes:pdf,doc,docx,ppt,pptx'],
+            'file' => ['required', 'mimes:pdf', 'max:10240'],
             'cv_upload_consent' => ['accepted'],
         ];
     }
@@ -18,6 +18,8 @@ class UploadResumeRequest extends Request
     {
         return [
             'cv_upload_consent.accepted' => __('Please accept the CV visibility terms before uploading your CV.'),
+            'file.mimes'                 => __('Your CV must be a PDF file.'),
+            'file.max'                   => __('Your CV must not exceed 10 MB.'),
         ];
     }
 }

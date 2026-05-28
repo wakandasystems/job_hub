@@ -9,7 +9,7 @@ class AvatarRequest extends Request
     public function rules(): array
     {
         return [
-            'avatar_file' => ['required', 'image', 'mimes:jpg,jpeg,png'],
+            'avatar_file' => ['required', 'image', 'mimes:jpg,jpeg,png', 'max:5120'],
             'avatar_data' => ['required', 'string'],
         ];
     }

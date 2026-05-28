@@ -19,8 +19,9 @@
     $revealCost    = $revealCost    ?? (int) setting('cv_reveal_credit_cost', 1);
     $revealUrl     = $revealUrl     ?? null;
 
-    // Full access: employer who has already revealed OR has free access (subscription)
-    $hasAccess = $isEmployer && ($hasRevealed || $canRevealFree);
+    // Full access: own profile, or employer who has already revealed / has free access
+    $isOwnProfile = $account && $account->getKey() === $candidate->getKey();
+    $hasAccess = $isOwnProfile || ($isEmployer && ($hasRevealed || $canRevealFree));
 
     $revealPriceLabel = setting('cv_reveal_price_label', '');
     $candidateDisplayName = \Botble\JobBoard\Supports\ProfileContactGuard::obscure($candidate->name);
@@ -158,7 +159,10 @@
         </div>
         <div class="box-company-profile">
             <div class="image-candidate">
-                <img src="{{ $candidate->avatar_thumb_url }}" alt="{{ $candidateDisplayName }}" >
+                <div class="position-relative d-inline-block">
+                    <img src="{{ $candidate->avatar_thumb_url }}" alt="{{ $candidateDisplayName }}" >
+                    {!! $candidate->wakandaBadgeHtml() !!}
+                </div>
             </div>
             <div class="row mt-30">
                 <div class="col-lg-8 col-md-12">

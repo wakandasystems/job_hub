@@ -1,11 +1,14 @@
 <div class="ps-sidebar__top">
     <div class="ps-block--user-wellcome">
         <div class="ps-block__left">
-            <img
-                src="{{ auth('account')->user()->avatar_url }}"
-                alt="{{ auth('account')->user()->name }}"
-                class="avatar avatar-lg"
-            />
+            <div class="position-relative d-inline-block">
+                <img
+                    src="{{ auth('account')->user()->avatar_url }}"
+                    alt="{{ auth('account')->user()->name }}"
+                    class="avatar avatar-lg"
+                />
+                {!! auth('account')->user()->wakandaBadgeHtml() !!}
+            </div>
         </div>
         <div class="ps-block__right">
             <p>{{ trans('plugins/job-board::dashboard.hello') }}, {{ auth('account')->user()->name }}</p>
@@ -27,7 +30,7 @@
         </div>
     </div>
 
-    @if (auth('account')->user()->isEmployer() && JobBoardHelper::isEnabledCreditsSystem())
+    @if (JobBoardHelper::isEnabledCreditsSystem())
         <div class="ps-block--earning-count">
             <small>{{ trans('plugins/job-board::dashboard.credits') }}</small>
             <h3 class="my-2">{{ number_format(auth('account')->user()->credits) }}</h3>

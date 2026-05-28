@@ -272,6 +272,7 @@ class AccountSettingForm extends FormAbstract
                     ->when($account->resume && $account->cv_score, function ($form) use ($account) {
                         $score    = (int) $account->cv_score;
                         $feedback = (array) (($account->cv_score_data['feedback'] ?? null) ?: []);
+                        $missingPoints = (array) (($account->cv_score_data['missing_points'] ?? null) ?: []);
                         $scoredAt = $account->cv_score_data['scored_at'] ?? null;
 
                         [$color, $label] = match (true) {
@@ -287,6 +288,45 @@ class AccountSettingForm extends FormAbstract
                         foreach ($feedback as $item) {
                             $escaped = e($item);
                             $feedbackHtml .= "<div class=\"color-text-paragraph-2 font-xs mb-1\"><i class=\"fi-rr-angle-right me-1\"></i>{$escaped}</div>";
+                        }
+
+                        if (! $missingPoints && $score < 100) {
+                            foreach ($feedback as $item) {
+                                $item = (string) $item;
+                                $points = str_contains($item, 'too short') || str_contains($item, 'too long') ? 7 : 8;
+
+                                if (
+                                    str_starts_with($item, 'Add a clear ') ||
+                                    str_starts_with($item, 'Quantify impact') ||
+                                    str_contains($item, 'too short') ||
+                                    str_contains($item, 'too long')
+                                ) {
+                                    $missingPoints[] = [
+                                        'points' => $points,
+                                        'action' => $item,
+                                    ];
+                                }
+                            }
+                        }
+
+                        $listedPoints = array_sum(array_map(fn ($item) => (int) ($item['points'] ?? 0), $missingPoints));
+                        $pointsTo100 = $listedPoints > 0 ? $listedPoints : max(0, 100 - $score);
+                        $missingHtml = '';
+                        if ($pointsTo100 > 0 && $missingPoints) {
+                            $missingItemsHtml = '';
+                            foreach ($missingPoints as $item) {
+                                $points = (int) ($item['points'] ?? 0);
+                                $action = e((string) ($item['action'] ?? 'Improve this CV section.'));
+                                $badge = $points > 0 ? "<span class=\"badge bg-light text-dark border flex-shrink-0\">+{$points}</span>" : '';
+                                $missingItemsHtml .= "<div class=\"d-flex align-items-start gap-2 font-xs color-text-paragraph-2 mb-1\">{$badge}<span>{$action}</span></div>";
+                            }
+
+                            $missingHtml = <<<HTML
+	    <div class="border rounded-2 p-3 mt-3 bg-light">
+	      <div class="fw-semibold font-sm mb-2">What is missing to reach 100? <span class="text-muted fw-normal">{$pointsTo100} points available</span></div>
+	      {$missingItemsHtml}
+	    </div>
+	HTML;
                         }
 
                         $hasHistory = !empty($account->cv_score_history);
@@ -322,13 +362,14 @@ class AccountSettingForm extends FormAbstract
         </div>
       </div>
       <div class="flex-grow-1">
-        <div class="fw-semibold mb-1" style="color:{$color}">{$label}</div>
-        {$feedbackHtml}
-      </div>
-    </div>
-    {$upsell}
-  </div>
-</div>
+	        <div class="fw-semibold mb-1" style="color:{$color}">{$label}</div>
+	        {$feedbackHtml}
+	      </div>
+	    </div>
+	    {$missingHtml}
+	    {$upsell}
+	  </div>
+	</div>
 </div>
 HTML;
 
@@ -339,6 +380,9 @@ HTML;
                         'file',
                         FormFieldOptions::make()
                             ->label(trans('plugins/job-board::messages.attachments_cv'))
+                            ->addAttribute('accept', '.pdf')
+                            ->addAttribute('data-max-size', '10')
+                            ->addAttribute('data-file-type', 'PDF')
                             ->when($account->resume, function (FormFieldOptions $fieldOptions) use ($account) {
                                 return $fieldOptions->helperText(
                                     trans('plugins/job-board::messages.current_resume_message', [
@@ -352,6 +396,9 @@ HTML;
                         'file',
                         FormFieldOptions::make()
                             ->label(trans('plugins/job-board::messages.cover_letter'))
+                            ->addAttribute('accept', '.pdf')
+                            ->addAttribute('data-max-size', '10')
+                            ->addAttribute('data-file-type', 'PDF')
                             ->when($account->cover_letter, function (FormFieldOptions $fieldOptions) use ($account) {
                                 return $fieldOptions->helperText(
                                     trans('plugins/job-board::messages.current_cover_letter_change', [
@@ -365,6 +412,9 @@ HTML;
                         'file',
                         FormFieldOptions::make()
                             ->label(trans('plugins/job-board::messages.cover_image'))
+                            ->addAttribute('accept', '.jpg,.jpeg,.png')
+                            ->addAttribute('data-max-size', '5')
+                            ->addAttribute('data-file-type', 'JPG or PNG')
                     );
             }, function (AccountSettingForm $form): void {
                 $languages = Language::getAvailableLocales();

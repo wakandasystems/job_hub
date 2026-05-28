@@ -75,6 +75,38 @@
 
 @section('content')
     <div class="crop-avatar user-profile-section">
+        {{-- Wakanda Verification Section --}}
+        @if (!$account->isEmployer() && !$account->wakanda_verified)
+        <x-core::card class="mt-3">
+            <x-core::card.body>
+                <div class="d-flex align-items-center gap-3">
+                    <div style="background:#6f42c1;border-radius:8px;padding:10px;">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+                    </div>
+                    <div class="flex-grow-1">
+                        @php
+                            $hasPendingRequest = \Botble\JobBoard\Models\WakandaVerificationRequest::where('account_id', $account->id)->where('status', 'pending')->exists();
+                        @endphp
+                        @if ($hasPendingRequest)
+                            <div class="fw-semibold fs-16">{{ __('Verification Pending') }}</div>
+                            <div class="text-muted fs-13">{{ __('Your request is under review. We will notify you when approved.') }}</div>
+                        @else
+                            <div class="fw-semibold fs-16">{{ __('Get Wakanda Verified') }}</div>
+                            <div class="text-muted fs-13">{{ __('Stand out with a purple Wakanda badge. Our team will review your skills, experience, and interview you. Costs :cost credits.', ['cost' => setting('wakanda_verification_cost', 5)]) }}</div>
+                            <a href="{{ route('public.account.wakanda-verification.checkout') }}"
+                               class="btn btn-sm mt-2 text-white"
+                               style="background:#6f42c1;">
+                                {{ __('Request Verification — :cost credits', ['cost' => setting('wakanda_verification_cost', 5)]) }}
+                            </a>
+                        @endif
+                    </div>
+                </div>
+            </x-core::card.body>
+        </x-core::card>
+
+        @endif
+
+
         <x-core::card>
             <x-core::card.header>
                 <x-core::card.title>{{ __('My Profile') }}</x-core::card.title>
@@ -168,6 +200,7 @@
             </x-core::card.body>
         </x-core::card>
 
+
         {{-- CV Upload / Scoring Modal --}}
         <div class="modal fade" id="cvUploadModal" tabindex="-1" aria-labelledby="cvUploadModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
             <div class="modal-dialog modal-dialog-centered" style="max-width:480px">
@@ -191,7 +224,7 @@
                                 <i class="fi-rr-brain-circuit" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:#22c55e;"></i>
                             </div>
                             <p class="fw-semibold mb-1">{{ __('Analyzing with AI…') }}</p>
-                            <p class="color-text-paragraph-2 font-sm mb-0">{{ __('Scoring your skills, experience &amp; keywords') }}</p>
+                            <p class="color-text-paragraph-2 font-sm mb-0">{{ __('Scoring your skills, experience & keywords') }}</p>
                         </div>
 
                         {{-- Stage 3: results --}}
@@ -249,7 +282,28 @@
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
-                        {!! $languageForm->renderForm() !!}
+                        <div class="mb-3">
+                            <label class="form-label" for="lang-language">{{ __('Language') }}</label>
+                            <select id="lang-language" name="language" class="form-select">
+                                @foreach(\Botble\Base\Supports\Language::getLocales() as $code => $name)
+                                    <option value="{{ $code }}" @selected($code === 'en')>{{ $name }}</option>
+                                @endforeach
+                            </select>
+                            <div id="lang-language-error" class="invalid-feedback"></div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="lang-level">{{ __('Level') }}</label>
+                            <select id="lang-level" name="language_level_id" class="form-select">
+                                @foreach(\Botble\JobBoard\Models\LanguageLevel::query()->pluck('name','id') as $id => $name)
+                                    <option value="{{ $id }}">{{ $name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="form-check">
+                            <input type="checkbox" id="lang-native" name="is_native" class="form-check-input" value="1">
+                            <label class="form-check-label" for="lang-native">{{ __('Is native?') }}</label>
+                            <div class="form-text">{{ __('Check this if you are a native speaker of this language.') }}</div>
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ __('Close') }}</button>
@@ -276,7 +330,7 @@
                                     <input class="avatar-data" name="avatar_data" type="hidden">
                                     @csrf
                                     <label for="avatarInput">{{ __('New image') }}</label>
-                                    <input class="avatar-input" id="avatarInput" name="avatar_file" type="file">
+                                    <input class="avatar-input" id="avatarInput" name="avatar_file" type="file" accept=".jpg,.jpeg,.png">
                                 </div>
 
                                 <div class="loading" tabindex="-1" role="img" aria-label="{{ __('Loading') }}"></div>
@@ -451,126 +505,202 @@
 
         document.addEventListener('DOMContentLoaded', function () {
             $(function () {
-                $(document).on('select2:open', '#addLanguageModal select[name="language"]', function () {
-                    setTimeout(function () {
-                        var searchInput = document.querySelector('.select2-dropdown .select2-search__field');
-
-                        if (searchInput) {
-                            searchInput.focus();
-                            searchInput.select();
-                        }
-                    }, 50);
-                });
 
                 var existingAccountLanguages = @json($languages->pluck('language')->values());
+                var LANG_STORE_URL = @json(route('public.account.languages.store'));
+                var CSRF_TOKEN_LANG = $('meta[name="csrf-token"]').attr('content')
+                    || $('#account-language-form input[name="_token"]').val()
+                    || $('input[name="_token"]').first().val();
 
+                function languageField() {
+                    var $field = $('#lang-language');
+
+                    return $field.length ? $field : $('#account-language-form select[name="language"]');
+                }
+
+                function levelField() {
+                    var $field = $('#lang-level');
+
+                    return $field.length ? $field : $('#account-language-form select[name="language_level_id"]');
+                }
+
+                function nativeField() {
+                    var $field = $('#lang-native');
+
+                    return $field.length ? $field : $('#account-language-form input[name="is_native"]');
+                }
+
+                function languageFormAction() {
+                    return LANG_STORE_URL;
+                }
+
+                function languageErrorElement($field) {
+                    var id = $field.attr('id');
+                    var $error = id ? $('#' + id + '-error') : $();
+
+                    if (! $error.length) {
+                        $error = $('#lang-language-error');
+                    }
+
+                    if (! $error.length) {
+                        $error = $('<div class="invalid-feedback" id="lang-language-error"></div>');
+                        $field.closest('.mb-3, .position-relative').append($error);
+                    }
+
+                    return $error;
+                }
+
+                function showLanguageError(message, $field) {
+                    var text = message || @json(__('Failed to save. Please try again.'));
+                    var $error = languageErrorElement($field);
+
+                    $field.addClass('is-invalid');
+                    $field.next('.select2').find('.select2-selection').addClass('is-invalid');
+                    $error.text(text).show();
+
+                    if (typeof Swal !== 'undefined') {
+                        Swal.fire({
+                            icon: 'error',
+                            title: @json(__('Unable to add language.')),
+                            text: text,
+                        });
+                    } else if (typeof Botble !== 'undefined' && Botble.showError) {
+                        Botble.showError(text);
+                    } else if (typeof Theme !== 'undefined' && Theme.showError) {
+                        Theme.showError(text);
+                    }
+                }
+
+                // Init Select2 on modal open — dropdownParent keeps it inside modal so typing works
                 $('#addLanguageModal').on('shown.bs.modal', function () {
-                    var $language = $('#account-language-form select[name="language"]');
+                    var $sel = languageField();
+                    if (typeof $.fn.select2 === 'undefined') return;
 
-                    existingAccountLanguages.forEach(function (language) {
-                        $language.find('option[value="' + language + '"]').prop('disabled', true);
+                    if ($sel.hasClass('select2-hidden-accessible')) {
+                        $sel.select2('destroy');
+                    }
+
+                    // Disable already-added languages
+                    existingAccountLanguages.forEach(function (lang) {
+                        $sel.find('option[value="' + lang + '"]').prop('disabled', true);
                     });
 
-                    if (existingAccountLanguages.indexOf($language.val()) !== -1) {
-                        var firstAvailable = $language.find('option:not(:disabled)').first().val() || '';
-                        $language.val(firstAvailable).trigger('change');
+                    // If current value is already added, reset to English or first available
+                    if (existingAccountLanguages.indexOf($sel.val()) !== -1) {
+                        var fallback = existingAccountLanguages.indexOf('en') === -1 ? 'en'
+                            : $sel.find('option:not(:disabled)').first().val();
+                        $sel.val(fallback);
                     }
+
+                    $sel.select2({
+                        width: '100%',
+                        allowClear: false,
+                        minimumResultsForSearch: 0,
+                        dropdownParent: $('#addLanguageModal'),
+                    });
+
+                    // Reset button state
+                    var $btn = $('#account-language-submit');
+                    $btn.prop('disabled', false).removeClass('btn-success').addClass('btn-primary').text(@json(__('Add')));
+                    languageErrorElement($sel).text('').hide();
+                    $sel.removeClass('is-invalid');
+                    $sel.next('.select2').find('.select2-selection').removeClass('is-invalid');
                 });
 
-                $('#account-language-submit').on('click', function (e) {
-                    e.preventDefault();
-                    if ($(this).prop('disabled')) return;
-                    $('#account-language-form').trigger('submit');
-                });
+                $('#account-language-submit').on('click', function () {
+                    var $btn  = $(this);
+                    var $language = languageField();
+                    var $level = levelField();
+                    var $native = nativeField();
+                    var lang  = $language.val();
+                    var level = $level.val();
+                    var native = $native.is(':checked') ? 1 : 0;
 
-                $(document).on('submit', '#account-language-form', function (e) {
-                    e.preventDefault();
-
-                    var $button = $('#account-language-submit');
-                    var $form = $(this);
-                    var $language = $form.find('select[name="language"]');
-
-                    if (existingAccountLanguages.indexOf($language.val()) !== -1) {
-                        if (typeof Swal !== 'undefined') {
-                            Swal.fire({
-                                icon: 'warning',
-                                title: @json(__('Language already added')),
-                                text: @json(__('Choose a different language to add.')),
-                            });
-                        } else {
-                            alert(@json(__('This language is already added. Choose a different language to add.')));
-                        }
-
+                    if (! lang) {
+                        showLanguageError(@json(__('Choose a language before saving.')), $language);
                         return;
                     }
 
-                    if (! $language.val()) {
-                        if (typeof Swal !== 'undefined') {
-                            Swal.fire({
-                                icon: 'warning',
-                                title: @json(__('No language available')),
-                                text: @json(__('All available languages have already been added.')),
-                            });
-                        } else {
-                            alert(@json(__('All available languages have already been added.')));
-                        }
-
+                    // Duplicate check
+                    if (existingAccountLanguages.indexOf(lang) !== -1) {
+                        showLanguageError(@json(__('This language has already been added.')), $language);
                         return;
                     }
 
-                    $form.find('.invalid-feedback').text('').hide();
-                    $form.find('.is-invalid').removeClass('is-invalid');
-                    $button.prop('disabled', true).addClass('button-loading');
+                    // Step 1: Saving…
+                    $btn.prop('disabled', true).html(
+                        '<span class="spinner-border spinner-border-sm me-1" role="status"></span>@json(__('Saving…'))'
+                    );
+                    languageErrorElement($language).text('').hide();
+                    $language.removeClass('is-invalid');
+                    $language.next('.select2').find('.select2-selection').removeClass('is-invalid');
 
                     $.ajax({
-                        url: $form.attr('action'),
+                        url: languageFormAction(),
                         type: 'POST',
-                        data: $form.serialize(),
-                        dataType: 'json',
                         headers: {
+                            Accept: 'application/json',
                             'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRF-TOKEN': CSRF_TOKEN_LANG,
                         },
+                        data: {
+                            _token: CSRF_TOKEN_LANG,
+                            account_language: lang,
+                            language_level_id: level || null,
+                            is_native: native,
+                        },
+                        dataType: 'json',
                         success: function () {
-                            $('form.dirty-check').removeClass('dirty').trigger('reinitialize.areYouSure');
-                            window.location.reload();
-                        },
-                        error: function (xhr) {
-                            var errors = xhr.responseJSON && xhr.responseJSON.errors ? xhr.responseJSON.errors : {};
-                            var message = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : @json(__('Unable to add language.'));
-                            var hasFieldError = false;
-
-                            Object.keys(errors).forEach(function (field) {
-                                var fieldName = field.replace(/\./g, '_');
-                                var $input = $form.find('[name="' + fieldName + '"]');
-                                var text = errors[field][0] || message;
-
-                                if ($input.length) {
-                                    hasFieldError = true;
-                                    $input.addClass('is-invalid');
-                                    $('#' + $input.attr('id') + '-error').text(text).show();
-
-                                    if ($input.hasClass('select2-hidden-accessible')) {
-                                        $input.next('.select2').find('.select2-selection').addClass('is-invalid');
-                                    }
-                                }
-                            });
-
-                            if (typeof Swal !== 'undefined') {
-                                Swal.fire({
-                                    icon: hasFieldError ? 'warning' : 'error',
-                                    title: hasFieldError ? @json(__('Please check the language form.')) : @json(__('Unable to add language.')),
-                                    text: message,
-                                });
-                            } else if (! hasFieldError && typeof Botble !== 'undefined' && Botble.showError) {
-                                Botble.showError(message);
-                            } else if (! hasFieldError && typeof Theme !== 'undefined' && Theme.showError) {
-                                Theme.showError(message);
-                            } else if (! hasFieldError) {
-                                alert(message);
+                            // Step 2: Saved ✓
+                            $btn.removeClass('btn-primary').addClass('btn-success').html(
+                                '<i class="ti ti-check me-1"></i>@json(__('Saved!'))'
+                            );
+                            if (typeof Botble !== 'undefined' && Botble.showSuccess) {
+                                Botble.showSuccess(@json(__('Language added successfully.')));
                             }
+
+                            // Step 3: close + reload
+                            setTimeout(function () {
+                                var modal = bootstrap.Modal.getInstance(document.getElementById('addLanguageModal'));
+                                if (modal) {
+                                    modal.hide();
+                                }
+                                window.location.reload();
+                            }, 900);
                         },
-                        complete: function () {
-                            $button.prop('disabled', false).removeClass('button-loading');
+                        error: function (xhr, textStatus, errorThrown) {
+                            $btn.prop('disabled', false).removeClass('btn-success').addClass('btn-primary').text(@json(__('Add')));
+
+                            var json    = xhr.responseJSON || {};
+                            var responseText = xhr.responseText || '';
+                            var responseSnippet = responseText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
+                            var message = json.message || @json(__('Failed to save. Please try again.'));
+
+                            if (! json.message && textStatus === 'parsererror') {
+                                message = @json(__('The server returned a redirect or non-JSON response. Please refresh the page and try again.'));
+                            } else if (! json.message && xhr.status) {
+                                message = 'HTTP ' + xhr.status + ': ' + message;
+                            }
+
+                            if (window.console && console.error) {
+                                console.error('Language save failed', {
+                                    status: xhr.status,
+                                    statusText: xhr.statusText,
+                                    textStatus: textStatus,
+                                    errorThrown: errorThrown,
+                                    responseURL: xhr.responseURL,
+                                    responseJSON: json,
+                                    responseSnippet: responseSnippet,
+                                });
+                            }
+
+                            if (xhr.status === 422 && json.errors && json.errors.account_language) {
+                                showLanguageError(json.errors.account_language[0], $language);
+                            } else if (xhr.status === 419) {
+                                showLanguageError(@json(__('Session expired. Please refresh the page.')), $language);
+                            } else {
+                                showLanguageError(message, $language);
+                            }
                         }
                     });
                 });
@@ -579,7 +709,7 @@
                     var UPLOAD_URL   = @json(route('public.account.upload-resume-score'));
                     var DELETE_URL   = @json(route('public.account.delete-resume'));
                     var HISTORY_URL  = @json(route('public.account.cv-score-history'));
-                    var CSRF_TOKEN   = $('input[name="_token"]').first().val();
+                    var CSRF_TOKEN   = $('meta[name="csrf-token"]').attr('content') || $('input[name="_token"]').first().val();
                     var SERVICES_URL = @json(route('public.account.career-services'));
 
                     function showStage(name) {
@@ -598,6 +728,7 @@
                     function buildScoreCard(data) {
                         var score    = parseInt(data.score) || 0;
                         var feedback = data.feedback || [];
+                        var missingPoints = data.missing_points || [];
                         var scoredAt = data.scored_at || '';
                         var meta     = scoreColor(score);
                         var color    = meta.color;
@@ -616,6 +747,42 @@
                         var feedbackHtml = feedback.map(function (item) {
                             return '<div class="color-text-paragraph-2 font-xs mb-1"><i class="fi-rr-angle-right me-1"></i>' + $('<div>').text(item).html() + '</div>';
                         }).join('');
+
+                        if (! missingPoints.length && score < 100) {
+                            missingPoints = feedback.reduce(function (items, item) {
+                                var text = String(item || '');
+                                var points = text.indexOf('too short') !== -1 || text.indexOf('too long') !== -1 ? 7 : 8;
+
+                                if (
+                                    text.indexOf('Add a clear ') === 0 ||
+                                    text.indexOf('Quantify impact') === 0 ||
+                                    text.indexOf('too short') !== -1 ||
+                                    text.indexOf('too long') !== -1
+                                ) {
+                                    items.push({ points: points, action: text });
+                                }
+
+                                return items;
+                            }, []);
+                        }
+
+                        var missingHtml = '';
+                        var listedPoints = missingPoints.reduce(function (total, item) {
+                            return total + (parseInt(item.points) || 0);
+                        }, 0);
+                        var pointsTo100 = listedPoints > 0 ? listedPoints : Math.max(0, 100 - score);
+                        if (pointsTo100 > 0 && missingPoints.length) {
+                            missingHtml = '<div class="border rounded-2 p-3 mt-3 bg-light">' +
+                                '<div class="fw-semibold font-sm mb-2">{{ __('What is missing to reach 100?') }} <span class="text-muted fw-normal">' + pointsTo100 + ' {{ __('points available') }}</span></div>' +
+                                missingPoints.map(function (item) {
+                                    var points = parseInt(item.points) || 0;
+                                    var action = $('<div>').text(item.action || '{{ __('Improve this CV section.') }}').html();
+                                    var badge = points > 0 ? '<span class="badge bg-light text-dark border flex-shrink-0">+' + points + '</span>' : '';
+
+                                    return '<div class="d-flex align-items-start gap-2 font-xs color-text-paragraph-2 mb-1">' + badge + '<span>' + action + '</span></div>';
+                                }).join('') +
+                            '</div>';
+                        }
 
                         var upsell = score < 75
                             ? '<div class="alert alert-warning d-flex align-items-center gap-3 py-2 px-3 mb-0 mt-3"><i class="fi-rr-star fs-5 text-warning flex-shrink-0"></i><div class="font-sm"><strong>{{ __('Boost your chances') }}</strong> — {{ __('have a career coach professionally review and rewrite your CV.') }} <a href="' + SERVICES_URL + '" class="fw-semibold ms-1">{{ __('View Career Services') }} →</a></div></div>'
@@ -641,14 +808,15 @@
                                     '<span style="font-size:9px;color:#6b7280">/ 100</span>' +
                                   '</div>' +
                                 '</div>' +
-                                '<div class="flex-grow-1">' +
-                                  '<div class="fw-semibold mb-1" style="color:' + color + '">' + label + '</div>' +
-                                  feedbackHtml +
-                                '</div>' +
-                              '</div>' +
-                              upsell +
-                            '</div>' +
-                          '</div>';
+	                                '<div class="flex-grow-1">' +
+	                                  '<div class="fw-semibold mb-1" style="color:' + color + '">' + label + '</div>' +
+	                                  feedbackHtml +
+	                                '</div>' +
+	                              '</div>' +
+	                              missingHtml +
+	                              upsell +
+	                            '</div>' +
+	                          '</div>';
                     }
 
                     function refreshInPageScoreCard(data) {
@@ -681,6 +849,18 @@
                     @endif
 
                     function uploadResumeFile(file, input) {
+                        var ext = file.name.split('.').pop().toLowerCase();
+                        if (ext !== 'pdf') {
+                            alert('{{ __('Your CV must be a PDF file.') }}');
+                            if (input) $(input).val('');
+                            return;
+                        }
+                        if (file.size > 10 * 1024 * 1024) {
+                            alert('{{ __('Your CV must not exceed 10 MB.') }}');
+                            if (input) $(input).val('');
+                            return;
+                        }
+
                         var formData = new FormData();
                         formData.append('file', file);
                         formData.append('_token', CSRF_TOKEN);
@@ -726,18 +906,15 @@
                         });
                     }
 
-                    function askCvUploadConsent(onAccept, onReject) {
-                        var title = @json(__('Allow employers to view this CV?'));
-                        var text = @json(__('Your CV may be used to show your experience to verified employers and improve your job matches. This helps employers assess you faster and can increase your chances of being contacted. Only upload a CV you are comfortable sharing under the platform terms.'));
-
+                    function showCvConfirmation(options, onAccept, onReject) {
                         if (typeof Swal !== 'undefined') {
                             Swal.fire({
-                                icon: 'info',
-                                title: title,
-                                text: text,
+                                icon: options.icon || 'question',
+                                title: options.title,
+                                text: options.text,
                                 showCancelButton: true,
-                                confirmButtonText: @json(__('I Accept, Upload CV')),
-                                cancelButtonText: @json(__('Cancel')),
+                                confirmButtonText: options.confirmText,
+                                cancelButtonText: options.cancelText || @json(__('Cancel')),
                                 confirmButtonColor: '#3c65f5',
                             }).then(function (result) {
                                 if (result.isConfirmed) {
@@ -750,11 +927,60 @@
                             return;
                         }
 
-                        if (window.confirm(title + '\n\n' + text)) {
-                            onAccept();
-                        } else {
-                            onReject();
+                        var modalId = 'cvConfirmModal';
+                        var $modal = $('#' + modalId);
+
+                        if (! $modal.length) {
+                            $('body').append(
+                                '<div class="modal fade" id="' + modalId + '" tabindex="-1" aria-hidden="true">' +
+                                    '<div class="modal-dialog modal-dialog-centered modal-sm">' +
+                                        '<div class="modal-content">' +
+                                            '<div class="modal-body text-center py-4 px-4">' +
+                                                '<div class="mb-3"><span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary bg-opacity-10" style="width:52px;height:52px;"><i class="fi-rr-info text-primary fs-3"></i></span></div>' +
+                                                '<h6 class="fw-semibold mb-2" data-cv-confirm-title></h6>' +
+                                                '<p class="text-muted small mb-4" data-cv-confirm-text></p>' +
+                                                '<div class="d-flex gap-2 justify-content-center">' +
+                                                    '<button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal" data-cv-confirm-cancel></button>' +
+                                                    '<button type="button" class="btn btn-primary px-4" data-cv-confirm-ok></button>' +
+                                                '</div>' +
+                                            '</div>' +
+                                        '</div>' +
+                                    '</div>' +
+                                '</div>'
+                            );
+                            $modal = $('#' + modalId);
                         }
+
+                        $modal.find('[data-cv-confirm-title]').text(options.title);
+                        $modal.find('[data-cv-confirm-text]').text(options.text);
+                        $modal.find('[data-cv-confirm-ok]').text(options.confirmText);
+                        $modal.find('[data-cv-confirm-cancel]').text(options.cancelText || @json(__('Cancel')));
+
+                        var modal = bootstrap.Modal.getOrCreateInstance($modal[0]);
+                        $modal.off('click.cvConfirm', '[data-cv-confirm-ok]');
+                        $modal.off('hidden.bs.modal.cvConfirm');
+                        $modal.data('confirmed', false);
+                        $modal.on('click.cvConfirm', '[data-cv-confirm-ok]', function () {
+                            $modal.data('confirmed', true);
+                            modal.hide();
+                            onAccept();
+                        });
+                        $modal.on('hidden.bs.modal.cvConfirm', function () {
+                            if (! $modal.data('confirmed')) {
+                                onReject();
+                            }
+                        });
+                        modal.show();
+                    }
+
+                    function askCvUploadConsent(onAccept, onReject) {
+                        showCvConfirmation({
+                            icon: 'info',
+                            title: @json(__('Allow employers to view this CV?')),
+                            text: @json(__('Your CV may be used to show your experience to verified employers and improve your job matches. This helps employers assess you faster and can increase your chances of being contacted. Only upload a CV you are comfortable sharing under the platform terms.')),
+                            confirmText: @json(__('I Accept, Upload CV')),
+                            cancelText: @json(__('Cancel')),
+                        }, onAccept, onReject);
                     }
 
                     // Intercept file input → consent, auto-upload, then score
@@ -871,20 +1097,70 @@
 
                     // Remove CV
                     $(document).on('click', '#btn-remove-cv', function () {
-                        if (! confirm('{{ __('Remove your uploaded CV? This cannot be undone.') }}')) return;
                         var $btn = $(this).prop('disabled', true);
-                        $.ajax({
-                            url: DELETE_URL,
-                            type: 'POST',
-                            data: { _method: 'DELETE', _token: CSRF_TOKEN },
-                            success: function (response) {
-                                if (response.error) { $btn.prop('disabled', false); return; }
-                                $('#cv-score-card-inpage').remove();
-                                $('input[name="resume"]').closest('.form-group, .mb-3').find('.form-text, small').remove();
-                                removeRemoveButton();
-                            },
-                            error: function () { $btn.prop('disabled', false); }
+
+                        showCvConfirmation({
+                            icon: 'warning',
+                            title: @json(__('Remove your uploaded CV?')),
+                            text: @json(__('This cannot be undone.')),
+                            confirmText: @json(__('Remove')),
+                            cancelText: @json(__('Cancel')),
+                        }, function () {
+                            $.ajax({
+                                url: DELETE_URL,
+                                type: 'POST',
+                                data: { _method: 'DELETE', _token: CSRF_TOKEN },
+                                success: function (response) {
+                                    if (response.error) { $btn.prop('disabled', false); return; }
+                                    $('#cv-score-card-inpage').remove();
+                                    $('input[name="resume"]').closest('.form-group, .mb-3').find('.form-text, small').remove();
+                                    removeRemoveButton();
+                                },
+                                error: function () { $btn.prop('disabled', false); }
+                            });
+                        }, function () {
+                            $btn.prop('disabled', false);
                         });
+                    });
+                })();
+                // ── File input client-side validation ─────────────────────────────
+                (function () {
+                    var rules = {
+                        'resume':       { types: ['pdf'],              maxMb: 10, label: 'CV' },
+                        'cover_letter': { types: ['pdf'],              maxMb: 10, label: '{{ __('cover letter') }}' },
+                        'cover_image':  { types: ['jpg','jpeg','png'], maxMb: 5,  label: '{{ __('cover image') }}' },
+                    };
+
+                    $.each(rules, function (name, rule) {
+                        $(document).on('change', 'input[name="' + name + '"]', function () {
+                            var file = this.files && this.files[0];
+                            if (! file) return;
+                            var ext = file.name.split('.').pop().toLowerCase();
+                            if (rule.types.indexOf(ext) === -1) {
+                                alert(rule.label.charAt(0).toUpperCase() + rule.label.slice(1) + ' {{ __('must be') }} ' + rule.types.map(function(t){ return t.toUpperCase(); }).join(' {{ __('or') }} ') + '.');
+                                $(this).val('');
+                                return;
+                            }
+                            if (file.size > rule.maxMb * 1024 * 1024) {
+                                alert(rule.label.charAt(0).toUpperCase() + rule.label.slice(1) + ' {{ __('must not exceed') }} ' + rule.maxMb + ' MB.');
+                                $(this).val('');
+                            }
+                        });
+                    });
+
+                    // Avatar: jpg/png only, max 5 MB
+                    $(document).on('change', '#avatarInput', function () {
+                        var file = this.files && this.files[0];
+                        if (! file) return;
+                        var ext = file.name.split('.').pop().toLowerCase();
+                        if (['jpg','jpeg','png'].indexOf(ext) === -1) {
+                            alert('{{ __('Profile photo must be a JPG or PNG file.') }}');
+                            $(this).val(''); return;
+                        }
+                        if (file.size > 5 * 1024 * 1024) {
+                            alert('{{ __('Profile photo must not exceed 5 MB.') }}');
+                            $(this).val('');
+                        }
                     });
                 })();
                 // ─────────────────────────────────────────────────────────────────

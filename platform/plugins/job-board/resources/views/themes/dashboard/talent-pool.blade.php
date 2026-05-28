@@ -20,8 +20,11 @@
                     <div class="card h-100 border-0 shadow-sm">
                         <div class="card-body">
                             <div class="d-flex align-items-center mb-3">
-                                <img src="{{ $candidate->avatar_url }}" width="48" height="48"
-                                     class="rounded-circle me-3 object-fit-cover" alt="">
+                                <div class="position-relative flex-shrink-0 me-3">
+                                    <img src="{{ $candidate->avatar_url }}" width="48" height="48"
+                                         class="rounded-circle object-fit-cover" alt="">
+                                    {!! $candidate->wakandaBadgeHtml() !!}
+                                </div>
                                 <div>
                                     <div class="fw-semibold">
                                         @if ($unlocked)
@@ -29,7 +32,6 @@
                                         @else
                                             ●●●●● ●●●●●
                                         @endif
-                                        {!! $candidate->wakandaBadgeHtml() !!}
                                     </div>
                                     <div class="text-muted fs-13">
                                         @php

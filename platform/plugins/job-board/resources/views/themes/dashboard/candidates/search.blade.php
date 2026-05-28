@@ -116,6 +116,7 @@
                                         <span class="position-absolute bottom-0 end-0 bg-success rounded-circle border border-white border-2"
                                               style="width:12px;height:12px;" title="Open to Work"></span>
                                     @endif
+                                    {!! $candidate->wakandaBadgeHtml() !!}
                                 </div>
                                 <div class="flex-grow-1 min-w-0">
                                     <div class="fw-semibold text-truncate mb-1">{{ $candidate->name }}</div>

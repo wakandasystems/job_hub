@@ -40,9 +40,9 @@ class SettingRequest extends Request
                 'hide_cv'              => Rule::in([0, 1]),
                 'available_for_hiring' => Rule::in([0, 1]),
                 'talent_hub_consent'   => Rule::in([0, 1]),
-                'resume'               => 'nullable|file|mimes:pdf,doc,docx,ppt,pptx',
-                'cv_upload_consent'    => 'required_with:resume|accepted',
-                'cover_letter'         => 'nullable|file|mimes:pdf,doc,docx,ppt,pptx',
+                'resume'               => 'nullable|file|mimes:pdf|max:10240',
+                'cover_letter'         => 'nullable|file|mimes:pdf|max:10240',
+                'cover_image'          => 'nullable|file|mimes:jpg,jpeg,png|max:5120',
                 'whatsapp_number'      => 'nullable|string|max:30',
                 'telegram_chat_id'     => 'nullable|string|max:100',
                 'experience_years'     => 'nullable|integer|in:0,1,2,3,5,10',
@@ -51,6 +51,10 @@ class SettingRequest extends Request
                 'desired_salary_from'  => 'nullable|integer|min:0',
                 'desired_salary_to'    => 'nullable|integer|min:0',
             ]);
+
+            if ($this->hasFile('resume')) {
+                $rules['cv_upload_consent'] = 'required|accepted';
+            }
         }
 
         return $rules;
@@ -83,8 +87,14 @@ class SettingRequest extends Request
     public function messages(): array
     {
         return [
-            'cv_upload_consent.accepted' => __('Please accept the CV visibility terms before uploading your CV.'),
-            'cv_upload_consent.required_with' => __('Please accept the CV visibility terms before uploading your CV.'),
+            'cv_upload_consent.accepted'       => __('Please accept the CV visibility terms before uploading your CV.'),
+            'cv_upload_consent.required_with'  => __('Please accept the CV visibility terms before uploading your CV.'),
+            'resume.mimes'                     => __('Your CV must be a PDF file.'),
+            'resume.max'                       => __('Your CV must not exceed 10 MB.'),
+            'cover_letter.mimes'               => __('Your cover letter must be a PDF file.'),
+            'cover_letter.max'                 => __('Your cover letter must not exceed 10 MB.'),
+            'cover_image.mimes'                => __('Your cover image must be a JPG or PNG file.'),
+            'cover_image.max'                  => __('Your cover image must not exceed 5 MB.'),
         ];
     }
 

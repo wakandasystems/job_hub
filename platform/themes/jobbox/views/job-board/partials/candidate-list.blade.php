@@ -24,6 +24,7 @@
                         <a href="{{ $candidate->url }}">
                             <figure>
 	                            <img alt="{{ $candidateDisplayName }}" src="{{ $candidate->avatar_thumb_url }}">
+                                {!! $candidate->wakandaBadgeHtml() !!}
                             </figure>
                         </a>
                     </div>

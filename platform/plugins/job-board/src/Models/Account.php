@@ -303,11 +303,26 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
             return '';
         }
 
-        $stars = str_repeat('★', (int) $this->wakanda_score) . str_repeat('☆', max(0, 5 - (int) $this->wakanda_score));
+        static $cssInjected = false;
+        $css = '';
+        if (! $cssInjected) {
+            $cssInjected = true;
+            $css = '<style>'
+                . '.wk-v-badge{position:absolute;top:-4px;left:-4px;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;background:#6f42c1;color:#fff;border-radius:50%;font-size:12px;line-height:1;z-index:2;border:2px solid #fff;cursor:default}'
+                . '.wk-v-badge__tip{visibility:hidden;opacity:0;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:#6f42c1;color:#fff;padding:3px 8px;border-radius:5px;font-size:12px;white-space:nowrap;pointer-events:none;transition:opacity .15s;z-index:9999}'
+                . '.wk-v-badge__tip::after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);border:4px solid transparent;border-top-color:#6f42c1}'
+                . '.wk-v-badge:hover .wk-v-badge__tip{visibility:visible;opacity:1}'
+                . '</style>';
+        }
 
-        return '<span class="wakanda-badge ms-1" title="Wakanda Verified — Score: ' . $this->wakanda_score . '/5" style="display:inline-flex;align-items:center;gap:2px;background:#6f42c1;color:#fff;border-radius:4px;padding:1px 5px;font-size:11px;font-weight:600;vertical-align:middle;">'
-            . '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>'
-            . ' Wakanda ' . $stars . '</span>';
+        $score = (int) $this->wakanda_score;
+        $stars = str_repeat('★', $score) . str_repeat('☆', max(0, 5 - $score));
+
+        return $css
+            . '<span class="wk-v-badge" aria-label="Wakanda Verified — Score: ' . $score . '/5">'
+            . '★'
+            . '<span class="wk-v-badge__tip">' . $stars . ' ' . $score . '/5</span>'
+            . '</span>';
     }
 
     public function applicants(): HasMany
