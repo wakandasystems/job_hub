@@ -11,7 +11,8 @@
                 {{ __('Closed') }}
             </button>
         @elseif ($job->apply_url)
-            @if ($job->getMetaData('is_direct_redirect', true))
+            @php($isMailto = str_starts_with($job->apply_url, 'mailto:'))
+            @if (!$isMailto && $job->getMetaData('is_direct_redirect', true))
                 <a href="{{ $job->apply_url }}" target="_blank">
                     <div class="{{ $classButtonApply }}">{{ __('Apply Now') }}</div>
                 </a>
@@ -21,6 +22,7 @@
                     data-bs-toggle="modal"
                     data-job-name="{{ $job->name }}"
                     data-job-id="{{ $job->id }}"
+                    data-apply-mailto="{{ $isMailto ? '1' : '0' }}"
                 >
                     {{ __('Apply Now') }}
                 </button>

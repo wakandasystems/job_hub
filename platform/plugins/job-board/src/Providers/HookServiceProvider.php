@@ -34,6 +34,7 @@ use Botble\JobBoard\Models\JobType;
 use Botble\JobBoard\Models\Package;
 use Botble\JobBoard\Models\SalaryReport;
 use Botble\JobBoard\Models\SalaryReportPurchase;
+use Botble\JobBoard\Models\WakandaVerificationRequest;
 use Botble\JobBoard\Services\CouponService;
 use Botble\JobBoard\Supports\InvoiceHelper;
 use Botble\JobBoard\Supports\TwigExtension;
@@ -98,8 +99,34 @@ class HookServiceProvider extends ServiceProvider
                     return $html;
                 }
 
-                return $html . Form::hidden('customer_id', auth('account')->id())->toHtml() .
-                    Form::hidden('customer_type', Account::class)->toHtml();
+                $refField = '<div id="payment-reference-wrap" style="display:none;" class="mt-3">'
+                    . '<label class="form-label fw-medium" for="payment_reference">'
+                    . __('Payment Reference Number')
+                    . ' <span class="text-danger">*</span></label>'
+                    . '<input type="text" id="payment_reference" name="payment_reference" class="form-control"'
+                    . ' placeholder="' . __('e.g. Bank transaction ID, receipt number') . '"'
+                    . ' maxlength="120">'
+                    . '<div class="form-text text-muted">' . __('Include your bank reference or transfer ID so we can match your payment.') . '</div>'
+                    . '</div>'
+                    . '<script>'
+                    . '(function(){var manualMethods=["bank_transfer","cod"];'
+                    . 'function toggleRef(){var sel=document.querySelector(".list_payment_method input[type=radio]:checked");'
+                    . 'var wrap=document.getElementById("payment-reference-wrap");'
+                    . 'if(!wrap)return;'
+                    . 'var isManual=sel&&manualMethods.indexOf(sel.value)!==-1;'
+                    . 'wrap.style.display=isManual?"block":"none";'
+                    . 'var inp=document.getElementById("payment_reference");'
+                    . 'if(inp)inp.required=isManual;}'
+                    . 'document.addEventListener("change",function(e){if(e.target&&e.target.name==="payment_method")toggleRef();});'
+                    . 'document.addEventListener("DOMContentLoaded",toggleRef);'
+                    . 'setTimeout(toggleRef,300);'
+                    . '})();'
+                    . '</script>';
+
+                return $html
+                    . Form::hidden('customer_id', auth('account')->id())->toHtml()
+                    . Form::hidden('customer_type', Account::class)->toHtml()
+                    . $refField;
             }, 123);
         }
 
@@ -232,15 +259,16 @@ class HookServiceProvider extends ServiceProvider
                             ]);
 
                             CreditOrder::query()->create([
-                                'account_id'     => $account->getKey(),
-                                'package_id'     => $creditPackage->getKey(),
-                                'credits'        => $creditPackage->number_of_listings,
-                                'amount'         => (float) ($data['amount'] ?? $creditPackage->price),
-                                'currency'       => strtoupper($data['currency'] ?? 'ZMW'),
-                                'payment_method' => $data['payment_channel'],
-                                'charge_id'      => $data['charge_id'] ?? null,
-                                'status'         => $isManual ? 'pending' : 'approved',
-                                'approved_at'    => $isManual ? null : now(),
+                                'account_id'       => $account->getKey(),
+                                'package_id'       => $creditPackage->getKey(),
+                                'credits'          => $creditPackage->number_of_listings,
+                                'amount'           => (float) ($data['amount'] ?? $creditPackage->price),
+                                'currency'         => strtoupper($data['currency'] ?? 'ZMW'),
+                                'payment_method'   => $data['payment_channel'],
+                                'charge_id'        => $data['charge_id'] ?? null,
+                                'payment_reference' => session('subscribed_package_payment_reference'),
+                                'status'           => $isManual ? 'pending' : 'approved',
+                                'approved_at'      => $isManual ? null : now(),
                             ]);
                         }
                     }
@@ -414,6 +442,7 @@ class HookServiceProvider extends ServiceProvider
                         if ($pendingSub) {
                             $pendingSub->activate();
                         }
+
                     }
 
                     $subscribedPackageId = MetaBox::getMetaData($payment, 'subscribed_packaged_id', true);
@@ -464,6 +493,11 @@ class HookServiceProvider extends ServiceProvider
 
         if (defined('PAYMENT_FILTER_PAYMENT_DATA')) {
             add_filter(PAYMENT_FILTER_PAYMENT_DATA, function (array $data, Request $request) {
+                // Always capture reference number so it's available after redirect
+                if ($ref = trim((string) $request->input('payment_reference', ''))) {
+                    session(['subscribed_package_payment_reference' => $ref]);
+                }
+
                 if ($subscriptionOrderId = $request->input('subscription_order_id')) {
                     $sub = EmployerSubscription::query()->with('package')->find($subscriptionOrderId);
 
@@ -1051,6 +1085,7 @@ class HookServiceProvider extends ServiceProvider
                 'cms-plugins-job-board-job-alert-orders' => 'pending-job-alert-orders',
                 'cms-plugins-job-board-featured-orders'           => 'pending-featured-orders',
                 'cms-plugins-job-board-employer-subscriptions'    => 'pending-employer-subscriptions',
+                'cms-plugins-job-board-wakanda-verification'      => 'pending-wakanda-verifications',
                 default => null,
             };
         }
@@ -1133,9 +1168,18 @@ class HookServiceProvider extends ServiceProvider
                 'value' => $pendingSubscriptions,
             ];
 
+            $pendingWakandaVerifications = WakandaVerificationRequest::query()
+                ->where('status', 'pending')
+                ->count();
+
+            $data[] = [
+                'key'   => 'pending-wakanda-verifications',
+                'value' => $pendingWakandaVerifications,
+            ];
+
             $data[] = [
                 'key'   => 'job-board-count',
-                'value' => $pendingApplications + $pendingCompanies + $pendingJobs + $pendingAccounts + $pendingCareerServices + $pendingJobAlertOrders + $pendingFeaturedOrders + $pendingSubscriptions,
+                'value' => $pendingApplications + $pendingCompanies + $pendingJobs + $pendingAccounts + $pendingCareerServices + $pendingJobAlertOrders + $pendingFeaturedOrders + $pendingSubscriptions + $pendingWakandaVerifications,
             ];
         }
 
@@ -1471,19 +1515,27 @@ class HookServiceProvider extends ServiceProvider
         (new DashboardWidgetInstance())
             ->setType('stats')
             ->setPermission('newsletter.index')
-            ->setTitle('Subscribers')
-            ->setKey('widget_total_subscribers')
-            ->setIcon('ti ti-bell')
+            ->setTitle('Newsletter Subscribers')
+            ->setKey('widget_total_newsletter_subscribers')
+            ->setIcon('ti ti-mail')
             ->setColor('purple')
-            ->setStatsTotal(function () {
-                $newsletters = \DB::table('newsletters')->count();
-                $jobAlerts = \DB::table('jb_job_alerts')->count();
-
-                return $newsletters + $jobAlerts;
-            })
+            ->setStatsTotal(fn () => \DB::table('newsletters')->count())
             ->setRoute(route('newsletter.index'))
             ->setColumn('col-12 col-md-6 col-lg-2')
             ->setPriority(4)
+            ->init($widgets, $widgetSettings);
+
+        (new DashboardWidgetInstance())
+            ->setType('stats')
+            ->setPermission('job-alert-orders.index')
+            ->setTitle('Job Alert Orders')
+            ->setKey('widget_total_job_alert_orders')
+            ->setIcon('ti ti-bell-dollar')
+            ->setColor('indigo')
+            ->setStatsTotal(fn () => \DB::table('jb_job_alert_orders')->count())
+            ->setRoute(route('job-alert-orders.index'))
+            ->setColumn('col-12 col-md-6 col-lg-2')
+            ->setPriority(5)
             ->init($widgets, $widgetSettings);
 
         (new DashboardWidgetInstance())
@@ -1496,7 +1548,7 @@ class HookServiceProvider extends ServiceProvider
             ->setStatsTotal(fn () => Account::query()->count())
             ->setRoute(route('accounts.index'))
             ->setColumn('col-12 col-md-6 col-lg-2')
-            ->setPriority(5)
+            ->setPriority(6)
             ->init($widgets, $widgetSettings);
 
         (new DashboardWidgetInstance())
@@ -1517,7 +1569,7 @@ class HookServiceProvider extends ServiceProvider
             })
             ->setRoute(route('companies.index'))
             ->setColumn('col-12 col-md-6 col-lg-2')
-            ->setPriority(6)
+            ->setPriority(7)
             ->init($widgets, $widgetSettings);
 
         return $widgets;

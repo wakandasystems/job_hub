@@ -160,7 +160,7 @@ CropAvatar.prototype = {
 
     submit: function () {
         if (!this.$avatarSrc.val() && !this.$avatarInput.val()) {
-            alert('Please select image!')
+            this.$avatarModal.find('.error-message').html('Please select an image first.').show()
             return false
         }
 

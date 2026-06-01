@@ -5,7 +5,10 @@
         {!! $form->renderForm() !!}
     @endif
 
-    @if (config('queue.default') !== 'sync')
+    @php
+        $queueWorkerRunning = (bool) shell_exec('pgrep -f "artisan queue:work" 2>/dev/null');
+    @endphp
+    @if (config('queue.default') !== 'sync' && ! $queueWorkerRunning)
         <div class="mt-3">
             <x-core-setting::section :card="false">
                 <x-core::alert type="warning">

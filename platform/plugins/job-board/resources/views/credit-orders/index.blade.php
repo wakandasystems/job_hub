@@ -61,6 +61,7 @@
                             <th>Credits</th>
                             <th>Amount</th>
                             <th>Payment Method</th>
+                            <th>Reference</th>
                             <th>Status</th>
                             <th>Date</th>
                             <th width="180"></th>
@@ -81,6 +82,15 @@
                                     {{ $order->payment_method ? ucwords(str_replace('_', ' ', $order->payment_method)) : '—' }}
                                     @if($order->charge_id)
                                         <div class="text-muted small">{{ $order->charge_id }}</div>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if($order->payment_reference)
+                                        <span class="badge bg-blue-lt text-truncate" style="max-width:140px;" title="{{ $order->payment_reference }}">
+                                            {{ $order->payment_reference }}
+                                        </span>
+                                    @else
+                                        <span class="text-muted">—</span>
                                     @endif
                                 </td>
                                 <td>
@@ -115,7 +125,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="text-center text-muted">No credit orders found.</td>
+                                <td colspan="10" class="text-center text-muted">No credit orders found.</td>
                             </tr>
                         @endforelse
                     </tbody>

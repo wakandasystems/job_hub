@@ -5,7 +5,7 @@
         <x-core::card.header>
             <x-core::card.title>Wakanda Verification Requests</x-core::card.title>
             <div class="ms-auto d-flex gap-2">
-                @foreach(['pending' => 'warning', 'approved' => 'success', 'rejected' => 'danger', 'all' => 'secondary'] as $s => $color)
+                @foreach(['pending' => 'warning', 'pending_payment' => 'info', 'approved' => 'success', 'rejected' => 'danger', 'all' => 'secondary'] as $s => $color)
                     <a href="{{ route('wakanda-verification.index', ['status' => $s]) }}"
                        class="btn btn-sm btn-{{ $status === $s ? $color : 'outline-' . $color }}">
                         {{ ucfirst($s) }}
@@ -23,7 +23,8 @@
                             <tr>
                                 <th>#</th>
                                 <th>Candidate</th>
-                                <th>Email</th>
+                                <th>Payment</th>
+                                <th>Reference</th>
                                 <th>Requested</th>
                                 <th>Status</th>
                                 <th>Actions</th>
@@ -34,16 +35,30 @@
                                 <tr>
                                     <td>{{ $req->id }}</td>
                                     <td>
-                                        <strong>{{ $req->account->name ?? '—' }}</strong>
-                                        @if ($req->account?->wakanda_verified)
-                                            <span class="badge bg-purple ms-1">Verified ★{{ $req->account->wakanda_score }}</span>
+                                        <strong>{{ $req->account->name ?? '—' }}</strong> {!! $req->account?->wakandaBadgeHtml() !!}
+                                    </td>
+                                    <td>
+                                        <div class="small">{{ $req->account->email ?? '—' }}</div>
+                                        @if($req->payment_method)
+                                            <div class="text-muted small">{{ ucwords(str_replace('_', ' ', $req->payment_method)) }}</div>
+                                            @if($req->charge_id)
+                                                <div class="text-muted small font-monospace">{{ $req->charge_id }}</div>
+                                            @endif
+                                        @else
+                                            <span class="text-muted small">—</span>
                                         @endif
                                     </td>
-                                    <td>{{ $req->account->email ?? '—' }}</td>
+                                    <td>
+                                        @if($req->payment_reference)
+                                            <span class="badge bg-blue-lt" title="{{ $req->payment_reference }}">{{ $req->payment_reference }}</span>
+                                        @else
+                                            <span class="text-muted">—</span>
+                                        @endif
+                                    </td>
                                     <td>{{ $req->created_at->diffForHumans() }}</td>
                                     <td>
-                                        @php $badges = ['pending' => 'warning', 'approved' => 'success', 'rejected' => 'danger']; @endphp
-                                        <span class="badge bg-{{ $badges[$req->status] ?? 'secondary' }}">{{ ucfirst($req->status) }}</span>
+                                        @php $badges = ['pending' => 'warning', 'pending_payment' => 'info', 'approved' => 'success', 'rejected' => 'danger']; @endphp
+                                        <span class="badge bg-{{ $badges[$req->status] ?? 'secondary' }}">{{ ucfirst(str_replace('_', ' ', $req->status)) }}</span>
                                         @if ($req->status === 'approved')
                                             <small class="text-muted ms-1">Score: {{ $req->score }}/5</small>
                                         @endif

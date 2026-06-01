@@ -43,6 +43,10 @@ class Transaction extends BaseModel
 
         $time = Html::tag('span', $this->created_at->diffForHumans(), ['class' => 'small italic']);
 
+        if ($this->description) {
+            return $this->description . ' — ' . $time;
+        }
+
         $description = trans('plugins/job-board::messages.purchased_credits', ['credits' => $this->credits]);
         if ($this->payment_id) {
             $description .= trans('plugins/job-board::messages.via_payment', ['payment' => $this->payment->payment_channel->label()]);

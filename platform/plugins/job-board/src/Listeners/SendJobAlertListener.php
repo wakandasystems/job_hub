@@ -2,18 +2,21 @@
 
 namespace Botble\JobBoard\Listeners;
 
-use Botble\Base\Facades\EmailHandler;
 use Botble\JobBoard\Enums\AccountTypeEnum;
 use Botble\JobBoard\Events\JobPublishedEvent;
 use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\JobAlert;
+use Botble\JobBoard\Models\JobAlertNotification;
 use Botble\JobBoard\Models\JobAlertQuota;
+use Botble\JobBoard\Models\PushSubscription;
 use Botble\JobBoard\Models\SocialAutomation;
 use Botble\JobBoard\Services\JobImageGeneratorService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Minishlink\WebPush\Subscription;
+use Minishlink\WebPush\WebPush;
 use Throwable;
 
 class SendJobAlertListener implements ShouldQueue
@@ -45,9 +48,12 @@ class SendJobAlertListener implements ShouldQueue
             ->get();
 
         foreach ($legacyAccounts as $account) {
-            EmailHandler::setModule(JOB_BOARD_MODULE_SCREEN_NAME)
-                ->setVariableValues($this->jobAlertEmailVariables($account, $job, false))
-                ->sendUsingTemplate('job-seeker-job-alert', $account->email);
+            JobAlertNotification::firstOrCreate([
+                'account_id'   => $account->id,
+                'job_id'       => $job->getKey(),
+                'job_alert_id' => null,
+            ]);
+            $this->sendAccountPush($account->id, $job);
         }
 
         // ----------------------------------------------------------------
@@ -79,16 +85,15 @@ class SendJobAlertListener implements ShouldQueue
             // Deduct from quota
             $this->deductAlertQuota($account->id);
 
-            // Email
-            if ($alert->notify_email) {
-                try {
-                    EmailHandler::setModule(JOB_BOARD_MODULE_SCREEN_NAME)
-                        ->setVariableValues($this->jobAlertEmailVariables($account, $job))
-                        ->sendUsingTemplate('job-seeker-job-alert', $account->email);
-                } catch (Throwable) {
-                    // Silently continue
-                }
-            }
+            // Flag in DB (replaces email)
+            JobAlertNotification::firstOrCreate([
+                'account_id'   => $account->id,
+                'job_id'       => $job->getKey(),
+                'job_alert_id' => $alert->getKey(),
+            ]);
+
+            // Push notification to this specific account's subscriptions
+            $this->sendAccountPush($account->id, $job);
 
             // Telegram
             if ($alert->notify_telegram && $account->telegram_chat_id) {
@@ -273,91 +278,61 @@ class SendJobAlertListener implements ShouldQueue
             );
     }
 
-    protected function jobAlertEmailVariables(Account $account, $job, bool $includeQuota = true): array
+    protected function sendAccountPush(int $accountId, $job): void
     {
-        $deadline = $job->application_closing_date ?? $job->expire_date ?? null;
+        $subscriptions = PushSubscription::query()
+            ->where('account_id', $accountId)
+            ->get();
 
-        $rawDescription = $job->description ?? strip_tags((string) ($job->content ?? ''));
-        $description    = trim(Str::limit(strip_tags($rawDescription), 400, '...'));
-
-        $jobUrl = route('public.job', $job->slugable?->key ?? $job->id);
-
-        $telegramChannelMap = [
-            7  => 'https://t.me/wakanda_jobs_zambia',
-            53 => 'https://t.me/wakanda_jobs_south_africa',
-            46 => 'https://t.me/wakanda_jobs_nigeria',
-            41 => 'https://t.me/wakanda_jobs_mauritius',
-            58 => 'https://t.me/wakanda_jobs_tunisia',
-            30 => 'https://t.me/wakanda_jobs_ghana',
-            33 => 'https://t.me/wakanda_jobs_kenya',
-            42 => 'https://t.me/wakanda_jobs_morocco',
-            15 => 'https://t.me/wakanda_jobs_cameroon',
-            59 => 'https://t.me/wakanda_jobs_uganda',
-        ];
-        $telegramChannelUrl = $telegramChannelMap[(int) $job->country_id] ?? '';
-
-        return [
-            'job_name' => $job->name,
-            'job_url' => $jobUrl,
-            'company_name' => ! ($job->hide_company ?? false) ? ($job->company->name ?? '') : '',
-            'account_name' => $account->name,
-            'job_location' => $job->address ?? '',
-            'job_country' => $job->country->name ?? '',
-            'job_deadline' => $deadline ? $deadline->format('M j, Y') : '',
-            'job_description' => $description,
-            'job_alert_source_message' => 'This email was sent from your Wakanda Jobs Job Alerts.',
-            'job_alert_quota_message' => $includeQuota ? $this->lowQuotaMessage($account->id) : '',
-            'job_alert_packages_url' => route('public.account.job-alert.packages.index'),
-            'telegram_channel_url' => $telegramChannelUrl,
-            'telegram_channel_label' => $telegramChannelUrl ? 'Join Wakanda Jobs ' . ($job->country->name ?? '') . ' on Telegram for real-time updates' : '',
-        ];
-    }
-
-    protected function lowQuotaMessage(int $accountId): string
-    {
-        $remaining = $this->remainingAlertQuota($accountId);
-
-        if ($remaining === null || $remaining > 2) {
-            return '';
+        if ($subscriptions->isEmpty()) {
+            return;
         }
 
-        if ($remaining === 0) {
-            return 'You have no job alerts remaining for this month. Buy more alerts to keep receiving matching jobs.';
+        try {
+            $webPush = new WebPush([
+                'VAPID' => [
+                    'subject'    => config('services.vapid.subject'),
+                    'publicKey'  => config('services.vapid.public_key'),
+                    'privateKey' => config('services.vapid.private_key'),
+                ],
+            ]);
+
+            $payload = json_encode([
+                'title' => $job->name,
+                'body'  => $job->company?->name
+                    ? 'New job at ' . $job->company->name
+                    : 'A new matching job was posted!',
+                'url'   => '/jobs/' . ($job->slugable?->key ?? $job->getKey()),
+                'icon'  => '/push-icon.png',
+                'badge' => '/push-icon.png',
+            ]);
+
+            $staleEndpoints = [];
+
+            foreach ($subscriptions as $sub) {
+                $webPush->queueNotification(
+                    Subscription::create([
+                        'endpoint' => $sub->endpoint,
+                        'keys'     => ['p256dh' => $sub->p256dh, 'auth' => $sub->auth],
+                    ]),
+                    $payload
+                );
+            }
+
+            foreach ($webPush->flush() as $report) {
+                if (! $report->isSuccess()) {
+                    $statusCode = $report->getResponse()?->getStatusCode();
+                    if (in_array($statusCode, [404, 410])) {
+                        $staleEndpoints[] = $report->getEndpoint();
+                    }
+                }
+            }
+
+            if (! empty($staleEndpoints)) {
+                PushSubscription::whereIn('endpoint', $staleEndpoints)->delete();
+            }
+        } catch (Throwable) {
+            // Best-effort
         }
-
-        return "You have {$remaining} job alert" . ($remaining === 1 ? '' : 's') . ' remaining this month. Buy more alerts before you run out.';
-    }
-
-    protected function remainingAlertQuota(int $accountId): ?int
-    {
-        $period = JobAlertQuota::currentPeriod();
-
-        $hasUnlimited = JobAlertQuota::query()
-            ->activePaid()
-            ->where('account_id', $accountId)
-            ->where('period', $period)
-            ->where('alerts_allowed', -1)
-            ->exists();
-
-        if ($hasUnlimited) {
-            return null;
-        }
-
-        $paidRemaining = (int) JobAlertQuota::query()
-            ->activePaid()
-            ->where('account_id', $accountId)
-            ->where('period', $period)
-            ->where('alerts_allowed', '>', 0)
-            ->selectRaw('COALESCE(SUM(GREATEST(alerts_allowed - alerts_sent, 0)), 0) as remaining')
-            ->value('remaining');
-
-        $freeLimit = (int) setting('job_alert_free_monthly_limit', 3);
-        $freeSent = (int) (JobAlertQuota::query()
-            ->where('account_id', $accountId)
-            ->where('period', $period)
-            ->whereNull('package_id')
-            ->value('alerts_sent') ?? 0);
-
-        return $paidRemaining + max($freeLimit - $freeSent, 0);
     }
 }

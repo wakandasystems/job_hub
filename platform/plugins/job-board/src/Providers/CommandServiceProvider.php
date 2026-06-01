@@ -12,6 +12,7 @@ use Botble\JobBoard\Console\Commands\SendMonthlyHiringSnapshotCommand;
 use Botble\JobBoard\Console\Commands\SendProfileRefreshReminderCommand;
 use Botble\JobBoard\Console\Commands\SendPushNotificationsCommand;
 use Botble\JobBoard\Console\Commands\SendSubscriptionRenewalReminderCommand;
+use Botble\JobBoard\Console\Commands\FixCrawledApplyEmailsCommand;
 use Botble\JobBoard\Console\Commands\SocialPublishJobCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
@@ -36,6 +37,7 @@ class CommandServiceProvider extends ServiceProvider
             SendMonthlyHiringSnapshotCommand::class,
             SendProfileRefreshReminderCommand::class,
             SocialPublishJobCommand::class,
+            FixCrawledApplyEmailsCommand::class,
         ]);
 
         $this->app->afterResolving(Schedule::class, function (Schedule $schedule): void {

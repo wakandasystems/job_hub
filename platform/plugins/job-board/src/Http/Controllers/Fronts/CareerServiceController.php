@@ -239,7 +239,7 @@ class CareerServiceController extends BaseController
     protected function scoreCvText(string $text): array
     {
         $normalized = Str::lower($text);
-        $score = 35;
+        $score = 37;
         $feedback = [];
 
         $checks = [

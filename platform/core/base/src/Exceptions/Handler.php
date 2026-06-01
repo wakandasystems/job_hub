@@ -55,6 +55,13 @@ class Handler extends ExceptionHandler
                     ->setCode($e->getCode())
                     ->setMessage($e->getMessage());
             case $e instanceof TokenMismatchException:
+                if ($request->ajax() || $request->wantsJson() || $request->expectsJson()) {
+                    return response()->json([
+                        'error' => true,
+                        'message' => trans('core/base::errors.token_mismatch'),
+                    ], 419);
+                }
+
                 return $this->baseHttpResponse
                     ->setError()
                     ->setCode($e->getCode())

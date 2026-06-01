@@ -23,14 +23,37 @@ class RedirectIfNotAccount
 
         $account = Auth::guard('account')->user();
 
+        $allowedRoutesWithoutAccountType = [
+            'public.account.choose-type',
+            'public.account.choose-type.save',
+            'public.account.languages.store',
+            'public.account.languages.destroy',
+            'public.account.logout',
+        ];
+
         if (
             ! in_array($account->type?->getValue(), [AccountTypeEnum::JOB_SEEKER, AccountTypeEnum::EMPLOYER], true) &&
-            ! in_array(Route::currentRouteName(), ['public.account.choose-type', 'public.account.choose-type.save', 'public.account.logout'], true)
+            ! in_array(Route::currentRouteName(), $allowedRoutesWithoutAccountType, true)
         ) {
+            if ($request->ajax() || $request->wantsJson()) {
+                return response()->json([
+                    'error' => true,
+                    'message' => __('Please choose an account type before continuing.'),
+                    'next_url' => route('public.account.choose-type'),
+                ], 409);
+            }
+
             return redirect()->route('public.account.choose-type');
         }
 
         if ($type && $account->type != $type) {
+            if ($request->ajax() || $request->wantsJson()) {
+                return response()->json([
+                    'error' => true,
+                    'message' => __('This action is not available for your account type.'),
+                ], 403);
+            }
+
             if ($account->isJobSeeker()) {
                 return redirect()->route('public.account.dashboard');
             }

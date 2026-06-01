@@ -15,6 +15,7 @@ use Botble\Table\Columns\EmailColumn;
 use Botble\Table\Columns\IdColumn;
 use Botble\Table\Columns\NameColumn;
 use Botble\Table\Columns\StatusColumn;
+use Botble\Table\HeaderActions\HeaderAction;
 use Illuminate\Database\Eloquent\Builder;
 
 class NewsletterTable extends TableAbstract
@@ -30,6 +31,12 @@ class NewsletterTable extends TableAbstract
                 CreatedAtColumn::make(),
                 StatusColumn::make(),
             ])
+            ->addHeaderAction(
+                HeaderAction::make('send')
+                    ->label('Send Newsletter')
+                    ->icon('ti ti-send')
+                    ->url(route('newsletter.send'))
+            )
             ->addActions([
                 DeleteAction::make()->route('newsletter.destroy'),
             ])

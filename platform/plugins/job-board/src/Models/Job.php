@@ -40,6 +40,7 @@ class Job extends BaseModel
         'address',
         'status',
         'apply_url',
+        'apply_email',
         'external_apply_behavior',
         'is_freelance',
         'career_level_id',
@@ -95,6 +96,7 @@ class Job extends BaseModel
         'content' => SafeContent::class,
         'address' => SafeContent::class,
         'apply_url' => SafeContent::class,
+        'apply_email' => SafeContent::class,
     ];
 
     public function skills(): BelongsToMany
@@ -442,7 +444,10 @@ class Job extends BaseModel
     {
         $emails = [];
 
-        if ($this->author->email) {
+        if ($this->apply_email) {
+            // Crawled job with extracted contact email — use it, not the admin author.
+            $emails[] = $this->apply_email;
+        } elseif ($this->author->email) {
             $emails[] = $this->author->email;
         }
 

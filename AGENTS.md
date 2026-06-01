@@ -2,6 +2,28 @@
 
 Agent-specific rules for this repository. Read alongside `CLAUDE.md`.
 
+## Dialogs — never use native browser dialogs
+
+**Never use `confirm()`, `alert()`, or `prompt()`** anywhere in frontend JavaScript (theme Blade views, account dashboard, public pages). They block the UI, can't be styled, and are inconsistent across browsers.
+
+- **In account dashboard / theme pages** — use `Swal.fire()` (SweetAlert2 is already loaded). Pattern:
+
+```js
+Swal.fire({
+    icon: 'question',
+    title: 'Are you sure?',
+    text: 'This action cannot be undone.',
+    showCancelButton: true,
+    confirmButtonText: 'Yes, proceed',
+    confirmButtonColor: '#3c65f5',
+}).then(function (result) {
+    if (!result.isConfirmed) return;
+    // ... proceed
+});
+```
+
+- **In admin panel pages** — use a Bootstrap modal (see pattern below). Admin pages do not load SweetAlert.
+
 ## Confirmations — Bootstrap modals, not `onclick confirm()`
 
 All destructive or irreversible admin actions **must** use a Bootstrap modal dialog. Never use `onclick="return confirm('...')"`.
@@ -110,11 +132,14 @@ The scheduler already runs crawlers sequentially (one `foreach` loop) and uses `
 - `backend.js` success handler checks `res.data.boost_available` and calls `window.onApplyBoostAvailable()`.
 
 ### Wakanda Badge / Talent Vetting
-- Candidates pay **5 credits** (`wakanda_verification_cost` setting) → request at Account Settings.
+- Candidates pay a fee (`wakanda_verification_cost` + `wakanda_verification_currency` settings, default ZMW 50) via the checkout flow → `/account/wakanda-verification/checkout`.
+- Flow: checkout page → payment method selection → callback → `WakandaVerificationRequest` status becomes `pending` → admin reviews.
+- `pending_payment` = waiting for payment; `pending` = payment confirmed, awaiting admin review; `approved` / `rejected` = final.
+- For manual payments (bank transfer/COD): admin marks payment complete in `/admin/payments` → hook auto-advances status to `pending`.
 - Admin approves at `/admin/wakanda-verification` with a 1–5 score.
 - Approved: `jb_accounts.wakanda_verified = true`, `wakanda_score`, `wakanda_verified_at` set.
 - Purple badge (`Account::wakandaBadgeHtml()`) shown in employer's applicant list.
-- Rejection does NOT refund credits.
+- Payment reference captured on checkout and stored on the request for admin tracking.
 
 ### Talent Pool
 - Employers browse Wakanda-verified candidates at Dashboard → Talent Pool.

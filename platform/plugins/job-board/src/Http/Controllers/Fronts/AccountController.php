@@ -475,6 +475,8 @@ class AccountController extends BaseController
             'resume'    => $account->resume,
             'score'     => $account->cv_score,
             'feedback'  => $account->cv_score_data['feedback'] ?? [],
+            'missing_points' => $account->cv_score_data['missing_points'] ?? [],
+            'points_to_100' => $account->cv_score_data['points_to_100'] ?? null,
             'scored_at' => $account->cv_score_data['scored_at'] ?? null,
         ]);
     }

@@ -70,6 +70,35 @@
             background-color: #e9ecef;
             cursor: not-allowed;
         }
+
+        /* Square icon buttons */
+        .btn-remove-avatar,
+        [data-bb-toggle="delete-language"] {
+            width: 34px;
+            height: 34px;
+            min-width: 34px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            border-radius: 6px;
+            line-height: 1;
+        }
+        .btn-remove-avatar svg,
+        .btn-remove-avatar i,
+        [data-bb-toggle="delete-language"] svg,
+        [data-bb-toggle="delete-language"] i {
+            display: block;
+            pointer-events: none;
+            width: 16px;
+            height: 16px;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+
+        /* Native badge — force white text */
+        .badge.bg-primary { color: #fff !important; }
     </style>
 @endsection
 
@@ -314,43 +343,53 @@
         </div>
 
         <div class="modal fade" id="avatar-modal" tabindex="-1" role="dialog" aria-labelledby="avatar-modal-label" aria-hidden="true">
-            <div class="modal-dialog modal-xl">
-                <div class="modal-content">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content border-0 shadow">
                     <form class="avatar-form" method="post" action="{{ route('public.account.avatar') }}" enctype="multipart/form-data">
-                        <div class="modal-header">
-                            <h4 class="modal-title" id="avatar-modal-label">
-                                <strong>{{ __('Profile Image') }}</strong>
-                            </h4>
+                        <div class="modal-header border-0 pb-0">
+                            <h5 class="modal-title fw-semibold" id="avatar-modal-label">{{ __('Update Profile Photo') }}</h5>
                             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                         </div>
-                        <div class="modal-body">
-                            <div class="avatar-body">
-                                <div class="avatar-upload">
-                                    <input class="avatar-src" name="avatar_src" type="hidden">
-                                    <input class="avatar-data" name="avatar_data" type="hidden">
-                                    @csrf
-                                    <label for="avatarInput">{{ __('New image') }}</label>
-                                    <input class="avatar-input" id="avatarInput" name="avatar_file" type="file" accept=".jpg,.jpeg,.png">
-                                </div>
+                        <div class="modal-body px-4 pb-2">
+                            <input class="avatar-src" name="avatar_src" type="hidden">
+                            <input class="avatar-data" name="avatar_data" type="hidden">
+                            @csrf
 
-                                <div class="loading" tabindex="-1" role="img" aria-label="{{ __('Loading') }}"></div>
+                            {{-- Drop zone / file picker (shown before image selected) --}}
+                            <div id="avatar-dropzone" class="border border-2 border-dashed rounded-3 text-center py-5 px-3 mb-3" style="cursor:pointer;border-color:#dee2e6!important;">
+                                <div class="mb-2" style="font-size:2.5rem;line-height:1;">📷</div>
+                                <p class="fw-semibold mb-1">{{ __('Choose a photo') }}</p>
+                                <p class="text-muted small mb-3">{{ __('JPG or PNG, max 5 MB') }}</p>
+                                <label for="avatarInput" class="btn btn-primary btn-sm px-4" style="cursor:pointer;">
+                                    {{ __('Browse…') }}
+                                </label>
+                                <input class="avatar-input" id="avatarInput" name="avatar_file" type="file" accept=".jpg,.jpeg,.png" style="display:none;">
+                            </div>
 
-                                <div class="row">
-                                    <div class="col-md-9">
-                                        <div class="avatar-wrapper"></div>
-                                        <div class="error-message text-danger" style="display: none"></div>
+                            {{-- Crop area (shown after image selected) --}}
+                            <div id="avatar-crop-area" style="display:none;">
+                                <div class="d-flex align-items-start gap-3">
+                                    <div class="flex-grow-1">
+                                        <p class="text-muted small mb-2">{{ __('Drag to reposition · Scroll to zoom') }}</p>
+                                        <div class="avatar-wrapper rounded-2 overflow-hidden" style="max-height:340px;"></div>
                                     </div>
-                                    <div class="col-md-3 avatar-preview-wrapper">
-                                        <div class="avatar-preview preview-lg"></div>
-                                        <div class="avatar-preview preview-md"></div>
-                                        <div class="avatar-preview preview-sm"></div>
+                                    <div class="flex-shrink-0 text-center" style="width:88px;">
+                                        <p class="text-muted small mb-2">{{ __('Preview') }}</p>
+                                        <div class="avatar-preview preview-lg rounded-circle mx-auto mb-2" style="width:80px;height:80px;overflow:hidden;border:2px solid #dee2e6;"></div>
+                                        <p class="text-muted" style="font-size:10px;">80 × 80</p>
                                     </div>
                                 </div>
                             </div>
+
+                            <div class="loading text-center py-3" tabindex="-1" style="display:none;">
+                                <div class="spinner-border text-primary" role="status" style="width:2rem;height:2rem;"></div>
+                                <p class="text-muted small mt-2 mb-0">{{ __('Uploading…') }}</p>
+                            </div>
+                            <div class="error-message text-danger small mt-2" style="display:none;"></div>
                         </div>
-                        <div class="modal-footer">
-                            <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">{{ __('Close') }}</button>
-                            <button class="btn btn-outline-primary avatar-save" type="submit">{{ __('Save') }}</button>
+                        <div class="modal-footer border-0 pt-0">
+                            <button class="btn btn-light" type="button" data-bs-dismiss="modal">{{ __('Cancel') }}</button>
+                            <button class="btn btn-primary avatar-save px-4" type="submit">{{ __('Save Photo') }}</button>
                         </div>
                     </form>
                 </div>
@@ -360,6 +399,37 @@
 
     <script>
         'use strict';
+
+        // ── Avatar modal UX ───────────────────────────────────────────────────────
+        (function () {
+            // Show crop area when an image is loaded into the cropper
+            var $modal    = $('#avatar-modal');
+            var $dropzone = $('#avatar-dropzone');
+            var $cropArea = $('#avatar-crop-area');
+
+            // Reset to dropzone state when modal opens
+            $modal.on('show.bs.modal', function () {
+                $dropzone.show();
+                $cropArea.hide();
+                $modal.find('.error-message').hide().html('');
+            });
+
+            // Make the whole drop zone a click target for the file input
+            $dropzone.on('click', function (e) {
+                if (!$(e.target).is('label, input')) {
+                    $('#avatarInput').trigger('click');
+                }
+            });
+
+            // When a file is picked, switch to crop area
+            $(document).on('change', '#avatarInput', function () {
+                if (this.files && this.files.length) {
+                    $dropzone.hide();
+                    $cropArea.show();
+                }
+            });
+        })();
+        // ─────────────────────────────────────────────────────────────────────────
 
         var RV_MEDIA_URL = {
             base: '{{ url('') }}',
@@ -851,12 +921,12 @@
                     function uploadResumeFile(file, input) {
                         var ext = file.name.split('.').pop().toLowerCase();
                         if (ext !== 'pdf') {
-                            alert('{{ __('Your CV must be a PDF file.') }}');
+                            Swal.fire({ icon: 'error', title: '{{ __('Invalid file type') }}', text: '{{ __('Your CV must be a PDF file.') }}', confirmButtonColor: '#6f42c1' });
                             if (input) $(input).val('');
                             return;
                         }
                         if (file.size > 10 * 1024 * 1024) {
-                            alert('{{ __('Your CV must not exceed 10 MB.') }}');
+                            Swal.fire({ icon: 'error', title: '{{ __('File too large') }}', text: '{{ __('Your CV must not exceed 10 MB.') }}', confirmButtonColor: '#6f42c1' });
                             if (input) $(input).val('');
                             return;
                         }
@@ -1137,12 +1207,13 @@
                             if (! file) return;
                             var ext = file.name.split('.').pop().toLowerCase();
                             if (rule.types.indexOf(ext) === -1) {
-                                alert(rule.label.charAt(0).toUpperCase() + rule.label.slice(1) + ' {{ __('must be') }} ' + rule.types.map(function(t){ return t.toUpperCase(); }).join(' {{ __('or') }} ') + '.');
+                                var typeList = rule.types.map(function(t){ return t.toUpperCase(); }).join(' or ');
+                                Swal.fire({ icon: 'error', title: '{{ __('Invalid file type') }}', text: rule.label.charAt(0).toUpperCase() + rule.label.slice(1) + ' must be ' + typeList + '.', confirmButtonColor: '#6f42c1' });
                                 $(this).val('');
                                 return;
                             }
                             if (file.size > rule.maxMb * 1024 * 1024) {
-                                alert(rule.label.charAt(0).toUpperCase() + rule.label.slice(1) + ' {{ __('must not exceed') }} ' + rule.maxMb + ' MB.');
+                                Swal.fire({ icon: 'error', title: '{{ __('File too large') }}', text: rule.label.charAt(0).toUpperCase() + rule.label.slice(1) + ' must not exceed ' + rule.maxMb + ' MB.', confirmButtonColor: '#6f42c1' });
                                 $(this).val('');
                             }
                         });
@@ -1154,11 +1225,11 @@
                         if (! file) return;
                         var ext = file.name.split('.').pop().toLowerCase();
                         if (['jpg','jpeg','png'].indexOf(ext) === -1) {
-                            alert('{{ __('Profile photo must be a JPG or PNG file.') }}');
+                            Swal.fire({ icon: 'error', title: '{{ __('Invalid file type') }}', text: '{{ __('Profile photo must be a JPG or PNG file.') }}', confirmButtonColor: '#6f42c1' });
                             $(this).val(''); return;
                         }
                         if (file.size > 5 * 1024 * 1024) {
-                            alert('{{ __('Profile photo must not exceed 5 MB.') }}');
+                            Swal.fire({ icon: 'error', title: '{{ __('File too large') }}', text: '{{ __('Profile photo must not exceed 5 MB.') }}', confirmButtonColor: '#6f42c1' });
                             $(this).val('');
                         }
                     });

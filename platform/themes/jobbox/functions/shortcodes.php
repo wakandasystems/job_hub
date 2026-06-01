@@ -645,6 +645,8 @@ app()->booted(function (): void {
 
         add_shortcode('job-companies', __('Company list'), __('Company list'), function (Shortcode $shortcode) {
             $requestQuery = JobBoardHelper::getCompanyFilterParams(request()->input());
+            $selectedCountry = function_exists('wakanda_selected_country') ? wakanda_selected_country() : null;
+            $countryId = $selectedCountry ? $selectedCountry->id : null;
 
             $with = [
                 'slugable',
@@ -656,10 +658,12 @@ app()->booted(function (): void {
             }
 
             $companies = Company::query()
+                ->when($countryId, fn ($query) => $query->where('country_id', $countryId))
                 ->withCount([
                     'reviews',
                     'activeJobs as jobs_count',
-                ]);
+                ])
+                ->orderByDesc('jobs_count');
 
             if (JobBoardHelper::isPinFeaturedCompaniesInTheTop()) {
                 $companies = $companies->latest('is_featured');
@@ -680,6 +684,7 @@ app()->booted(function (): void {
                 ->paginate($requestQuery['per_page'] ?: Arr::first(JobBoardHelper::getPerPageParams()));
 
             $activeLetters = Company::query()
+                ->when($countryId, fn ($query) => $query->where('country_id', $countryId))
                 ->wherePublished()
                 ->selectRaw('UPPER(SUBSTRING(name, 1, 1)) as letter')
                 ->groupBy('letter')

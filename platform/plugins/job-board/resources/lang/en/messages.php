@@ -234,7 +234,7 @@ return [
     'via_payment' => ' via :payment',
 
     // External job application
-    'go_to_job_site' => 'Go to job site',
+    'go_to_job_site' => 'Apply Now',
 
     // Job actions and management
     'renew_job_successfully' => 'Renew job successfully',

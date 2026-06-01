@@ -489,11 +489,14 @@ class JobCrawlerRunner
             ];
 
             if ($job) {
-                $job->fill($attributes)->save();
+                $job->fill($attributes);
+                $this->resolveApplyContact($job);
+                $job->save();
                 $stats['jobs_updated']++;
             } else {
                 $newJob = new Job();
                 $newJob->forceFill($attributes);
+                $this->resolveApplyContact($newJob);
                 $this->persistNewJob($newJob, $crawler, $stats, function (Job $j): void {
                     $this->syncJobCategories($j);
                     $j->jobTypes()->syncWithoutDetaching([3]);
@@ -1608,6 +1611,60 @@ class JobCrawlerRunner
      * crawler — prevents importing the same listing re-posted with a new external ID.
      * Increments $stats['jobs_created'] on success, 'jobs_skipped' on duplicate.
      */
+    /**
+     * Extract the first email address from a job's HTML description/content.
+     * Returns null when none is found.
+     */
+    public static function extractEmailFromHtml(?string $html): ?string
+    {
+        return static::extractAllEmailsFromHtml($html)[0] ?? null;
+    }
+
+    /**
+     * Extract all unique email addresses from a job's HTML description/content.
+     */
+    public static function extractAllEmailsFromHtml(?string $html): array
+    {
+        if (! $html) {
+            return [];
+        }
+
+        // Replace tags with a space so adjacent elements don't merge (e.g. "email.com<b>Male" → "email.com Male").
+        $text = html_entity_decode(preg_replace('/<[^>]+>/', ' ', $html) ?? '');
+
+        preg_match_all('/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,6}(?![a-zA-Z0-9])/i', $text, $matches);
+
+        return array_values(array_unique(array_map('strtolower', $matches[0] ?? [])));
+    }
+
+    /**
+     * Resolve the apply_email and apply_url for a crawled job.
+     * If emails are found in the description → build a mailto: URL (with CC if multiple).
+     * Otherwise fall back to company website, then the original apply_url.
+     */
+    public function resolveApplyContact(Job $job): void
+    {
+        $emails = static::extractAllEmailsFromHtml($job->getRawOriginal('content') ?: $job->getRawOriginal('description'));
+
+        if ($emails) {
+            $job->apply_email = $emails[0];
+            $subject = rawurlencode(trim(strip_tags((string) $job->name)) . ' Application');
+            $mailto = 'mailto:' . $emails[0];
+            $params = ['subject=' . $subject];
+            if (count($emails) > 1) {
+                $params[] = 'cc=' . implode(',', array_slice($emails, 1));
+            }
+            $job->apply_url = $mailto . '?' . implode('&', $params);
+            return;
+        }
+
+        // No email — fall back to company website so we don't strand the candidate.
+        $website = $job->company?->website;
+        if ($website) {
+            $job->apply_url = $website;
+        }
+    }
+
     protected function persistNewJob(Job $job, JobCrawler $crawler, array &$stats, callable $configure): void
     {
         // Content-duplicate guard: same title + company across ALL crawlers catches the
@@ -1625,7 +1682,6 @@ class JobCrawlerRunner
         // Content-moderation guard: block jobs that mention our own site or contain
         // watermark text from competitors re-posting our content.
         if ($this->hasBannedContent($job->name . ' ' . $job->description . ' ' . $job->content)) {
-            $this->sendBannedContentAlert($job, $crawler);
             $stats['jobs_skipped']++;
             return;
         }
@@ -4895,8 +4951,8 @@ class JobCrawlerRunner
                     ->first();
 
                 if ($job) {
-                    $job->forceFill(['expire_date' => Carbon::now()->addDays(30)])->save();
-                    $stats['jobs_updated']++;
+                    // Expiry was set on first import; don't override it on re-crawl.
+                    $stats['jobs_skipped']++;
                 } else {
                     $stats['jobs_skipped']++;
                 }
@@ -5003,7 +5059,7 @@ class JobCrawlerRunner
         $postedDate = $postedAt ? Carbon::parse($postedAt) : Carbon::now();
         $expireDate = $expiresAt
             ? Carbon::parse($expiresAt)
-            : $postedDate->copy()->addDays(60);
+            : $postedDate->copy()->addDays(30);
 
         $rawDesc  = (string) ($detail['description'] ?? '');
         $location = $detail['location'] ?? $item['location'] ?? 'South Africa';

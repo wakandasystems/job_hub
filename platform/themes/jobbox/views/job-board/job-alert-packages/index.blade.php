@@ -53,7 +53,10 @@
                 @endphp
                 <div class="col-md-6 col-lg-4">
                     <div class="card h-100 border career-service-card" style="border-radius:12px;transition:box-shadow .2s,border-color .2s;">
-                        <div class="card-body p-4 d-flex flex-column">
+                        <div class="card-body p-4 d-flex flex-column position-relative">
+                            <span class="position-absolute top-0 end-0 mt-3 me-3 d-inline-flex align-items-center justify-content-center rounded-circle bg-primary bg-opacity-10" style="width:40px;height:40px;">
+                                <i class="fi-rr-bell text-primary fs-5"></i>
+                            </span>
                             <div class="mb-3">
                                 <div class="fw-semibold fs-6">{{ $pkg->name }}</div>
                                 @if($pkg->description)
@@ -62,7 +65,6 @@
                             </div>
                             <div class="mb-3 flex-grow-1">
                                 <div class="d-flex align-items-center gap-2">
-                                    <i class="fi-rr-bell text-primary fs-4"></i>
                                     <span class="fw-bold color-brand-1 fs-4">
                                         {{ $pkg->displayAlerts() }}
                                     </span>

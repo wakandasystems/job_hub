@@ -124,10 +124,11 @@ class JobApplicationTable extends TableAbstract
                     }
 
                     if ($jobApplication->account->id && $jobApplication->account->is_public_profile) {
-                        return '<a href="' . $jobApplication->account->url . '">' . $jobApplication->account->name . ' ' . BaseHelper::renderIcon('ti ti-external-link') . '</a>';
+                        return '<a href="' . $jobApplication->account->url . '">' . $jobApplication->account->name . ' ' . BaseHelper::renderIcon('ti ti-external-link') . '</a>'
+                            . $jobApplication->account->wakandaBadgeHtml();
                     }
 
-                    return $jobApplication->full_name ?: '&mdash;';
+                    return ($jobApplication->full_name ?: '&mdash;') . $jobApplication->account->wakandaBadgeHtml();
                 }),
             Column::make('email')
                 ->title(trans('plugins/job-board::job-application.tables.email'))
@@ -143,7 +144,7 @@ class JobApplicationTable extends TableAbstract
             Column::make('company')
                 ->title(trans('plugins/job-board::messages.company'))
                 ->orderable(false),
-            CreatedAtColumn::make(),
+            CreatedAtColumn::make()->dateFormat(\Botble\Base\Facades\BaseHelper::getDateTimeFormat()),
             StatusColumn::make(),
         ];
     }

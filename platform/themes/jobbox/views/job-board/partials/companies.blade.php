@@ -4,7 +4,7 @@
             <div class="col-xl-6 col-lg-5">
                 <span class="text-small text-showing font-weight-bold">
                     {{
-                        __('Showing :from – :to of :total job(s)', [
+                        __('Showing :from – :to of :total companies', [
                             'from' => $companies->firstItem(),
                             'to' => $companies->lastItem(),
                             'total' => $companies->total(),
@@ -74,5 +74,3 @@
     </div>
 </div>
 {!! $companies->withQueryString()->links(Theme::getThemeNamespace('partials.pagination')) !!}
-
-

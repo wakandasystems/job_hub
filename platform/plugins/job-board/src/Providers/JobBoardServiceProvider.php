@@ -885,7 +885,18 @@ class JobBoardServiceProvider extends ServiceProvider
                         'name' => 'Alert Packages',
                         'url' => fn () => route('public.account.job-alert.packages.index'),
                         'icon' => 'ti ti-package',
-                    ]);
+                    ])
+                    ->when(JobBoardHelper::isEnabledCreditsSystem(), static function (DashboardMenuSupport $dashboardMenu): void {
+                        $dashboardMenu
+                            ->registerItem([
+                                'id' => 'cms-account-credits',
+                                'priority' => 12,
+                                'parent_id' => null,
+                                'name' => 'plugins/job-board::dashboard.credits',
+                                'url' => fn () => route('public.account.credits'),
+                                'icon' => 'ti ti-coins',
+                            ]);
+                    });
             }
 
             $dashboardMenu

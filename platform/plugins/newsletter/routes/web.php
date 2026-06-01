@@ -8,6 +8,18 @@ use Illuminate\Support\Facades\Route;
 Route::group(['namespace' => 'Botble\Newsletter\Http\Controllers'], function (): void {
     AdminHelper::registerRoutes(function (): void {
         Route::group(['prefix' => 'newsletters', 'as' => 'newsletter.'], function (): void {
+            Route::get('send', [
+                'as' => 'send',
+                'uses' => 'NewsletterController@send',
+                'permission' => 'newsletter.index',
+            ]);
+
+            Route::post('send', [
+                'as' => 'send.post',
+                'uses' => 'NewsletterController@sendPost',
+                'permission' => 'newsletter.index',
+            ]);
+
             Route::resource('', 'NewsletterController')->only(['index', 'destroy'])->parameters(['' => 'newsletter']);
         });
 

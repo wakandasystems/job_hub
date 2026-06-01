@@ -113,6 +113,45 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
                     'middleware' => [LocaleMiddleware::class],
                 ]);
 
+                Route::group([
+                    'prefix' => 'credits',
+                    'middleware' => ['enable-credits', LocaleMiddleware::class],
+                ], function (): void {
+                    Route::controller('DashboardController')->group(function (): void {
+                        Route::get('/', [
+                            'as' => 'credits',
+                            'uses' => 'getCredits',
+                        ]);
+                    });
+                });
+
+                Route::group([
+                    'prefix' => 'packages',
+                    'middleware' => ['enable-credits', LocaleMiddleware::class],
+                ], function (): void {
+                    Route::controller('DashboardController')->group(function (): void {
+                        Route::get('/', [
+                            'as' => 'packages',
+                            'uses' => 'getPackages',
+                        ]);
+
+                        Route::get('{id}/subscribe', [
+                            'as' => 'package.subscribe',
+                            'uses' => 'getSubscribePackage',
+                        ])->wherePrimaryKey();
+
+                        Route::get('{id}/subscribe/callback', [
+                            'as' => 'package.subscribe.callback',
+                            'uses' => 'getPackageSubscribeCallback',
+                        ])->wherePrimaryKey();
+
+                        Route::put('/', [
+                            'as' => 'package.subscribe.put',
+                            'uses' => 'subscribePackage',
+                        ]);
+                    });
+                });
+
                 Route::prefix('custom-fields')->name('custom-fields.')->group(function (): void {
                     Route::get('info', [CustomFieldController::class, 'getInfo'])->name('get-info');
                 });
@@ -189,7 +228,9 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
                 });
 
                 Route::prefix('languages')->name('languages.')->group(function (): void {
-                    Route::post('', [AccountLanguageController::class, 'store'])->name('store');
+                    Route::post('', [AccountLanguageController::class, 'store'])
+                        ->name('store')
+                        ->withoutMiddleware(['localeSessionRedirect', 'localizationRedirect']);
                     Route::delete('{id}', [AccountLanguageController::class, 'destroy'])->name('destroy');
                 });
 
@@ -198,7 +239,12 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
                     'uses' => 'ApplicationBoostController@store',
                 ])->whereNumber('id');
 
-                Route::post('wakanda-verification', [
+                Route::get('wakanda-verification/checkout', [
+                    'as'   => 'wakanda-verification.checkout',
+                    'uses' => 'WakandaVerificationController@checkout',
+                ]);
+
+                Route::post('wakanda-verification/checkout', [
                     'as'   => 'wakanda-verification.store',
                     'uses' => 'WakandaVerificationController@store',
                 ]);
@@ -323,52 +369,6 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
                 });
             });
 
-            Route::group([
-                'prefix' => 'packages',
-                'middleware' => [
-                    'account:' . AccountTypeEnum::EMPLOYER,
-                    'enable-credits',
-                    LocaleMiddleware::class,
-                ],
-            ], function (): void {
-                Route::controller('DashboardController')->group(function (): void {
-                    Route::get('/', [
-                        'as' => 'packages',
-                        'uses' => 'getPackages',
-                    ]);
-
-                    Route::get('{id}/subscribe', [
-                        'as' => 'package.subscribe',
-                        'uses' => 'getSubscribePackage',
-                    ])->wherePrimaryKey();
-
-                    Route::get('{id}/subscribe/callback', [
-                        'as' => 'package.subscribe.callback',
-                        'uses' => 'getPackageSubscribeCallback',
-                    ])->wherePrimaryKey();
-
-                    Route::put('/', [
-                        'as' => 'package.subscribe.put',
-                        'uses' => 'subscribePackage',
-                    ]);
-                });
-            });
-
-            Route::group([
-                'prefix' => 'credits',
-                'middleware' => [
-                    'account:' . AccountTypeEnum::EMPLOYER,
-                    'enable-credits',
-                    LocaleMiddleware::class,
-                ],
-            ], function (): void {
-                Route::controller('DashboardController')->group(function (): void {
-                    Route::get('/', [
-                        'as' => 'credits',
-                        'uses' => 'getCredits',
-                    ]);
-                });
-            });
 
             Route::group([
                 'prefix' => 'invoices',
@@ -424,7 +424,6 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
 
             Route::group([
                 'middleware' => [
-                    'account:' . AccountTypeEnum::EMPLOYER,
                     'enable-credits',
                     LocaleMiddleware::class,
                 ],

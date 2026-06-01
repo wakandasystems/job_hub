@@ -70,6 +70,22 @@ class AccountImporter extends Importer implements WithMapping
                 ->boolean(),
             ImportColumn::make('available_for_hiring')
                 ->boolean(),
+            ImportColumn::make('talent_hub_consent')
+                ->label('Talent Hub Consent')
+                ->boolean(),
+            ImportColumn::make('hide_cv')
+                ->label('Hide CV')
+                ->boolean(),
+            ImportColumn::make('desired_salary_from')
+                ->rules(['nullable', 'integer', 'min:0']),
+            ImportColumn::make('desired_salary_to')
+                ->rules(['nullable', 'integer', 'min:0']),
+            ImportColumn::make('experience_years')
+                ->rules(['nullable', Rule::in(array_keys(Account::experienceYearsOptions()))]),
+            ImportColumn::make('education_level')
+                ->rules(['nullable', Rule::in(array_keys(Account::educationLevelOptions()))]),
+            ImportColumn::make('availability')
+                ->rules(['nullable', Rule::in(array_keys(Account::availabilityOptions()))]),
             ImportColumn::make('country')
                 ->rules(['nullable', 'string']),
             ImportColumn::make('state')
@@ -96,6 +112,13 @@ class AccountImporter extends Importer implements WithMapping
                     'is_public_profile' => $account->is_public_profile ? 'Yes' : 'No',
                     'is_featured' => $account->is_featured ? 'Yes' : 'No',
                     'available_for_hiring' => $account->available_for_hiring ? 'Yes' : 'No',
+                    'talent_hub_consent' => $account->talent_hub_consent ? 'Yes' : 'No',
+                    'hide_cv' => $account->hide_cv ? 'Yes' : 'No',
+                    'desired_salary_from' => $account->desired_salary_from,
+                    'desired_salary_to' => $account->desired_salary_to,
+                    'experience_years' => $account->experience_years,
+                    'education_level' => $account->education_level,
+                    'availability' => $account->availability,
                     'country' => $account->country?->name,
                     'state' => $account->state?->name,
                     'city' => $account->city?->name,
@@ -123,9 +146,16 @@ class AccountImporter extends Importer implements WithMapping
                 'is_public_profile' => 'Yes',
                 'is_featured' => 'No',
                 'available_for_hiring' => 'Yes',
-                'country' => 'United States',
-                'state' => 'California',
-                'city' => 'San Francisco',
+                'talent_hub_consent' => 'Yes',
+                'hide_cv' => 'No',
+                'desired_salary_from' => '8000',
+                'desired_salary_to' => '15000',
+                'experience_years' => '3',
+                'education_level' => 'bachelor',
+                'availability' => 'immediate',
+                'country' => 'Zambia',
+                'state' => 'Lusaka',
+                'city' => 'Lusaka',
             ],
         ];
     }
@@ -214,6 +244,10 @@ class AccountImporter extends Importer implements WithMapping
 
             if ($wasRecentlyCreated && empty($row['confirmed_at'])) {
                 $row['confirmed_at'] = Carbon::now();
+            }
+
+            if (Arr::get($row, 'type') === AccountTypeEnum::JOB_SEEKER && empty($row['profile_updated_at'])) {
+                $row['profile_updated_at'] = Carbon::now();
             }
 
             if (isset($row['dob']) && $row['dob'] === '') {

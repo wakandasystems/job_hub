@@ -19,11 +19,12 @@
                     <div>
                         <button
                                 type="button"
-                                class="btn btn-remove"
+                                class="btn btn-sm btn-outline-danger"
                                 data-bb-toggle="delete-language"
                                 data-url="{{ route('public.account.languages.destroy', $language->getKey()) }}"
                                 data-language="{{ $language->language }}"
-                        ></button>
+                                title="{{ __('Remove language') }}"
+                        ><i class="fi-rr-trash"></i></button>
                     </div>
                 </li>
             @endforeach

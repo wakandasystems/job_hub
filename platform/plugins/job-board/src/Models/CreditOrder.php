@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Models;
 
 use Botble\Base\Models\BaseModel;
+use Botble\JobBoard\Models\Transaction;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -18,6 +19,7 @@ class CreditOrder extends BaseModel
         'currency',
         'payment_method',
         'charge_id',
+        'payment_reference',
         'status',
         'approved_at',
         'notes',
@@ -50,6 +52,23 @@ class CreditOrder extends BaseModel
         $this->update([
             'status'      => 'approved',
             'approved_at' => now(),
+        ]);
+
+        $description = 'Purchased ' . number_format($this->credits) . ' credits';
+        if ($this->package?->name) {
+            $description .= ' — ' . $this->package->name;
+        }
+        $description .= ' (' . ucwords(str_replace('_', ' ', $this->payment_method ?? 'manual')) . ')';
+        if ($this->payment_reference) {
+            $description .= ' · Ref: ' . $this->payment_reference;
+        }
+
+        Transaction::query()->create([
+            'user_id'    => 0,
+            'account_id' => $this->account_id,
+            'credits'    => $this->credits,
+            'payment_id' => null,
+            'description' => $description,
         ]);
     }
 

@@ -880,9 +880,17 @@ $(document).ready(function () {
         const button = $(e.relatedTarget)
         const jobName = button.data('job-name')
         const jobId = button.data('job-id')
+        const isMailto = button.data('apply-mailto') == 1
 
         $applyExternalJob.find('.modal-job-name').text(jobName)
         $applyExternalJob.find('.modal-job-id').val(jobId)
+
+        const $submitBtn = $applyExternalJob.find('button[type=submit]')
+        if (isMailto) {
+            $submitBtn.html('Apply via Email <i class="mdi mdi-email-outline"></i>')
+        } else {
+            $submitBtn.html('Go to Job Site <i class="mdi mdi-arrow-right"></i>')
+        }
     })
 
     $applyExternalJob.on('hide.bs.modal', function () {
@@ -916,7 +924,11 @@ $(document).ready(function () {
                     } else {
                         setTimeout(function () {
                             if (res.data && res.data.url) {
-                                window.location.replace(res.data.url)
+                                if (res.data.url.startsWith('mailto:')) {
+                                    window.location.href = res.data.url
+                                } else {
+                                    window.location.replace(res.data.url)
+                                }
                             } else {
                                 window.location.reload()
                             }

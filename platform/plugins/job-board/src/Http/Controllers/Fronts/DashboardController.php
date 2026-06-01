@@ -339,11 +339,21 @@ class DashboardController extends BaseController
             $account->packages()->attach($package);
         }
 
+        $txDescription = 'Purchased ' . number_format($this->getPackageCredits($package)) . ' credits — ' . $package->name;
+        if ($payment) {
+            $txDescription .= ' (' . $payment->payment_channel->label() . ')';
+        }
+        $ref = session('subscribed_package_payment_reference');
+        if ($ref) {
+            $txDescription .= ' · Ref: ' . $ref;
+        }
+
         Transaction::query()->create([
-            'user_id' => 0,
-            'account_id' => auth('account')->id(),
-            'credits' => $this->getPackageCredits($package),
-            'payment_id' => $payment?->id,
+            'user_id'     => 0,
+            'account_id'  => auth('account')->id(),
+            'credits'     => $this->getPackageCredits($package),
+            'payment_id'  => $payment?->id,
+            'description' => $txDescription,
         ]);
 
         $emailHandler = EmailHandler::setModule(JOB_BOARD_MODULE_SCREEN_NAME);
