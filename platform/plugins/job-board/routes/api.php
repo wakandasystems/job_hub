@@ -8,8 +8,11 @@ Route::group([
     'prefix' => 'api/v1',
     'namespace' => 'Botble\JobBoard\Http\Controllers\API',
 ], function (): void {
+    Route::get('/app-settings', 'AppSettingsController@index');
+
     Route::group(['prefix' => 'auth'], function (): void {
         Route::post('/login', 'AuthController@login');
+        Route::post('/register', 'AuthController@register');
         Route::group(['middleware' => ['auth:sanctum', AuthenticateAccountApi::class]], function (): void {
             Route::get('/me', 'AuthController@me');
             Route::post('/logout', 'AuthController@logout');
