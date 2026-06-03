@@ -178,6 +178,11 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers', 'middleware' =>
         'uses' => 'TelegramSocialMessageController@destroy',
     ])->middleware('signed');
 
+    Route::post('telegram/social-message/upload', [
+        'as' => 'public.telegram-social-upload',
+        'uses' => 'TelegramSocialMessageController@upload',
+    ])->middleware('signed');
+
     Route::get('telegram/crawler-error/copy', [
         'as' => 'public.telegram-crawler-error-copy',
         'uses' => 'TelegramCrawlerErrorController@show',

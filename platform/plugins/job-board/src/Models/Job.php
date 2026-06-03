@@ -79,6 +79,11 @@ class Job extends BaseModel
         'featured_until',
         'featured_bid',
         'is_organic',
+        'cover_image',
+        'tiktok_image',
+        'facebook_image',
+        'linkedin_image',
+        'whatsapp_image',
     ];
 
     protected $casts = [
