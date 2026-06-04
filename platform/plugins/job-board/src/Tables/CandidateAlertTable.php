@@ -17,6 +17,8 @@ class CandidateAlertTable extends TableAbstract
 
     protected int $defaultSortColumn = 2; // candidate_name column (after checkbox + active)
 
+    protected $hasOperations = false; // disable legacy operations column — we define our own
+
     public function setup(): void
     {
         $this
