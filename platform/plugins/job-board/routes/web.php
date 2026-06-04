@@ -1,6 +1,7 @@
 <?php
 
 use Botble\Base\Facades\AdminHelper;
+use Botble\JobBoard\Http\Controllers\CandidateAlertController;
 use Botble\JobBoard\Http\Controllers\AccountEducationController;
 use Botble\JobBoard\Http\Controllers\CreditOrderController;
 use Botble\JobBoard\Http\Controllers\AccountExperienceController;
@@ -72,6 +73,21 @@ AdminHelper::registerRoutes(function (): void {
     Route::group(['prefix' => 'job-board/settings', 'as' => 'job-board.settings.', 'middleware' => 'auth'], function (): void {
         Route::get('career-services', [CareerServiceSettingController::class, 'edit'])->name('career-services');
         Route::put('career-services', [CareerServiceSettingController::class, 'update'])->name('career-services.update');
+    });
+
+    Route::group(['prefix' => 'job-board/candidate-alerts', 'as' => 'job-board.candidate-alerts.', 'middleware' => 'auth'], function (): void {
+        Route::get('', [CandidateAlertController::class, 'index'])->name('index');
+        Route::post('', [CandidateAlertController::class, 'store'])->name('store');
+        Route::put('{candidateAlert}', [CandidateAlertController::class, 'update'])->name('update')->wherePrimaryKey('candidateAlert');
+        Route::delete('{candidateAlert}', [CandidateAlertController::class, 'destroy'])->name('destroy')->wherePrimaryKey('candidateAlert');
+        Route::post('{candidateAlert}/toggle', [CandidateAlertController::class, 'toggle'])->name('toggle')->wherePrimaryKey('candidateAlert');
+        Route::get('{candidateAlert}/logs', [CandidateAlertController::class, 'logs'])->name('logs')->wherePrimaryKey('candidateAlert');
+        Route::get('{candidateAlert}/preview', [CandidateAlertController::class, 'preview'])->name('preview')->wherePrimaryKey('candidateAlert');
+        Route::post('{candidateAlert}/send-now', [CandidateAlertController::class, 'sendNow'])->name('send-now')->wherePrimaryKey('candidateAlert');
+        Route::post('analyze-cv', [CandidateAlertController::class, 'analyzeCv'])->name('analyze-cv');
+        Route::get('check-phone', [CandidateAlertController::class, 'checkPhone'])->name('check-phone');
+        Route::get('location/states', [CandidateAlertController::class, 'locationStates'])->name('location.states');
+        Route::get('location/cities', [CandidateAlertController::class, 'locationCities'])->name('location.cities');
     });
 
     Route::group(['prefix' => 'job-alert-orders', 'as' => 'job-alert-orders.', 'middleware' => 'auth'], function (): void {
@@ -246,6 +262,12 @@ AdminHelper::registerRoutes(function (): void {
                 'uses'       => 'SocialAutomationController@whapiSendYesterdayJobs',
                 'permission' => 'job-board.automations.index',
             ]);
+
+            Route::post('actions/whapi-send-job/{job}', [
+                'as'         => 'whapi-send-job',
+                'uses'       => 'SocialAutomationController@whapiSendJob',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
         });
 
         Route::group(['prefix' => 'agents', 'as' => 'job-board.crawlers.'], function (): void {

@@ -11,7 +11,7 @@
         @php
             $ogTitle       = SeoHelper::openGraph()->getProperty('title') ?: SeoHelper::getTitle();
             $ogDescription = SeoHelper::openGraph()->getProperty('description') ?: SeoHelper::getDescription();
-            $ogImage       = SeoHelper::openGraph()->getProperty('image') ?: RvMedia::getImageUrl(theme_option('og_image', ''));
+            $ogImage       = SeoHelper::openGraph()->getProperty('image') ?: RvMedia::getImageUrl('chatgpt-image-may-14-2026-03-00-04-pm.png');
             $ogUrl         = SeoHelper::openGraph()->getProperty('url') ?: url()->current();
         @endphp
         {{-- Twitter Card tags (improves click-through from Twitter/X & iMessage previews) --}}

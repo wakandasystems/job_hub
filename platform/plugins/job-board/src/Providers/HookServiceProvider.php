@@ -34,6 +34,7 @@ use Botble\JobBoard\Models\JobType;
 use Botble\JobBoard\Models\Package;
 use Botble\JobBoard\Models\SalaryReport;
 use Botble\JobBoard\Models\SalaryReportPurchase;
+use Botble\JobBoard\Models\CandidateAlert;
 use Botble\JobBoard\Models\WakandaVerificationRequest;
 use Botble\JobBoard\Services\CouponService;
 use Botble\JobBoard\Supports\InvoiceHelper;
@@ -1099,6 +1100,7 @@ class HookServiceProvider extends ServiceProvider
                 'cms-plugins-job-board-featured-orders'           => 'pending-featured-orders',
                 'cms-plugins-job-board-employer-subscriptions'    => 'pending-employer-subscriptions',
                 'cms-plugins-job-board-wakanda-verification'      => 'pending-wakanda-verifications',
+                'cms-plugins-job-board-candidate-alerts'          => 'active-candidate-alerts',
                 default => null,
             };
         }
@@ -1188,6 +1190,13 @@ class HookServiceProvider extends ServiceProvider
             $data[] = [
                 'key'   => 'pending-wakanda-verifications',
                 'value' => $pendingWakandaVerifications,
+            ];
+
+            $activeCandidateAlerts = CandidateAlert::where('is_active', true)->where('status', 'active')->count();
+
+            $data[] = [
+                'key'   => 'active-candidate-alerts',
+                'value' => $activeCandidateAlerts,
             ];
 
             $data[] = [
