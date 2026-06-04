@@ -7,6 +7,7 @@ use Botble\JobBoard\Models\CandidateAlert;
 use Botble\JobBoard\Models\CandidateAlertLog;
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\SocialAutomation;
+use Botble\Media\Facades\RvMedia;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Throwable;
@@ -55,21 +56,33 @@ class SendCandidateAlertsCommand extends Command
             ->where('jb_jobs.status', JobStatusEnum::PUBLISHED)
             ->where('jb_jobs.created_at', '>=', now()->subHours($hours))
             ->whereNotIn('jb_jobs.id', $sentJobIds)
-            ->with(['company', 'slugable'])
+            ->with(['company', 'slugable', 'jobTypes', 'currency'])
             ->latest('jb_jobs.created_at');
 
-        // Keywords — searches title, description, address and company name
+        // Keywords — searches title, description, address (not company name)
         $keywords = array_values(array_filter(array_map('trim', (array) ($filters['keywords'] ?? (($filters['keyword'] ?? null) ? [$filters['keyword']] : [])))));
         if ($keywords) {
-            $query->leftJoin('jb_companies as kw_companies', 'kw_companies.id', '=', 'jb_jobs.company_id');
             $query->where(function ($q) use ($keywords) {
                 foreach ($keywords as $kw) {
                     $q->orWhere('jb_jobs.name', 'like', "%{$kw}%")
                       ->orWhere('jb_jobs.description', 'like', "%{$kw}%")
-                      ->orWhere('jb_jobs.address', 'like', "%{$kw}%")
-                      ->orWhere('kw_companies.name', 'like', "%{$kw}%");
+                      ->orWhere('jb_jobs.address', 'like', "%{$kw}%");
                 }
             });
+        }
+
+        // Company keywords — LIKE search against company name
+        if (! empty($filters['company_keywords'])) {
+            $companyKws = array_filter(array_map('trim', (array) $filters['company_keywords']));
+            if ($companyKws) {
+                $query->whereHas('company', function ($q) use ($companyKws) {
+                    $q->where(function ($q2) use ($companyKws) {
+                        foreach ($companyKws as $ck) {
+                            $q2->orWhere('name', 'like', "%{$ck}%");
+                        }
+                    });
+                });
+            }
         }
 
         if (! empty($filters['job_type_ids'])) {
@@ -151,10 +164,43 @@ class SendCandidateAlertsCommand extends Command
         $msg .= "*{$job->name}*\n";
         if ($company) $msg .= "🏢 {$company}\n";
         if ($loc)     $msg .= "📍 {$loc}\n";
+
+        if ($job->created_at) {
+            $msg .= "📅 *Posted:* " . $job->created_at->format('d M Y') . "\n";
+        }
+
+        $deadline = $job->application_closing_date ?? $job->expire_date ?? null;
+        if ($deadline) {
+            $msg .= "⏰ *Deadline:* " . $deadline->format('d M Y') . "\n";
+        }
+
+        $types = $job->jobTypes->pluck('name')->filter()->implode(', ');
+        if ($types) $msg .= "💼 *Type:* {$types}\n";
+
+        $salary = $job->salary_text ?? null;
+        if ($salary) $msg .= "💰 *Salary:* {$salary}\n";
+
+        if (($job->number_of_positions ?? 0) > 1) {
+            $msg .= "👥 *Positions:* {$job->number_of_positions}\n";
+        }
+
         $msg .= "\n👉 *Apply:* {$jobUrl}\n\n";
         $msg .= "_Wakanda Jobs VIP Alert — wakandajobs.com_";
 
         try {
+            $imgField = trim((string) ($job->whatsapp_image ?? ''));
+            if ($imgField !== '') {
+                $imageUrl = RvMedia::getImageUrl($imgField);
+                $response = Http::timeout(30)->withToken($token)->post("{$gatewayUrl}/messages/image", [
+                    'to'      => $alert->recipientJid(),
+                    'media'   => $imageUrl,
+                    'caption' => $msg,
+                ]);
+                if ($response->successful()) {
+                    return true;
+                }
+            }
+
             $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
                 'to'   => $alert->recipientJid(),
                 'body' => $msg,

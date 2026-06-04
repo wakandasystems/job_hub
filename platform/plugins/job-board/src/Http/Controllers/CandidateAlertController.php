@@ -12,6 +12,8 @@ use Botble\JobBoard\Models\JobType;
 use Botble\JobBoard\Models\SocialAutomation;
 use Botble\JobBoard\Services\CvFilterAnalyzerService;
 use Botble\JobBoard\Services\CvScoringService;
+use Botble\JobBoard\Tables\CandidateAlertTable;
+use Botble\Media\Facades\RvMedia;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -24,36 +26,17 @@ use Throwable;
 
 class CandidateAlertController
 {
-    public function index(): View
+    public function index(CandidateAlertTable $table): mixed
     {
-        $search  = trim((string) request('q', ''));
-        $baseQuery = CandidateAlert::with(['logs'])->latest();
-
-        if ($search !== '') {
-            $baseQuery->where(fn ($q) =>
-                $q->where('candidate_name', 'like', "%{$search}%")
-                  ->orWhere('label', 'like', "%{$search}%")
-                  ->orWhere('candidate_phone', 'like', "%{$search}%")
-            );
+        // For DataTable AJAX data requests, no modal data needed
+        if (request()->ajax()) {
+            return $table->renderTable();
         }
 
-        $alerts  = $baseQuery->paginate(20)->withQueryString();
         $jobTypes    = JobType::query()->orderBy('name')->pluck('name', 'id');
         $categories  = Category::query()->orderBy('name')->pluck('name', 'id');
         $experiences = JobExperience::query()->orderBy('name')->pluck('name', 'id');
         $countries   = DB::table('countries')->where('status', 'published')->orderBy('name')->pluck('name', 'id');
-
-        // Only load city names that are actually referenced by visible alerts (avoids 48k query)
-        $usedCityIds = [];
-        foreach ($alerts as $alert) {
-            $f = $alert->filters ?? [];
-            foreach ((array) ($f['city_ids'] ?? (($f['city_id'] ?? null) ? [$f['city_id']] : [])) as $id) {
-                if ($id) $usedCityIds[] = (int) $id;
-            }
-        }
-        $cities = $usedCityIds
-            ? DB::table('cities')->whereIn('id', array_unique($usedCityIds))->pluck('name', 'id')
-            : collect();
 
         $stats = [
             'total'      => CandidateAlert::count(),
@@ -62,15 +45,28 @@ class CandidateAlertController
             'sent_today' => CandidateAlertLog::whereDate('sent_at', today())->count(),
         ];
 
-        return view('plugins/job-board::candidate-alerts.index', compact(
-            'alerts', 'jobTypes', 'categories', 'experiences', 'countries', 'cities', 'stats'
-        ));
+        return $table->renderTable(compact('jobTypes', 'categories', 'experiences', 'countries', 'stats'));
+    }
+
+    public function edit(CandidateAlert $candidateAlert): View
+    {
+        $jobTypes    = JobType::query()->orderBy('name')->pluck('name', 'id');
+        $categories  = Category::query()->orderBy('name')->pluck('name', 'id');
+        $experiences = JobExperience::query()->orderBy('name')->pluck('name', 'id');
+        $countries   = DB::table('countries')->where('status', 'published')->orderBy('name')->pluck('name', 'id');
+
+        return view('plugins/job-board::candidate-alerts.edit', [
+            'alert'       => $candidateAlert,
+            'jobTypes'    => $jobTypes,
+            'categories'  => $categories,
+            'experiences' => $experiences,
+            'countries'   => $countries,
+        ]);
     }
 
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'label'           => ['required', 'string', 'max:150'],
             'candidate_name'  => ['required', 'string', 'max:100'],
             'candidate_phone' => ['required', 'string', 'max:30'],
             'candidate_email' => ['nullable', 'email', 'max:150'],
@@ -80,15 +76,13 @@ class CandidateAlertController
             'cv_file'         => ['nullable', 'file', 'mimes:pdf,doc,docx,txt', 'max:10240'],
         ]);
 
-        // Server-side duplicate guard (catches both manual double-saves and race conditions)
-        $duplicate = CandidateAlert::where('candidate_phone', $data['candidate_phone'])
-            ->where('label', $data['label'])
-            ->exists();
-
-        if ($duplicate) {
-            throw ValidationException::withMessages([
-                'label' => 'An alert with this name already exists for this phone number.',
-            ]);
+        // Auto-generate a unique label from the candidate name
+        $base = $data['candidate_name'];
+        $label = $base;
+        $counter = 1;
+        while (CandidateAlert::where('candidate_phone', $data['candidate_phone'])->where('label', $label)->exists()) {
+            $counter++;
+            $label = $base . ' (' . $counter . ')';
         }
 
         $duration  = (int) $data['duration_days'];
@@ -131,7 +125,6 @@ class CandidateAlertController
     public function update(CandidateAlert $candidateAlert, Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'label'           => ['required', 'string', 'max:150'],
             'candidate_name'  => ['required', 'string', 'max:100'],
             'candidate_phone' => ['required', 'string', 'max:30'],
             'candidate_email' => ['nullable', 'email', 'max:150'],
@@ -145,19 +138,20 @@ class CandidateAlertController
         $oldFilters = $candidateAlert->filters ?? [];
         $newFilters = $this->cleanFilters($data['filters'] ?? []);
 
-        $duplicate = CandidateAlert::where('candidate_phone', $data['candidate_phone'])
-            ->where('label', $data['label'])
+        // Regenerate label if name changed, keeping it unique for this phone
+        $base = $data['candidate_name'];
+        $label = $base;
+        $counter = 1;
+        while (CandidateAlert::where('candidate_phone', $data['candidate_phone'])
+            ->where('label', $label)
             ->where('id', '!=', $candidateAlert->id)
-            ->exists();
-
-        if ($duplicate) {
-            throw ValidationException::withMessages([
-                'label' => 'Another alert with this name already exists for this phone number.',
-            ]);
+            ->exists()) {
+            $counter++;
+            $label = $base . ' (' . $counter . ')';
         }
 
         $updatePayload = [
-            'label'           => $data['label'],
+            'label'           => $label,
             'candidate_name'  => $data['candidate_name'],
             'candidate_phone' => $data['candidate_phone'],
             'candidate_email' => $data['candidate_email'] ?? null,
@@ -404,13 +398,15 @@ class CandidateAlertController
 
     public function sendNow(CandidateAlert $candidateAlert, Request $request): JsonResponse
     {
+        set_time_limit(60); // each call handles ≤ BATCH jobs; 60 s is ample per batch
+
         $forceResend = $request->boolean('force_resend');
         $jobIds      = $request->input('job_ids');
 
         if ($jobIds) {
             $jobs = Job::whereIn('id', (array) $jobIds)
                 ->where('status', JobStatusEnum::PUBLISHED)
-                ->with(['company', 'slugable', 'jobTypes'])
+                ->with(['company', 'slugable', 'jobTypes', 'currency'])
                 ->get();
         } else {
             $jobs = $this->getMatchingJobs($candidateAlert, skipAlreadySent: ! $forceResend);
@@ -473,7 +469,8 @@ class CandidateAlertController
         $query = Job::query()
             ->select('jb_jobs.*')
             ->where('jb_jobs.status', JobStatusEnum::PUBLISHED)
-            ->with(['company', 'slugable', 'jobTypes', 'city', 'state', 'country'])
+            ->where(fn ($q) => $q->whereNull('jb_jobs.expire_date')->orWhere('jb_jobs.expire_date', '>=', now()->toDateString()))
+            ->with(['company', 'slugable', 'jobTypes', 'currency', 'city', 'state', 'country'])
             ->latest('jb_jobs.created_at');
 
         if ($sinceHours) {
@@ -487,19 +484,30 @@ class CandidateAlertController
             }
         }
 
-        // Keywords — searches title, description, address and company name
-        // select('jb_jobs.*') prevents the joined company `name` column overwriting the job `name`
+        // Keywords — searches title, description, address (not company name)
         $keywords = array_values(array_filter(array_map('trim', (array) ($filters['keywords'] ?? (($filters['keyword'] ?? null) ? [$filters['keyword']] : [])))));
         if ($keywords) {
-            $query->leftJoin('jb_companies as kw_companies', 'kw_companies.id', '=', 'jb_jobs.company_id');
             $query->where(function ($q) use ($keywords) {
                 foreach ($keywords as $kw) {
                     $q->orWhere('jb_jobs.name', 'like', "%{$kw}%")
                       ->orWhere('jb_jobs.description', 'like', "%{$kw}%")
-                      ->orWhere('jb_jobs.address', 'like', "%{$kw}%")
-                      ->orWhere('kw_companies.name', 'like', "%{$kw}%");
+                      ->orWhere('jb_jobs.address', 'like', "%{$kw}%");
                 }
             });
+        }
+
+        // Company keywords — LIKE search against company name
+        if (! empty($filters['company_keywords'])) {
+            $companyKws = array_filter(array_map('trim', (array) $filters['company_keywords']));
+            if ($companyKws) {
+                $query->whereHas('company', function ($q) use ($companyKws) {
+                    $q->where(function ($q2) use ($companyKws) {
+                        foreach ($companyKws as $ck) {
+                            $q2->orWhere('name', 'like', "%{$ck}%");
+                        }
+                    });
+                });
+            }
         }
 
         // Job types: include jobs that match OR have no job types assigned (crawled jobs)
@@ -556,10 +564,43 @@ class CandidateAlertController
         $msg .= "*{$job->name}*\n";
         if ($company) $msg .= "🏢 {$company}\n";
         if ($loc)     $msg .= "📍 {$loc}\n";
+
+        if ($job->created_at) {
+            $msg .= "📅 *Posted:* " . $job->created_at->format('d M Y') . "\n";
+        }
+
+        $deadline = $job->application_closing_date ?? $job->expire_date ?? null;
+        if ($deadline) {
+            $msg .= "⏰ *Deadline:* " . $deadline->format('d M Y') . "\n";
+        }
+
+        $types = $job->jobTypes->pluck('name')->filter()->implode(', ');
+        if ($types) $msg .= "💼 *Type:* {$types}\n";
+
+        $salary = $job->salary_text ?? null;
+        if ($salary) $msg .= "💰 *Salary:* {$salary}\n";
+
+        if (($job->number_of_positions ?? 0) > 1) {
+            $msg .= "👥 *Positions:* {$job->number_of_positions}\n";
+        }
+
         $msg .= "\n👉 *Apply:* {$jobUrl}\n\n";
         $msg .= "_Wakanda Jobs VIP Alert — wakandajobs.com_";
 
         try {
+            $imgField = trim((string) ($job->whatsapp_image ?? ''));
+            if ($imgField !== '') {
+                $imageUrl = RvMedia::getImageUrl($imgField);
+                $response = Http::timeout(30)->withToken($token)->post("{$gatewayUrl}/messages/image", [
+                    'to'      => $alert->recipientJid(),
+                    'media'   => $imageUrl,
+                    'caption' => $msg,
+                ]);
+                if ($response->successful()) {
+                    return true;
+                }
+            }
+
             $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
                 'to'   => $alert->recipientJid(),
                 'body' => $msg,
@@ -691,6 +732,12 @@ class CandidateAlertController
 
         if (! empty($filters['job_experience_id'])) {
             $clean['job_experience_id'] = (int) $filters['job_experience_id'];
+        }
+
+        // Company keywords
+        if (! empty($filters['company_keywords'])) {
+            $companyKws = array_values(array_filter(array_map('trim', (array) $filters['company_keywords'])));
+            if ($companyKws) $clean['company_keywords'] = $companyKws;
         }
 
         return $clean;

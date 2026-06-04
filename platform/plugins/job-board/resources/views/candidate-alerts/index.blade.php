@@ -36,29 +36,45 @@
 
     {{-- Alerts table --}}
     <div class="col-12">
-        <x-core::card>
-            <x-core::card.header>
-                <div class="d-flex align-items-center gap-3 w-100 flex-wrap">
-                    <h5 class="mb-0 d-flex align-items-center gap-2 flex-grow-1">
-                        <i class="ti ti-device-mobile-message text-primary"></i>
-                        Candidate VIP Job Alert Subscriptions
-                    </h5>
-                    <form method="GET" action="{{ route('job-board.candidate-alerts.index') }}" class="d-flex gap-2 align-items-center">
-                        <div class="input-group input-group-sm" style="width:260px">
-                            <span class="input-group-text"><i class="fas fa-search"></i></span>
-                            <input type="text" name="q" class="form-control"
-                                placeholder="Search name or alert label…"
-                                value="{{ request('q') }}">
-                            @if(request('q'))
-                                <a href="{{ route('job-board.candidate-alerts.index') }}" class="btn btn-outline-secondary" title="Clear search">
-                                    <i class="fas fa-times"></i>
-                                </a>
-                            @endif
-                        </div>
-                    </form>
+        <div class="card has-actions">
+            <div class="card-header">
+                <div class="w-100 justify-content-between d-flex flex-wrap align-items-center gap-1">
+                    <div class="d-flex flex-wrap flex-md-nowrap align-items-center gap-1">
+                        <h5 class="mb-0 d-flex align-items-center gap-2 me-3">
+                            <i class="ti ti-device-mobile-message text-primary"></i>
+                            Candidate VIP Job Alert Subscriptions
+                        </h5>
+                        <form method="GET" action="{{ route('job-board.candidate-alerts.index') }}" id="alerts-search-form">
+                            <div class="table-search-input">
+                                <label>
+                                    <input type="search" name="q" class="form-control input-sm"
+                                        placeholder="Search…"
+                                        style="min-width:160px"
+                                        value="{{ request('q') }}">
+                                    <button type="submit" title="Search" class="search-icon">
+                                        <svg class="icon svg-icon-ti-ti-search" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"></path><path d="M21 21l-6 -6"></path></svg>
+                                    </button>
+                                    @if(request('q'))
+                                    <a href="{{ route('job-board.candidate-alerts.index', ['per_page' => request('per_page', 20)]) }}"
+                                        title="Clear" class="search-reset-icon" style="display:inline;">
+                                        <svg class="icon svg-icon-ti-ti-x" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6l-12 12"></path><path d="M6 6l12 12"></path></svg>
+                                    </a>
+                                    @endif
+                                    <input type="hidden" name="per_page" value="{{ request('per_page', 20) }}">
+                                </label>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center gap-1 table-action-buttons">
+                        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modal-add-alert">
+                            <svg class="icon svg-icon-ti-ti-plus" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5l0 14"></path><path d="M5 12l14 0"></path></svg>
+                            Add Alert
+                        </button>
+                    </div>
                 </div>
-            </x-core::card.header>
-            <x-core::card.body class="p-0">
+            </div>
+            <div class="card-table">
+                <div class="table-responsive table-has-actions">
                 @if($alerts->isEmpty())
                     <div class="text-center py-5 text-muted">
                         <i class="ti ti-bell-off d-block mb-2 fs-1"></i>
@@ -69,8 +85,7 @@
                         </button>
                     </div>
                 @else
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0">
+                    <table class="table table-vcenter table-striped table-hover align-middle mb-0">
                             <thead class="table-light">
                                 <tr>
                                     <th style="width:42px"></th>
@@ -222,21 +237,45 @@
                                 @endforeach
                             </tbody>
                         </table>
-                    </div>
 
-                    @if($alerts->hasPages())
-                    <div class="d-flex align-items-center justify-content-between px-3 py-2 border-top">
-                        <div class="text-muted small">
-                            Showing {{ $alerts->firstItem() }}–{{ $alerts->lastItem() }} of {{ $alerts->total() }} alerts
+                    <div class="card-footer d-flex flex-column flex-sm-row justify-content-between align-items-center gap-2">
+                        <div class="d-flex justify-content-between align-items-center gap-3">
+                            <div class="dataTables_length">
+                                <label>
+                                    <span class="dt-length-style">
+                                        <select class="form-select form-select-sm" onchange="window.location.href='{{ route('job-board.candidate-alerts.index') }}?q={{ request('q') }}&per_page='+this.value">
+                                            @foreach([10, 20, 50, 100, 500] as $n)
+                                                <option value="{{ $n }}" {{ request('per_page', 20) == $n ? 'selected' : '' }}>{{ $n }}</option>
+                                            @endforeach
+                                        </select>
+                                    </span>
+                                </label>
+                            </div>
+                            <div class="m-0 text-muted">
+                                <div class="dataTables_info" role="status" aria-live="polite">
+                                    <span class="dt-length-records">
+                                        <svg class="icon svg-icon-ti-ti-world" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"></path><path d="M3.6 9h16.8"></path><path d="M3.6 15h16.8"></path><path d="M11.5 3a17 17 0 0 0 0 18"></path><path d="M12.5 3a17 17 0 0 1 0 18"></path></svg>
+                                        <span class="d-none d-sm-inline">Show from</span>
+                                        {{ $alerts->total() > 0 ? $alerts->firstItem() : 0 }}
+                                        to {{ $alerts->total() > 0 ? $alerts->lastItem() : 0 }} in
+                                        <span class="badge bg-secondary text-secondary-fg">{{ $alerts->total() }}</span>
+                                        <span class="hidden-xs">records</span>
+                                    </span>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            {{ $alerts->links('pagination::bootstrap-5') }}
+                        @if($alerts->hasPages())
+                        <div class="d-flex justify-content-center">
+                            <div class="dataTables_paginate paging_simple_numbers">
+                                {{ $alerts->appends(request()->except('page'))->links('pagination::bootstrap-5') }}
+                            </div>
                         </div>
+                        @endif
                     </div>
-                    @endif
                 @endif
-            </x-core::card.body>
-        </x-core::card>
+                </div>{{-- /table-responsive --}}
+            </div>{{-- /card-table --}}
+        </div>{{-- /card --}}
     </div>
 
 </div>
@@ -328,6 +367,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-0">
+                <div id="pv-send-progress" style="display:none;border-bottom:1px solid #dee2e6"></div>
                 <div id="previewContent" class="p-3 text-center text-muted">
                     <i class="ti ti-loader-2 fa-spin fs-3 d-block mb-2"></i> Loading...
                 </div>
@@ -412,7 +452,7 @@ $(function () {
                     html += '<li>' + escHtml(a.label) + statusBadge + '</li>';
                 });
 
-                html += '</ul><div class="mt-1 text-muted">You can still add a new alert with a <strong>different label</strong>.</div></div>';
+                html += '</ul><div class="mt-1 text-muted">You can still add another alert for this number.</div></div>';
                 $warning.html(html).show();
             });
     });
@@ -631,11 +671,11 @@ $(function () {
 
         let html = '<table class="table table-sm table-hover align-middle mb-0">'
             + '<thead class="table-light"><tr>'
-            + '<th style="width:36px">#</th><th>Job Title</th><th>Company</th><th>City</th><th>Province / State</th><th>Country</th><th>Posted</th><th>Closes</th><th class="text-center">Sent?</th>'
+            + '<th style="width:36px">#</th><th>Job Title</th><th>Company</th><th>Address</th><th>Country</th><th>Posted</th><th>Closes</th><th class="text-center">Sent?</th>'
             + '</tr></thead><tbody>';
 
         if (!slice.length) {
-            html += '<tr><td colspan="9" class="text-center text-muted py-4">No jobs match your filters.</td></tr>';
+            html += '<tr><td colspan="8" class="text-center text-muted py-4">No jobs match your filters.</td></tr>';
         } else {
             slice.forEach((job, idx) => {
                 const rowNum    = start + idx + 1;
@@ -653,12 +693,11 @@ $(function () {
                         :                     `<span class="text-muted small text-nowrap" title="${escHtml(job.deadline)}">${d}d</span>`;
                 }
 
-                html += `<tr>
+                html += `<tr data-job-id="${job.id}">
                     <td class="text-muted small text-center">${rowNum}</td>
                     <td class="fw-semibold" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(job.name)}">${escHtml(job.name)}</td>
                     <td class="text-muted small"><div class="d-flex align-items-center gap-2">${job.company_logo ? `<img src="${escHtml(job.company_logo)}" alt="" style="width:28px;height:28px;object-fit:contain;border-radius:4px;border:1px solid #eee;background:#fff;padding:2px">` : ''}<span>${escHtml(job.company)}</span></div></td>
-                    <td class="text-muted small">${escHtml(job.city || '')}</td>
-                    <td class="text-muted small">${escHtml(job.state || '')}</td>
+                    <td class="text-muted small">${escHtml(job.location || '')}</td>
                     <td class="text-muted small">${escHtml(job.country || '')}</td>
                     <td class="text-muted small text-nowrap">${escHtml(job.created)}</td>
                     <td class="text-nowrap">${deadlineBadge}</td>
@@ -685,25 +724,93 @@ $(function () {
         }
     }
 
-    // Send Now button
-    $('#btnSendNow').on('click', function () {
-        const $btn       = $(this);
-        const sendUrl    = $btn.data('send-url');
+    // Send Now button — batched parallel sends (3 concurrent) with per-row animation
+    $('#btnSendNow').on('click', async function () {
+        const $btn        = $(this);
+        const sendUrl     = $btn.data('send-url');
         const forceResend = $('#forceResendCheck').is(':checked');
+        const BATCH       = 3;   // concurrent requests per round
+        const BATCH_GAP   = 400; // ms pause between batches (Whapi rate-limit headroom)
 
-        $btn.prop('disabled', true).html('<i class="ti ti-loader-2 fa-spin me-1"></i> Sending…');
+        const jobsToSend = forceResend
+            ? [...previewAllJobs]
+            : previewAllJobs.filter(j => !j.already_sent);
 
-        $httpClient.make().post(sendUrl, { force_resend: forceResend ? 1 : 0 })
-            .then(({ data: resp }) => {
-                Botble.showSuccess(resp.message || 'Jobs sent successfully.');
-                bootstrap.Modal.getInstance(document.getElementById('modal-preview'))?.hide();
-                setTimeout(() => location.reload(), 800);
-            })
-            .catch(({ response }) => {
-                const errMsg = response?.data?.error || 'Send failed. Check Whapi configuration.';
-                Botble.showError(errMsg);
-            })
-            .finally(() => $btn.prop('disabled', false).html('<i class="fab fa-whatsapp me-1"></i> Send All Matching'));
+        if (!jobsToSend.length) {
+            Botble.showError('No new jobs to send.');
+            return;
+        }
+
+        const total = jobsToSend.length;
+        let done = 0, sent = 0, failed = 0;
+
+        $btn.prop('disabled', true).html('<i class="fab fa-whatsapp me-1"></i> Sending…');
+        $('#btnExportCsv, #btnExportPdf, #forceResendCheck, #pv-country, #pv-company, #pv-period, #pv-clear-filters').prop('disabled', true);
+
+        $('#pv-send-progress').html(`
+            <div class="px-3 pt-3 pb-2">
+                <div class="d-flex align-items-center justify-content-between mb-1">
+                    <span class="small fw-semibold" id="pv-prog-label">Sending 0 of ${total}…</span>
+                    <span class="small text-muted" id="pv-prog-counts">0 sent · 0 failed</span>
+                </div>
+                <div class="progress mb-1" style="height:8px">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+                         id="pv-prog-bar" role="progressbar" style="width:0%;transition:width .4s ease"></div>
+                </div>
+                <div class="text-muted small text-truncate" id="pv-prog-current" style="min-height:1.3em"></div>
+            </div>
+        `).show();
+
+        // Helper: send one job, animate its row out on success
+        const sendOne = async (job) => {
+            $('#pv-prog-current').html(
+                `<i class="fas fa-paper-plane me-1 text-success"></i>${escHtml(job.name)}`
+            );
+            try {
+                await $httpClient.make().post(sendUrl, {
+                    force_resend: forceResend ? 1 : 0,
+                    job_ids: [job.id],
+                }, { timeout: 30000 });
+
+                sent++;
+                job.already_sent = true;
+
+                const $row = $(`tr[data-job-id="${job.id}"]`);
+                if ($row.length) {
+                    $row.css({ transition: 'opacity .3s ease, transform .3s ease', opacity: 0, transform: 'translateX(40px)' });
+                    setTimeout(() => $row.remove(), 320);
+                }
+            } catch (_) {
+                failed++;
+            }
+
+            done++;
+            const pct = Math.round((done / total) * 100);
+            $('#pv-prog-bar').css('width', pct + '%');
+            $('#pv-prog-label').text(`Sending ${Math.min(done + BATCH, total)} of ${total}…`);
+            $('#pv-prog-counts').text(`${sent} sent · ${failed} failed`);
+        };
+
+        // Process in batches of BATCH, with a short gap between rounds
+        for (let i = 0; i < jobsToSend.length; i += BATCH) {
+            const batch = jobsToSend.slice(i, i + BATCH);
+            await Promise.all(batch.map(sendOne));
+            if (i + BATCH < jobsToSend.length) {
+                await new Promise(r => setTimeout(r, BATCH_GAP));
+            }
+        }
+
+        // Finished
+        $('#pv-prog-label').text(`Done — ${sent} sent${failed ? `, ${failed} failed` : ''}.`);
+        $('#pv-prog-current').html('');
+        $('#pv-prog-bar').removeClass('progress-bar-animated progress-bar-striped').css('width', '100%');
+
+        failed ? Botble.showError(`${sent} sent, ${failed} failed.`) : Botble.showSuccess(`${sent} job(s) sent successfully.`);
+
+        $btn.prop('disabled', false).html('<i class="fab fa-whatsapp me-1"></i> Send All Matching');
+        $('#btnExportCsv, #btnExportPdf, #forceResendCheck, #pv-country, #pv-company, #pv-period, #pv-clear-filters').prop('disabled', false);
+
+        setTimeout(() => location.reload(), 1500);
     });
 
     // ── Resend welcome message ────────────────────────────────────────────────
@@ -1226,6 +1333,44 @@ $(function () {
     });
 
     function updateKwBadge(badgeClass, listId) {
+        if (!badgeClass) return;
+        const count = $('#' + listId).find('input').filter(function () { return $(this).val().trim() !== ''; }).length;
+        $('.' + badgeClass).text(count);
+    }
+
+    // Add company keyword row
+    $(document).on('click', '.btn-add-company-kw', function () {
+        const listId = $(this).data('target');
+        const badgeClass = $(this).data('count-badge');
+        const $row = $('<div class="input-group input-group-sm mb-1 company-kw-row">' +
+            '<input type="text" name="filters[company_keywords][]" class="form-control" placeholder="e.g. Zambia National Commercial Bank">' +
+            '<button type="button" class="btn btn-outline-danger btn-remove-company-kw" title="Remove"><i class="fas fa-times"></i></button>' +
+            '</div>');
+        $('#' + listId).append($row);
+        $row.find('input').focus();
+        updateCoKwBadge(badgeClass, listId);
+    });
+
+    $(document).on('click', '.btn-remove-company-kw', function () {
+        const $list = $(this).closest('[id^="company-list-"]');
+        const listId = $list.attr('id');
+        if ($list.find('.company-kw-row').length > 1) {
+            $(this).closest('.company-kw-row').remove();
+        } else {
+            $(this).closest('.company-kw-row').find('input').val('');
+        }
+        const $btn = $('[data-target="' + listId + '"].btn-add-company-kw');
+        updateCoKwBadge($btn.data('count-badge'), listId);
+    });
+
+    $(document).on('input', '[name="filters[company_keywords][]"]', function () {
+        const $list = $(this).closest('[id^="company-list-"]');
+        const listId = $list.attr('id');
+        const $btn = $('[data-target="' + listId + '"].btn-add-company-kw');
+        updateCoKwBadge($btn.data('count-badge'), listId);
+    });
+
+    function updateCoKwBadge(badgeClass, listId) {
         if (!badgeClass) return;
         const count = $('#' + listId).find('input').filter(function () { return $(this).val().trim() !== ''; }).length;
         $('.' + badgeClass).text(count);

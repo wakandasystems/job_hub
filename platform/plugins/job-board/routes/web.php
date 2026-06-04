@@ -78,6 +78,7 @@ AdminHelper::registerRoutes(function (): void {
     Route::group(['prefix' => 'job-board/candidate-alerts', 'as' => 'job-board.candidate-alerts.', 'middleware' => 'auth'], function (): void {
         Route::get('', [CandidateAlertController::class, 'index'])->name('index');
         Route::post('', [CandidateAlertController::class, 'store'])->name('store');
+        Route::get('{candidateAlert}/edit', [CandidateAlertController::class, 'edit'])->name('edit')->wherePrimaryKey('candidateAlert');
         Route::put('{candidateAlert}', [CandidateAlertController::class, 'update'])->name('update')->wherePrimaryKey('candidateAlert');
         Route::delete('{candidateAlert}', [CandidateAlertController::class, 'destroy'])->name('destroy')->wherePrimaryKey('candidateAlert');
         Route::post('{candidateAlert}/toggle', [CandidateAlertController::class, 'toggle'])->name('toggle')->wherePrimaryKey('candidateAlert');

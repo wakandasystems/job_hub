@@ -1,12 +1,13 @@
 @php
-    $f              = $alert?->filters ?? [];
-    $selJobTypes    = array_map('strval', (array) ($f['job_type_ids']  ?? []));
-    $selCategories  = array_map('strval', (array) ($f['category_ids']  ?? []));
-    $selCountries   = array_map('strval', (array) ($f['country_ids'] ?? []));
-    $savedKeywords  = (array) ($f['keywords'] ?? (($f['keyword'] ?? null) ? [$f['keyword']] : []));
-    $cvAnalysis     = $alert?->cv_analysis;
-    $tid            = $prefix;
-    $preloadedCityNames = [];
+    $f                    = $alert?->filters ?? [];
+    $selJobTypes          = array_map('strval', (array) ($f['job_type_ids']     ?? []));
+    $selCategories        = array_map('strval', (array) ($f['category_ids']     ?? []));
+    $selCountries         = array_map('strval', (array) ($f['country_ids']      ?? []));
+    $savedKeywords        = (array) ($f['keywords'] ?? (($f['keyword'] ?? null) ? [$f['keyword']] : []));
+    $savedCompanyKeywords = (array) ($f['company_keywords'] ?? []);
+    $cvAnalysis           = $alert?->cv_analysis;
+    $tid                  = $prefix;
+    $preloadedCityNames   = [];
 @endphp
 
 {{-- ── Tab nav ──────────────────────────────────────────────────────────────── --}}
@@ -52,14 +53,6 @@
     {{-- ══════════════════════════════════════════════════════════════ --}}
     <div class="tab-pane fade show active" id="tab-candidate-{{ $tid }}" role="tabpanel">
         <div class="row g-3">
-
-            <div class="col-12">
-                <label class="form-label fw-semibold">Alert Label <span class="text-danger">*</span></label>
-                <input type="text" name="label" class="form-control"
-                    value="{{ old('label', $alert?->label) }}"
-                    placeholder="e.g. John Doe — IT Jobs Lusaka" required>
-                <div class="form-text">A short name to identify this alert in the admin panel.</div>
-            </div>
 
             <div class="col-md-6">
                 <label class="form-label fw-semibold">Candidate Name <span class="text-danger">*</span></label>
@@ -156,6 +149,52 @@
                         data-target="keywords-list-{{ $tid }}"
                         data-count-badge="kw-count-badge-{{ $tid }}">
                         <i class="fas fa-plus me-1"></i> Add Keyword
+                    </button>
+                </div>
+            </div>
+        </div>
+        <hr class="my-2">
+
+        {{-- ── Companies ──────────────────────────────────────────── --}}
+        <div class="mb-2">
+            <button type="button"
+                class="btn btn-link text-decoration-none text-dark p-0 d-flex align-items-center gap-2 w-100 collapse-toggle-btn"
+                data-bs-toggle="collapse" data-bs-target="#collapse-companies-{{ $tid }}"
+                aria-expanded="false">
+                <i class="fas fa-building text-muted" style="width:14px"></i>
+                <span class="fw-semibold small">Companies</span>
+                <span class="badge bg-secondary text-white ms-1 co-count-badge-{{ $tid }}">{{ count($savedCompanyKeywords) }}</span>
+                <i class="fas fa-chevron-down ms-auto text-muted small collapse-chevron"></i>
+            </button>
+            <div class="collapse" id="collapse-companies-{{ $tid }}">
+                <div class="pt-2 ps-4">
+                    <div class="text-muted small mb-2">Add one or more company names — only jobs from matching companies will be sent.</div>
+                    <div id="company-list-{{ $tid }}">
+                        @if(!empty($savedCompanyKeywords))
+                            @foreach($savedCompanyKeywords as $ck)
+                            <div class="input-group input-group-sm mb-1 company-kw-row">
+                                <input type="text" name="filters[company_keywords][]"
+                                    class="form-control" value="{{ $ck }}"
+                                    placeholder="e.g. Zambia National Commercial Bank">
+                                <button type="button" class="btn btn-outline-danger btn-remove-company-kw" title="Remove">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                            @endforeach
+                        @else
+                            <div class="input-group input-group-sm mb-1 company-kw-row">
+                                <input type="text" name="filters[company_keywords][]"
+                                    class="form-control" placeholder="e.g. Zambia National Commercial Bank">
+                                <button type="button" class="btn btn-outline-danger btn-remove-company-kw" title="Remove">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                        @endif
+                    </div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm mt-1 btn-add-company-kw"
+                        data-target="company-list-{{ $tid }}"
+                        data-count-badge="co-count-badge-{{ $tid }}">
+                        <i class="fas fa-plus me-1"></i> Add Company
                     </button>
                 </div>
             </div>
