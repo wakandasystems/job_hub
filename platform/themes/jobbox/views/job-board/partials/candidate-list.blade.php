@@ -169,7 +169,18 @@
                     self.disabled = false;
                     self.innerHTML = '<i class="fi-rr-unlock me-1"></i>Reveal Contact';
                     var msg = (data.message || 'Could not reveal contact.').replace(/<[^>]+>/g, '');
-                    alert(msg);
+                    var errModal = document.getElementById('themeErrorModal');
+                    if (errModal) {
+                        document.getElementById('themeErrorMsg').textContent = msg;
+                        new bootstrap.Modal(errModal).show();
+                    } else {
+                        var d = document.createElement('div');
+                        d.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3';
+                        d.style.zIndex = 9999;
+                        d.innerHTML = msg + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+                        document.body.appendChild(d);
+                        setTimeout(function(){ d.remove(); }, 5000);
+                    }
                 }
             })
             .catch(function() {

@@ -38,8 +38,20 @@
                 'fields' => [
                     'chat_id'        => ['label' => 'Chat ID', 'placeholder' => 'e.g. 123456789', 'help' => 'Use the Telegram chat ID already receiving alerts.'],
                     'bot_token'      => ['label' => 'Bot Token Override', 'placeholder' => 'Leave blank to use the saved Job Alert bot token', 'type' => 'password', 'required' => false, 'help' => 'Optional. Defaults to the Telegram Bot Token under Job Alert Settings.'],
-                    'country_id'     => ['label' => 'Country Filter (optional)', 'placeholder' => 'e.g. 7 for Zambia — leave blank to send all countries', 'required' => false, 'help' => 'Only posts for jobs in this country ID will be sent. Leave blank to send jobs from all countries.'],
+                    'country_id'     => ['label' => 'Country Filter (optional)', 'type' => 'country_select', 'required' => false, 'help' => 'Only posts for jobs in this country will be sent. Leave blank to send jobs from all countries.'],
                     'generate_image' => ['label' => 'Generate AI image with each post', 'type' => 'checkbox', 'required' => false, 'help' => 'Uses DALL-E 3 to create a job banner image. Requires OPENAI_API_KEY in .env or openai_api_key in site settings. ~$0.04 per post.'],
+                ],
+            ],
+            'whapi' => [
+                'label' => 'WhatsApp Channel (Whapi)',
+                'icon'  => 'ti ti-brand-whatsapp',
+                'color' => '#25D366',
+                'fields' => [
+                    'token'       => ['label' => 'Whapi API Token', 'placeholder' => 'Paste your Whapi channel/instance token', 'type' => 'password', 'help' => 'Found in your Whapi dashboard → Channels → your channel → API Token.'],
+                    'channel_id'  => ['label' => 'Channel JID', 'placeholder' => 'e.g. 120363XXXXXXXXXX@newsletter', 'help' => 'The WhatsApp Channel JID. Find it in Whapi dashboard → Channels. Format: 120363...@newsletter'],
+                    'country_id'  => ['label' => 'Country Filter (optional)', 'type' => 'country_select', 'required' => false, 'help' => 'Only jobs matching this country will be posted. Leave blank to post jobs from all countries.'],
+                    'gateway_url' => ['label' => 'Gateway URL (optional)', 'placeholder' => 'https://gate.whapi.cloud', 'required' => false, 'help' => 'Your Whapi gateway URL. Leave blank to use the default https://gate.whapi.cloud'],
+                    'send_image'  => ['label' => 'Attach job image with each post', 'type' => 'checkbox', 'required' => false, 'help' => 'Sends the job image (company logo or generated banner) alongside the message.'],
                 ],
             ],
         ];
@@ -67,7 +79,7 @@
             <x-core::card>
                 <x-core::card.body class="py-3">
                     <div class="d-flex align-items-center gap-3 flex-wrap">
-                        <i class="ti ti-info-circle text-primary fs-4 flex-shrink-0"></i>
+                        <i class="fas fa-info-circle text-primary fs-4 flex-shrink-0"></i>
                         <div class="flex-grow-1">
                             <strong>How automations work:</strong>
                             When a job is published — whether posted directly by an admin or imported by a crawler agent — it is automatically shared to all <strong>active</strong> automations below.
@@ -76,11 +88,15 @@
                         <div class="d-flex gap-2 flex-shrink-0">
                             <button type="button" class="btn btn-sm btn-outline-danger" id="btn-clear-chats"
                                     data-url="{{ route('job-board.automations.clear-all-chats') }}">
-                                <i class="ti ti-trash me-1"></i> Delete All Chats
+                                <i class="fas fa-trash me-1"></i> Delete All Chats
                             </button>
                             <button type="button" class="btn btn-sm btn-primary" id="btn-regen-today"
                                     data-url="{{ route('job-board.automations.regenerate-today') }}">
-                                <i class="ti ti-refresh me-1"></i> Regenerate Today's Jobs
+                                <i class="fas fa-sync me-1"></i> Regenerate Today's Jobs
+                            </button>
+                            <button type="button" class="btn btn-sm btn-success" id="btn-whapi-yesterday"
+                                    data-url="{{ route('job-board.automations.whapi-send-yesterday') }}">
+                                <i class="ti ti-brand-whatsapp me-1"></i> WhatsApp: Yesterday's Jobs
                             </button>
                         </div>
                     </div>
@@ -100,7 +116,7 @@
                                 class="btn btn-primary btn-sm"
                                 data-bs-toggle="modal"
                                 data-bs-target="#modal-add-{{ $platformKey }}">
-                                <i class="ti ti-plus me-1"></i> Add
+                                <i class="fas fa-plus me-1"></i> Add
                             </button>
                         </div>
                     </x-core::card.header>
@@ -132,24 +148,24 @@
                                 {{-- Actions --}}
                                 <div class="d-flex gap-1">
                                     <button type="button"
-                                        class="btn btn-outline-secondary btn-icon btn-sm"
+                                        class="btn btn-ghost-secondary btn-icon btn-sm"
                                         title="Edit"
                                         data-bs-toggle="modal"
                                         data-bs-target="#modal-edit-{{ $automation->id }}">
-                                        <i class="ti ti-edit"></i>
+                                        <i class="fas fa-edit"></i>
                                     </button>
                                     <button type="button"
-                                        class="btn btn-outline-danger btn-icon btn-sm automation-delete"
+                                        class="btn btn-ghost-danger btn-icon btn-sm automation-delete"
                                         title="Delete"
                                         data-url="{{ route('job-board.automations.destroy', $automation->id) }}"
                                         data-name="{{ $automation->name }}">
-                                        <i class="ti ti-trash"></i>
+                                        <i class="fas fa-trash"></i>
                                     </button>
                                 </div>
                             </div>
                         @empty
                             <div class="text-center text-muted py-4 small">
-                                <i class="ti ti-plug-x d-block mb-1 fs-4"></i>
+                                <i class="fas fa-plug d-block mb-1 fs-4"></i>
                                 No automations configured yet.
                             </div>
                         @endforelse
@@ -188,6 +204,14 @@
                                                     {{ $field['label'] }}
                                                 </label>
                                             </div>
+                                        @elseif(($field['type'] ?? 'text') === 'country_select')
+                                            <label class="form-label fw-semibold">{{ $field['label'] }}</label>
+                                            <select name="settings[{{ $fieldKey }}]" class="form-select">
+                                                <option value="">— All countries —</option>
+                                                @foreach($countries as $cId => $cName)
+                                                    <option value="{{ $cId }}">{{ $cName }}</option>
+                                                @endforeach
+                                            </select>
                                         @else
                                             <label class="form-label fw-semibold">{{ $field['label'] }} @if(($field['required'] ?? true) !== false)<span class="text-danger">*</span>@endif</label>
                                             <input
@@ -206,7 +230,7 @@
                             <div class="modal-footer">
                                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                                 <button type="submit" class="btn btn-primary">
-                                    <i class="ti ti-plus me-1"></i> Add Automation
+                                    <i class="fas fa-plus me-1"></i> Add Automation
                                 </button>
                             </div>
                         </form>
@@ -246,6 +270,14 @@
                                                         {{ $field['label'] }}
                                                     </label>
                                                 </div>
+                                            @elseif(($field['type'] ?? 'text') === 'country_select')
+                                                <label class="form-label fw-semibold">{{ $field['label'] }}</label>
+                                                <select name="settings[{{ $fieldKey }}]" class="form-select">
+                                                    <option value="">— All countries —</option>
+                                                    @foreach($countries as $cId => $cName)
+                                                        <option value="{{ $cId }}" {{ (string)($automation->settings[$fieldKey] ?? '') === (string)$cId ? 'selected' : '' }}>{{ $cName }}</option>
+                                                    @endforeach
+                                                </select>
                                             @else
                                                 <label class="form-label fw-semibold">{{ $field['label'] }}</label>
                                                 <input
@@ -255,7 +287,7 @@
                                                     placeholder="{{ $field['placeholder'] ?? '' }}"
                                                     value="{{ ($field['type'] ?? 'text') === 'password' ? '' : ($automation->settings[$fieldKey] ?? '') }}">
                                                 @if(($field['type'] ?? 'text') === 'password' && !empty($automation->settings[$fieldKey]))
-                                                    <div class="form-text text-success"><i class="ti ti-check me-1"></i>Token is saved. Enter a new value to replace it.</div>
+                                                    <div class="form-text text-success"><i class="fas fa-check me-1"></i>Token is saved. Enter a new value to replace it.</div>
                                                 @endif
                                             @endif
                                             @if(!empty($field['help']))
@@ -267,7 +299,7 @@
                                 <div class="modal-footer">
                                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                                     <button type="submit" class="btn btn-primary">
-                                        <i class="ti ti-device-floppy me-1"></i> Save Changes
+                                        <i class="fas fa-save me-1"></i> Save Changes
                                     </button>
                                 </div>
                             </form>
@@ -283,7 +315,7 @@
                     <div class="modal-body text-center py-4 px-4">
                         <div class="mb-3">
                             <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger bg-opacity-10" style="width:52px;height:52px;">
-                                <i class="ti ti-trash text-danger fs-3"></i>
+                                <i class="fas fa-trash text-danger fs-3"></i>
                             </span>
                         </div>
                         <h6 class="fw-semibold mb-1">Delete this automation?</h6>
@@ -374,28 +406,70 @@ $(function () {
     // Delete All Chats
     $('#btn-clear-chats').on('click', function () {
         const $btn = $(this);
-        if (!confirm('Delete all tracked Telegram messages from all chats? This cannot be undone.')) return;
-        $btn.prop('disabled', true).html('<i class="ti ti-loader-2 ti-spin me-1"></i> Deleting…');
-        $httpClient.make().post($btn.data('url'))
-            .then(({ data: resp }) => {
-                Botble.showSuccess(resp.message || 'All chats cleared.');
-            })
-            .catch(() => Botble.showError('Failed to delete chats. Check the bot token in settings.'))
-            .finally(() => $btn.prop('disabled', false).html('<i class="ti ti-trash me-1"></i> Delete All Chats'));
+        $('#automationConfirmMsg').text('Delete all tracked Telegram messages from all chats? This cannot be undone.');
+        $('#automationConfirmOkBtn').data('callback', function () {
+            $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin me-1"></i> Deleting…');
+            $httpClient.make().post($btn.data('url'))
+                .then(({ data: resp }) => { Botble.showSuccess(resp.message || 'All chats cleared.'); })
+                .catch(() => Botble.showError('Failed to delete chats. Check the bot token in settings.'))
+                .finally(() => $btn.prop('disabled', false).html('<i class="fas fa-trash me-1"></i> Delete All Chats'));
+        });
+        new bootstrap.Modal(document.getElementById('automationConfirmModal')).show();
     });
 
     // Regenerate Today's Jobs
     $('#btn-regen-today').on('click', function () {
         const $btn = $(this);
-        if (!confirm('This will re-post all of today\'s jobs to all active Telegram automations. Continue?')) return;
-        $btn.prop('disabled', true).html('<i class="ti ti-loader-2 ti-spin me-1"></i> Posting…');
-        $httpClient.make().post($btn.data('url'))
-            .then(({ data: resp }) => {
-                Botble.showSuccess(resp.message || 'Today\'s jobs sent.');
-            })
-            .catch(() => Botble.showError('Failed to regenerate jobs.'))
-            .finally(() => $btn.prop('disabled', false).html('<i class="ti ti-refresh me-1"></i> Regenerate Today\'s Jobs'));
+        $('#automationConfirmMsg').text("This will re-post all of today's jobs to all active Telegram automations. Continue?");
+        $('#automationConfirmOkBtn').data('callback', function () {
+            $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin me-1"></i> Posting…');
+            $httpClient.make().post($btn.data('url'))
+                .then(({ data: resp }) => { Botble.showSuccess(resp.message || "Today's jobs sent."); })
+                .catch(() => Botble.showError('Failed to regenerate jobs.'))
+                .finally(() => $btn.prop('disabled', false).html('<i class="fas fa-sync me-1"></i> Regenerate Today\'s Jobs'));
+        });
+        new bootstrap.Modal(document.getElementById('automationConfirmModal')).show();
+    });
+
+    // WhatsApp Channel: Send Yesterday's Jobs
+    $('#btn-whapi-yesterday').on('click', function () {
+        const $btn = $(this);
+        $('#automationConfirmMsg').text("This will queue all of yesterday's jobs to all active WhatsApp Channel (Whapi) automations. Continue?");
+        $('#automationConfirmOkBtn').data('callback', function () {
+            $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin me-1"></i> Queuing…');
+            $httpClient.make().post($btn.data('url'))
+                .then(({ data: resp }) => { Botble.showSuccess(resp.message || "Yesterday's jobs queued for WhatsApp."); })
+                .catch(() => Botble.showError('Failed to queue WhatsApp jobs.'))
+                .finally(() => $btn.prop('disabled', false).html('<i class="ti ti-brand-whatsapp me-1"></i> WhatsApp: Yesterday\'s Jobs'));
+        });
+        new bootstrap.Modal(document.getElementById('automationConfirmModal')).show();
+    });
+
+    $('#automationConfirmOkBtn').on('click', function () {
+        bootstrap.Modal.getInstance(document.getElementById('automationConfirmModal'))?.hide();
+        const cb = $(this).data('callback');
+        if (typeof cb === 'function') cb();
     });
 });
 </script>
+@endpush
+
+@push('footer')
+<div class="modal fade" id="automationConfirmModal" tabindex="-1" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm Action</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p id="automationConfirmMsg" class="mb-0"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="automationConfirmOkBtn">Confirm</button>
+            </div>
+        </div>
+    </div>
+</div>
 @endpush

@@ -100,7 +100,7 @@ class SelectLocationField extends FormField
 
         $attr = array_merge($this->getOption('attr', []), [
             'id' => $countryKey,
-            'class' => 'select-search-full',
+            'class' => 'select-search-full select-search-location',
             'data-type' => 'country',
         ]);
 
@@ -133,7 +133,7 @@ class SelectLocationField extends FormField
             'data-url' => route('ajax.states-by-country'),
             'data-ajax-search-url' => route('ajax.search-states'),
             'data-country-id' => (string) ($countryId ?? ''),
-            'class' => 'select-search-full',
+            'class' => 'select-search-full select-search-location',
             'data-type' => 'state',
         ]);
 
@@ -168,7 +168,7 @@ class SelectLocationField extends FormField
             'data-ajax-search-url' => route('ajax.search-cities'),
             'data-country-id' => (string) ($countryId ?? ''),
             'data-state-id' => (string) ($stateId ?? ''),
-            'class' => 'select-search-full',
+            'class' => 'select-search-full select-search-location',
             'data-type' => 'city',
         ]);
 

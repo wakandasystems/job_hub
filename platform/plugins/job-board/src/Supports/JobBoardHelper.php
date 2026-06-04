@@ -74,6 +74,10 @@ class JobBoardHelper
 
     public function isEnabledJobApproval(): bool
     {
+        if (($env = env('JOB_BOARD_ENABLE_POST_APPROVAL')) !== null) {
+            return filter_var($env, FILTER_VALIDATE_BOOLEAN);
+        }
+
         return setting('job_board_enable_post_approval', 1) == 1;
     }
 

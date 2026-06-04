@@ -130,6 +130,8 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middlew
         })->name('public.social-register');
 
         Route::group(['prefix' => 'career-services', 'as' => 'public.career-service.'], function (): void {
+            Route::get('/', 'CareerServiceController@getListing')->name('listing');
+            Route::get('book/{service}', 'CareerServiceController@bookRedirect')->name('book');
             Route::get('cv-score', 'CareerServiceController@getCvScore')->name('cv-score');
             Route::post('cv-score', 'CareerServiceController@postCvScore')->name('cv-score.submit');
             Route::post('cv-score/profile', 'CareerServiceController@scoreProfileCv')->middleware('account')->name('cv-score.profile');

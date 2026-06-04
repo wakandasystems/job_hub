@@ -54,10 +54,9 @@ class JobForm extends FormAbstract
 
         Assets::usingVueJS();
 
-        /**
-         * @var Job $model
-         */
         $model = $this->getModel();
+        $job = $model instanceof Job ? $model : null;
+        $formModel = $job ?: new Job();
 
         $currencies = Currency::query()
             ->oldest('order')
@@ -75,8 +74,8 @@ class JobForm extends FormAbstract
             ->all();
 
         $selectedSkills = [];
-        if ($skills && $model) {
-            $selectedSkills = $model->skills()->pluck('job_skill_id')->all();
+        if ($skills && $job) {
+            $selectedSkills = $job->skills()->pluck('job_skill_id')->all();
         }
 
         $jobTypes = JobType::query()
@@ -89,8 +88,8 @@ class JobForm extends FormAbstract
             ->all();
 
         $selectedJobTypes = [];
-        if ($jobTypes && $model) {
-            $selectedJobTypes = $model->jobTypes()->pluck('job_type_id')->all();
+        if ($jobTypes && $job) {
+            $selectedJobTypes = $job->jobTypes()->pluck('job_type_id')->all();
         }
 
         $careerLevels = CareerLevel::query()
@@ -131,8 +130,8 @@ class JobForm extends FormAbstract
 
         $tags = null;
 
-        if ($model) {
-            $tags = $model
+        if ($job) {
+            $tags = $job
                 ->tags()
                 ->select('name')
                 ->get()
@@ -162,8 +161,8 @@ class JobForm extends FormAbstract
                     'id' => 'company_id',
                     'data-url' => route('companies.list'),
                 ],
-                'choices' => $model && $model->company_id
-                    ? [$model->company->id => $model->company->name]
+                'choices' => $job && $job->company_id
+                    ? [$job->company->id => $job->company->name]
                     : ['' => trans('plugins/job-board::forms.select_company')],
                 'help_block' => [
                     'text' => sprintf(
@@ -289,7 +288,7 @@ class JobForm extends FormAbstract
             ])
             ->add('application_closing_date', DatetimeField::class, [
                 'label' => trans('plugins/job-board::forms.application_closing_date'),
-                'value' => $model?->application_closing_date?->format('Y-m-d\TH:i') ?: '',
+                'value' => $job?->application_closing_date?->format('Y-m-d\TH:i') ?: '',
                 'colspan' => 6,
             ])
             ->add('apply_url', 'text', [
@@ -431,21 +430,32 @@ class JobForm extends FormAbstract
                 ],
             ])
             ->setBreakFieldPoint('status')
+            ->when($job && $job->getKey(), function (FormAbstract $form) use ($job): void {
+                $postKitUrl = route('jobs.post-kit', $job->getKey());
+                $form->addMetaBoxes([
+                    'post-kit' => [
+                        'title'    => 'Social Post Kit',
+                        'content'  => '<p style="font-size:13px;color:#64748b;margin-bottom:12px">Generate AI image prompts, video scripts, and platform post copy for this job.</p>'
+                            . '<a href="' . $postKitUrl . '" target="_blank" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:6px"><i class="fa fa-magic"></i> Open Post Kit</a>',
+                        'priority' => 5,
+                    ],
+                ]);
+            })
             ->addMetaBoxes([
                 'add-company' => [
                     'title' => null,
-                    'content' => view('plugins/job-board::partials.add-company', ['model' => $model]),
+                    'content' => view('plugins/job-board::partials.add-company', ['model' => $formModel]),
                     'priority' => 0,
                     'attributes' => ['style' => 'display: none'],
                 ],
                 'colleagues' => [
                     'title' => trans('plugins/job-board::forms.add_colleagues'),
                     'subtitle' => trans('plugins/job-board::forms.add_colleagues_subtitle'),
-                    'content' => view('plugins/job-board::partials.colleagues', ['model' => $model]),
+                    'content' => view('plugins/job-board::partials.colleagues', ['model' => $formModel]),
                     'priority' => 0,
                 ],
             ])
-            ->when(JobBoardHelper::isEnabledCustomFields(), function (FormAbstract $form) use ($model): void {
+            ->when(JobBoardHelper::isEnabledCustomFields(), function (FormAbstract $form) use ($formModel): void {
                 Assets::addScriptsDirectly('vendor/core/plugins/job-board/js/custom-fields.js');
 
                 $customFields = CustomField::query()
@@ -460,7 +470,7 @@ class JobForm extends FormAbstract
                         'content' => view('plugins/job-board::custom-fields.custom-fields', [
                             'options' => CustomFieldEnum::labels(),
                             'customFields' => $customFields,
-                            'model' => $model,
+                            'model' => $formModel,
                             'ajax' => is_in_admin(true) ? route('job-board.custom-fields.get-info') : route(
                                 'public.account.custom-fields.get-info'
                             ),

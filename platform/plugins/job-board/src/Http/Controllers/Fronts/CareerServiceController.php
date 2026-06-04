@@ -20,6 +20,36 @@ use Illuminate\Support\Str;
 
 class CareerServiceController extends BaseController
 {
+    public function getListing()
+    {
+        SeoHelper::setTitle('Career Services — CV, LinkedIn & Interview Coaching');
+
+        $services = CareerServiceOrder::services();
+        $servicePrices = collect($services)
+            ->mapWithKeys(fn (array $service, string $key): array => [$key => $this->careerServicePricing($service)]);
+
+        return Theme::scope('job-board.career-services.listing', compact('services', 'servicePrices'))->render();
+    }
+
+    public function bookRedirect(string $service)
+    {
+        $services = CareerServiceOrder::services();
+        abort_unless(array_key_exists($service, $services), 404);
+
+        if (auth('account')->check()) {
+            /** @var Account $account */
+            $account = auth('account')->user();
+            return redirect()->route('public.career-service.checkout', [
+                'service'   => $service,
+                'candidate' => $account->slug,
+            ]);
+        }
+
+        session(['url.intended' => route('public.career-service.checkout', ['service' => $service])]);
+
+        return redirect()->route('public.account.register');
+    }
+
     public function getCheckout(string $serviceType, Request $request)
     {
         $services = CareerServiceOrder::services();
@@ -148,6 +178,8 @@ class CareerServiceController extends BaseController
         }
 
         $order->update(['candidate_cv_path' => $path]);
+
+        $this->sendCvUploadedNotification($order);
 
         return redirect()
             ->route('public.career-service.thanks', ['order' => $orderId])
@@ -293,26 +325,61 @@ class CareerServiceController extends BaseController
         ];
     }
 
+    protected function adminEmail(): string
+    {
+        $raw = setting('admin_email') ?: config('mail.from.address');
+        if (is_string($raw) && str_starts_with(trim($raw), '[')) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && ! empty($decoded[0])) {
+                return $decoded[0];
+            }
+        }
+        return $raw ?: 'lemelnow@gmail.com';
+    }
+
     protected function sendConfirmationEmail(CareerServiceOrder $order): void
     {
-        $adminEmail = setting('admin_email') ?: config('mail.from.address');
-        if (! $adminEmail) return;
+        $adminEmail = $this->adminEmail();
+
+        $editUrl = url('/admin/career-service-orders/edit/' . $order->id);
 
         try {
             Mail::raw(
                 "New Career Service Order\n\n" .
-                "Service: {$order->service_name}\n" .
-                "Amount: {$order->currency} {$order->amount}\n" .
+                "Service:  {$order->service_name}\n" .
+                "Amount:   {$order->currency} {$order->amount}\n" .
                 "Customer: {$order->customer_name} ({$order->customer_email})\n" .
-                "Phone: {$order->customer_phone}\n" .
-                "Payment: {$order->payment_method} — {$order->charge_id}\n",
+                "Phone:    {$order->customer_phone}\n" .
+                "Payment:  {$order->payment_method} — {$order->charge_id}\n\n" .
+                "Manage order: {$editUrl}",
                 function ($msg) use ($adminEmail, $order) {
                     $msg->to($adminEmail)
-                        ->subject("Career Service Booked: {$order->service_name}");
+                        ->subject("New Career Service Order: {$order->service_name} — {$order->customer_name}");
                 }
             );
         } catch (\Throwable) {
-            // Non-fatal — log silently
+        }
+    }
+
+    protected function sendCvUploadedNotification(CareerServiceOrder $order): void
+    {
+        $adminEmail = $this->adminEmail();
+        $editUrl = url('/admin/career-service-orders/edit/' . $order->id);
+
+        try {
+            Mail::raw(
+                "CV Uploaded by Candidate\n\n" .
+                "Order #:   {$order->id}\n" .
+                "Service:   {$order->service_name}\n" .
+                "Customer:  {$order->customer_name} ({$order->customer_email})\n\n" .
+                "The candidate has uploaded their CV. You can now download it and begin the review.\n\n" .
+                "Manage order: {$editUrl}",
+                function ($msg) use ($adminEmail, $order) {
+                    $msg->to($adminEmail)
+                        ->subject("CV Uploaded — Order #{$order->id}: {$order->customer_name}");
+                }
+            );
+        } catch (\Throwable) {
         }
     }
 }

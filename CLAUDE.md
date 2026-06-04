@@ -100,7 +100,7 @@ Three tables: `jb_job_alert_packages`, `jb_job_alert_orders`, `jb_job_alert_quot
 
 ## Conventions
 
-- **Bootstrap modals over `onclick confirm()`** — all destructive/irreversible admin actions use Bootstrap modal confirmations. Wire with `data-bs-toggle="modal"` + `data-action` on the trigger button; populate the form `action` via the `show.bs.modal` event in a `@push('footer')` script block.
+- **NEVER use native browser dialogs** — `alert()`, `confirm()`, and `prompt()` are banned everywhere in the codebase (admin AND frontend theme). Use Bootstrap modals instead. For admin JS notifications use `Botble.showSuccess(msg)` / `Botble.showError(msg)`. For frontend theme error feedback use a Bootstrap modal. For inline validation inside an existing modal, add a dismissible `.alert.alert-danger` div inside the same modal instead of opening a new one. The `window.prompt()` copy-link fallback must use a Bootstrap modal with a readonly text input.
 - **Admin email notifications** — use `setting('admin_email') ?: config('mail.from.address')` and `Mail::raw()` wrapped in `try/catch(\Throwable)` (non-fatal).
 - **New payment checkout types** — add a hidden `<input name="<type>_id">` to the checkout form, handle it first in `PAYMENT_FILTER_PAYMENT_DATA` (store session keys `<type>_callback_url`, `<type>_return_url`, `<type>_order_id`), then in `PAYMENT_ACTION_PAYMENT_PROCESSED`, `PAYMENT_FILTER_REDIRECT_URL`, and `PAYMENT_FILTER_CANCEL_URL`.
 - **Migrations always `--force`** — production environment blocks interactive prompts.

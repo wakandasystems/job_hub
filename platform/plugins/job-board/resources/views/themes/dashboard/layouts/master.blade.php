@@ -45,6 +45,40 @@
         @stack('footer')
         {!! apply_filters(THEME_FRONT_FOOTER, null) !!}
 
+        @if (Session::has('company_setup_required'))
+            <div class="modal modal-blur fade" id="companySetupModal" tabindex="-1" role="dialog" aria-modal="true">
+                <div class="modal-dialog modal-sm modal-dialog-centered" role="document">
+                    <div class="modal-content">
+                        <div class="modal-body">
+                            <div class="modal-title text-center mb-2" style="font-size:2.5rem;">🏢</div>
+                            <h3 class="text-center mb-1">Set up your company first</h3>
+                            <div class="text-center text-muted mb-0">You need a company profile before you can post jobs. It only takes a minute.</div>
+                        </div>
+                        <div class="modal-footer">
+                            <div class="w-100">
+                                <div class="row">
+                                    <div class="col">
+                                        <button type="button" class="btn w-100" data-bs-dismiss="modal">Maybe later</button>
+                                    </div>
+                                    <div class="col">
+                                        <a href="{{ route('public.account.companies.create') }}" class="btn btn-primary w-100">
+                                            Create Company
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <script>
+                document.addEventListener('DOMContentLoaded', function () {
+                    var modal = new bootstrap.Modal(document.getElementById('companySetupModal'));
+                    modal.show();
+                });
+            </script>
+        @endif
+
         @if (Session::has('success_msg') || Session::has('error_msg') || (isset($errors) && $errors->any()) || isset($error_msg))
             <script type="text/javascript">
                 $(function() {

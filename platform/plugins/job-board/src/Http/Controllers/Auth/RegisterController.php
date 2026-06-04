@@ -190,14 +190,18 @@ class RegisterController extends BaseController
 
     protected function create(array $data)
     {
+        $isEmployer = ($data['type'] ?? null) == AccountTypeEnum::EMPLOYER;
+
         return Account::query()->forceCreate([
-            'type' => $data['type'],
-            'first_name' => $data['first_name'],
-            'last_name' => $data['last_name'],
-            'email' => $data['email'],
-            'phone' => Arr::get($data, 'phone'),
-            'password' => Hash::make($data['password']),
-            'is_public_profile' => true,
+            'type'                     => $data['type'],
+            'first_name'               => $data['first_name'],
+            'last_name'                => $data['last_name'],
+            'email'                    => $data['email'],
+            'phone'                    => Arr::get($data, 'phone'),
+            'password'                 => Hash::make($data['password']),
+            'is_public_profile'        => true,
+            'free_credits'             => $isEmployer ? 25 : 0,
+            'free_credits_refreshed_at' => $isEmployer ? now() : null,
         ]);
     }
 }

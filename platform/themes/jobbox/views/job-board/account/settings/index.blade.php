@@ -1293,4 +1293,37 @@
         });
     </script>
 
+    {{-- Avatar delete confirmation modal --}}
+    <div class="modal fade" id="avatarDeleteModal" tabindex="-1" aria-modal="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content">
+                <div class="modal-body text-center py-4">
+                    <div class="mb-3">
+                        <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger bg-opacity-10" style="width:52px;height:52px;">
+                            <i class="ti ti-trash text-danger fs-3"></i>
+                        </span>
+                    </div>
+                    <h6 class="fw-semibold mb-1">{{ __('Remove Avatar') }}</h6>
+                    <p class="text-muted small mb-0">{{ __('Are you sure you want to remove this avatar?') }}</p>
+                </div>
+                <div class="modal-footer justify-content-center gap-2">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">{{ __('Cancel') }}</button>
+                    <button type="button" class="btn btn-danger btn-sm" id="avatarDeleteConfirmBtn">{{ __('Remove') }}</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Override main.js avatar delete confirm → Bootstrap modal
+        $(document).off('click', '.btn-remove-avatar');
+        $(document).on('click', '.btn-remove-avatar', function (e) {
+            e.preventDefault();
+            new bootstrap.Modal(document.getElementById('avatarDeleteModal')).show();
+        });
+        document.getElementById('avatarDeleteConfirmBtn').addEventListener('click', function () {
+            bootstrap.Modal.getInstance(document.getElementById('avatarDeleteModal'))?.hide();
+            document.getElementById('delete-avatar-form').submit();
+        });
+    </script>
+
 @endsection

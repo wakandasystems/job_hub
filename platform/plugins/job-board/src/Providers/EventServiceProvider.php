@@ -19,7 +19,6 @@ use Botble\JobBoard\Listeners\SendJobAlertListener;
 use Botble\JobBoard\Listeners\SendNewsletterJobAlertListener;
 use Botble\JobBoard\Listeners\SendPushNotificationListener;
 use Botble\JobBoard\Listeners\SocialPublishListener;
-use Botble\JobBoard\Listeners\SubscribeApplicantToNewsletterListener;
 use Botble\JobBoard\Listeners\SubscribedPackageListener;
 use Botble\JobBoard\Listeners\UpdatedContentListener;
 use Botble\Payment\Events\PaymentWebhookReceived;
@@ -54,7 +53,6 @@ class EventServiceProvider extends ServiceProvider
         JobAppliedEvent::class => [
             JobAppliedListener::class,
             NewApplicationNotification::class,
-            SubscribeApplicantToNewsletterListener::class,
         ],
         PaymentWebhookReceived::class => [
             SubscribedPackageListener::class,

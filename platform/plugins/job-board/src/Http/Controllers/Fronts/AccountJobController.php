@@ -66,11 +66,8 @@ class AccountJobController extends BaseController
         }
 
         if (JobBoardHelper::employerManageCompanyInfo() && ! $account->companies()->exists()) {
-            return $this
-                ->httpResponse()
-                ->setError()
-                ->setNextUrl(route('public.account.companies.create'))
-                ->setMessage(trans('plugins/job-board::messages.please_update_company_info'));
+            return redirect()->route('public.account.dashboard')
+                ->with('company_setup_required', true);
         }
 
         $this->pageTitle(trans('plugins/job-board::messages.post_job'));
@@ -145,10 +142,7 @@ class AccountJobController extends BaseController
             'reference_url' => route('public.account.jobs.edit', $job->id),
         ]);
 
-        if (JobBoardHelper::isEnabledCreditsSystem() && $account->credits > 0) {
-            $account->credits--;
-            $account->save();
-        }
+        $account->spendCredits();
 
         if (Job::query()->whereKey($job->getKey())->value('status')->getValue() == JobStatusEnum::PUBLISHED) {
             EmployerPostedJobEvent::dispatch($job, $account);
@@ -300,7 +294,7 @@ class AccountJobController extends BaseController
          * @var Account $account
          */
         $account = auth('account')->user();
-        if ($account->credits < 1) {
+        if (JobBoardHelper::isEnabledCreditsSystem() && ! $account->canPost()) {
             return $this
                 ->httpResponse()->setError()->setMessage(trans('plugins/job-board::messages.not_enough_credit_renew'));
         }
@@ -308,10 +302,7 @@ class AccountJobController extends BaseController
         $job->expire_date = $job->expire_date->addDays(JobBoardHelper::jobExpiredDays());
         $job->save();
 
-        if (JobBoardHelper::isEnabledCreditsSystem() && $account->credits > 0) {
-            $account->credits--;
-            $account->save();
-        }
+        $account->spendCredits();
 
         AccountActivityLog::query()->create([
             'action' => 'renew_job',

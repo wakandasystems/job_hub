@@ -125,10 +125,6 @@
     .talent-filter-card {
         overflow: visible;
     }
-    .talent-filter-wrap {
-        padding-left: 12px;
-        padding-right: 98px;
-    }
     .talent-location-disabled .select2-selection {
         background: #f8f9fc !important;
         cursor: not-allowed;
@@ -252,10 +248,6 @@
         color: #fff !important;
     }
     @media (max-width: 767px) {
-        .talent-filter-wrap {
-            padding-left: 16px;
-            padding-right: 16px;
-        }
         .talent-filter-card {
             padding: 20px !important;
         }
@@ -288,9 +280,9 @@
     </section>
 
     {{-- Filter card --}}
-    <section class="section-box mt-30 mb-10">
-        <div class="talent-filter-wrap">
-            <div class="box-shadow-bdrd-15 p-30 talent-filter-card">
+    <section class="section-box-2 mt-30 mb-10">
+        <div class="container">
+            <div class="box-shadow-bdrd-15 p-30 talent-filter-card" style="padding-left:16px;padding-right:16px;">
                 {{-- Row 1: keyword + skills + state + city --}}
                 <div class="row g-3 mb-20">
                     <div class="col-xl-3 col-lg-6 col-md-12">

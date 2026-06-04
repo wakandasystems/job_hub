@@ -71,6 +71,19 @@ class HookServiceProvider extends ServiceProvider
         add_filter(BASE_FILTER_APPEND_MENU_NAME, [$this, 'countPendingApplications'], 26, 2);
         add_filter(BASE_FILTER_MENU_ITEMS_COUNT, [$this, 'getMenuItemCount'], 26);
 
+        add_filter('cms_email_settings_validation_rules', function (array $rules) {
+            $rules['job_board_newsletter_broadcast_enabled'] = ['nullable', 'boolean'];
+            return $rules;
+        });
+
+        // Restart queue workers whenever email settings are saved so they pick up the new mailer config
+        add_action('core_after_update_settings', function (array $data): void {
+            $emailKeys = ['email_driver', 'email_host', 'email_port', 'email_encryption', 'email_username', 'email_password'];
+            if (count(array_intersect($emailKeys, array_keys($data))) > 0) {
+                \Illuminate\Support\Facades\Artisan::call('queue:restart');
+            }
+        });
+
         $this->app['events']->listen(RenderingDashboardWidgets::class, function (): void {
             add_filter(DASHBOARD_FILTER_ADMIN_LIST, [$this, 'registerDashboardStats'], 5, 2);
         });

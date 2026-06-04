@@ -21,4 +21,7 @@
     @if (in_array('salary-checker', $menuPaths, true) && ! in_array('career-services/cv-score', $menuPaths, true))
         <li><a href="{{ route('public.career-service.cv-score') }}">{{ __('AI CV Score') }}</a></li>
     @endif
+    @if (in_array('salary-checker', $menuPaths, true) && ! in_array('career-services', $menuPaths, true))
+        <li><a href="{{ route('public.career-service.listing') }}">{{ __('Career Services') }}</a></li>
+    @endif
 </ul>

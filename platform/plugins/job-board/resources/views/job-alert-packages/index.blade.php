@@ -41,10 +41,9 @@
                         <td>{{ $pkg->sort_order }}</td>
                         <td class="text-end">
                             <a href="{{ route('career-alert-packages.edit', $pkg) }}" class="btn btn-sm btn-outline-primary">Edit</a>
-                            <form method="POST" action="{{ route('career-alert-packages.destroy', $pkg) }}" class="d-inline"
-                                  onsubmit="return confirm('Delete this package?')">
+                            <form method="POST" action="{{ route('career-alert-packages.destroy', $pkg) }}" class="d-inline pkg-delete-form">
                                 @csrf @method('DELETE')
-                                <button class="btn btn-sm btn-outline-danger">Delete</button>
+                                <button type="button" class="btn btn-sm btn-outline-danger btn-pkg-delete">Delete</button>
                             </form>
                         </td>
                     </tr>
@@ -55,4 +54,44 @@
         </table>
     </x-core::card.body>
 </x-core::card>
+{{-- Delete confirmation modal --}}
+<div class="modal fade" id="pkgDeleteModal" tabindex="-1" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-body text-center py-4">
+                <div class="mb-3">
+                    <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger bg-opacity-10" style="width:52px;height:52px;">
+                        <i class="ti ti-trash text-danger fs-3"></i>
+                    </span>
+                </div>
+                <h6 class="fw-semibold mb-1">Delete this package?</h6>
+                <p class="text-muted small mb-0">This cannot be undone.</p>
+            </div>
+            <div class="modal-footer justify-content-center gap-2">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="pkgDeleteConfirmBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@push('footer')
+<script>
+let _pkgDeleteForm = null;
+const pkgDeleteModal = new bootstrap.Modal(document.getElementById('pkgDeleteModal'));
+
+document.querySelectorAll('.btn-pkg-delete').forEach(btn => {
+    btn.addEventListener('click', function () {
+        _pkgDeleteForm = this.closest('.pkg-delete-form');
+        pkgDeleteModal.show();
+    });
+});
+
+document.getElementById('pkgDeleteConfirmBtn').addEventListener('click', function () {
+    pkgDeleteModal.hide();
+    if (_pkgDeleteForm) _pkgDeleteForm.submit();
+});
+</script>
+@endpush
+
 @endsection

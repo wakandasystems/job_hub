@@ -16,7 +16,10 @@ use Botble\Table\Columns\IdColumn;
 use Botble\Table\Columns\NameColumn;
 use Botble\Table\Columns\StatusColumn;
 use Botble\Table\HeaderActions\HeaderAction;
+use Illuminate\Contracts\View\Factory;
+use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
+use Symfony\Component\HttpFoundation\Response;
 
 class NewsletterTable extends TableAbstract
 {
@@ -62,5 +65,12 @@ class NewsletterTable extends TableAbstract
     public function getDefaultButtons(): array
     {
         return array_unique(array_merge(['export'], parent::getDefaultButtons()));
+    }
+
+    public function renderTable(array $data = [], array $mergeData = []): View|Factory|Response
+    {
+        $this->setView('plugins/newsletter::index');
+
+        return parent::renderTable($data, $mergeData);
     }
 }

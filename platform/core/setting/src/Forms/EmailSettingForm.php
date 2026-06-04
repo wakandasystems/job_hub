@@ -5,9 +5,11 @@ namespace Botble\Setting\Forms;
 use Botble\Base\Facades\Assets;
 use Botble\Base\Facades\BaseHelper;
 use Botble\Base\Forms\FieldOptions\NumberFieldOption;
+use Botble\Base\Forms\FieldOptions\OnOffFieldOption;
 use Botble\Base\Forms\FieldOptions\SelectFieldOption;
 use Botble\Base\Forms\FieldOptions\TextFieldOption;
 use Botble\Base\Forms\Fields\NumberField;
+use Botble\Base\Forms\Fields\OnOffField;
 use Botble\Base\Forms\Fields\PasswordField;
 use Botble\Base\Forms\Fields\SelectField;
 use Botble\Base\Forms\Fields\TextField;
@@ -259,9 +261,16 @@ class EmailSettingForm extends SettingForm
                     ->placeholder(trans('core/setting::setting.email.sender_email_placeholder', ['default' => 'admin@example.com']))
                     ->helperText(trans('core/setting::setting.email.sender_email_helper'))
                     ->maxLength(60)
-                    ->wrapperAttributes([
-                        'class' => 'mb-0',
-                    ])
+            )
+            ->add(
+                'job_board_newsletter_broadcast_enabled',
+                OnOffField::class,
+                OnOffFieldOption::make()
+                    ->label('Newsletter job broadcast')
+                    ->helperText('When ON, every newly published job is emailed to all newsletter subscribers. Keep OFF until you are ready — it generates one email per subscriber per job.')
+                    ->defaultValue(false)
+                    ->value(old('job_board_newsletter_broadcast_enabled', setting('job_board_newsletter_broadcast_enabled', false)))
+                    ->wrapperAttributes(['class' => 'mb-0'])
             );
     }
 }

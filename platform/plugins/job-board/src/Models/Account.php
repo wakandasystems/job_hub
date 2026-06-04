@@ -57,6 +57,8 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
         'package_id',
         'type',
         'credits',
+        'free_credits',
+        'free_credits_refreshed_at',
         'resume',
         'address',
         'bio',
@@ -97,8 +99,9 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
         'cv_score_history'   => 'array',
         'talent_hub_consent'  => 'boolean',
         'profile_updated_at'  => 'datetime',
-        'wakanda_verified'    => 'boolean',
-        'wakanda_verified_at' => 'datetime',
+        'wakanda_verified'        => 'boolean',
+        'wakanda_verified_at'     => 'datetime',
+        'free_credits_refreshed_at' => 'datetime',
     ];
 
     public static function experienceYearsOptions(): array
@@ -254,7 +257,30 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
 
     public function canPost(): bool
     {
-        return $this->credits > 0 || ! JobBoardHelper::isEnabledCreditsSystem();
+        return ($this->credits + ($this->free_credits ?? 0)) > 0 || ! JobBoardHelper::isEnabledCreditsSystem();
+    }
+
+    public function spendCredits(int $amount = 1): bool
+    {
+        if (! JobBoardHelper::isEnabledCreditsSystem()) {
+            return true;
+        }
+
+        $freeBalance = (int) ($this->free_credits ?? 0);
+        $paidBalance = (int) ($this->credits ?? 0);
+
+        if ($freeBalance + $paidBalance < $amount) {
+            return false;
+        }
+
+        $fromFree = min($freeBalance, $amount);
+        $fromPaid = $amount - $fromFree;
+
+        $this->free_credits = $freeBalance - $fromFree;
+        $this->credits      = $paidBalance - $fromPaid;
+        $this->save();
+
+        return true;
     }
 
     public function isEmployer(): bool

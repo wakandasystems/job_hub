@@ -108,7 +108,7 @@
                         </div>
                         <button type="submit" class="btn btn-success">
                             <i class="ti ti-upload me-1"></i>
-                            {{ $order->reviewed_cv_path ? 'Replace Reviewed CV' : 'Upload &amp; Mark as Delivered' }}
+                            {{ $order->reviewed_cv_path ? 'Replace Reviewed CV' : 'Upload & Mark as Delivered' }}
                         </button>
                     </form>
                 </x-core::card.body>
@@ -116,6 +116,93 @@
         </div>
 
         <div class="col-lg-4">
+
+            {{-- Send email --}}
+            <x-core::card class="mb-3">
+                <x-core::card.header>
+                    <x-core::card.title>
+                        <i class="ti ti-send me-1"></i>Send Email to Customer
+                    </x-core::card.title>
+                </x-core::card.header>
+                <x-core::card.body>
+                    @if($order->customer_phone)
+                        <div class="alert alert-light border py-2 px-3 mb-3 small">
+                            <i class="ti ti-phone me-1 text-muted"></i>
+                            <strong>Candidate phone:</strong> {{ $order->customer_phone }}
+                        </div>
+                    @endif
+                    <form method="POST" action="{{ route('career-service-orders.send-email', $order) }}" id="send-email-form">
+                        @csrf
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold">To</label>
+                            <input class="form-control" type="email" name="to_email"
+                                value="{{ $order->customer_email }}" required>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold">Subject</label>
+                            <input class="form-control" type="text" name="subject"
+                                placeholder="e.g. We need your CV to proceed" required
+                                value="Action Required: CV Needed for Your {{ $order->service_name }}">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Message</label>
+                            <textarea class="form-control" name="body" rows="7" required
+                                placeholder="Type your message here...">Hi {{ $order->customer_name }},
+
+Thank you for purchasing our {{ $order->service_name }} service.
+
+To get started with your order, we need you to upload your CV. Please log in to your Wakanda Jobs account and upload your CV from your order page.
+
+If you have any questions, feel free to reply to this email.
+
+Best regards,
+Wakanda Jobs Team</textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="ti ti-send me-1"></i>Send Email
+                        </button>
+                    </form>
+                </x-core::card.body>
+            </x-core::card>
+
+            {{-- Email log --}}
+            <x-core::card class="mb-3">
+                <x-core::card.header>
+                    <x-core::card.title>
+                        <i class="ti ti-history me-1"></i>Email History
+                    </x-core::card.title>
+                </x-core::card.header>
+                <x-core::card.body class="{{ $emailLogs->isEmpty() ? '' : 'p-0' }}">
+                    @if($emailLogs->isEmpty())
+                        <p class="text-muted mb-0 small">No emails sent yet for this order.</p>
+                    @else
+                        <div class="list-group list-group-flush rounded">
+                            @foreach($emailLogs as $log)
+                                <div class="list-group-item px-3 py-2">
+                                    <div class="d-flex justify-content-between align-items-start mb-1">
+                                        <span class="fw-semibold small text-truncate me-2" style="max-width:160px;" title="{{ $log->subject }}">{{ $log->subject }}</span>
+                                        <span class="text-muted" style="font-size:11px;white-space:nowrap;">
+                                            {{ \Carbon\Carbon::parse($log->created_at)->format('d M H:i') }}
+                                        </span>
+                                    </div>
+                                    <div class="text-muted small">To: {{ $log->to_email }}</div>
+                                    <div class="text-muted" style="font-size:11px;">By: {{ $log->sent_by }}</div>
+                                    <button type="button"
+                                        class="btn btn-link btn-sm p-0 mt-1 text-decoration-none"
+                                        data-bs-toggle="collapse"
+                                        data-bs-target="#email-body-{{ $log->id }}">
+                                        <i class="ti ti-eye me-1"></i>View message
+                                    </button>
+                                    <div class="collapse mt-2" id="email-body-{{ $log->id }}">
+                                        <div class="bg-light rounded p-2 small" style="white-space:pre-wrap;">{{ $log->body }}</div>
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
+                </x-core::card.body>
+            </x-core::card>
+
             <x-core::card>
                 <x-core::card.header>
                     <x-core::card.title>Customer</x-core::card.title>
@@ -146,7 +233,7 @@
                                     'cancelled' => 'danger',
                                 ];
                             @endphp
-                            <span class="badge bg-{{ $statusColors[$order->delivery_status] ?? 'secondary' }}">
+                            <span class="badge bg-{{ $statusColors[$order->delivery_status] ?? 'secondary' }} text-white">
                                 {{ $deliveryStatuses[$order->delivery_status] ?? $order->delivery_status }}
                             </span>
                         </dd>

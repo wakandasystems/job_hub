@@ -108,6 +108,8 @@ AdminHelper::registerRoutes(function (): void {
         Route::post('{career_service_order}/upload-reviewed-cv', [CareerServiceOrderController::class, 'uploadReviewedCv'])->name('upload-reviewed-cv');
         Route::get('{career_service_order}/download-candidate-cv', [CareerServiceOrderController::class, 'downloadCandidateCv'])->name('download-candidate-cv');
         Route::get('{career_service_order}/download-reviewed-cv', [CareerServiceOrderController::class, 'downloadReviewedCv'])->name('download-reviewed-cv');
+        Route::post('{career_service_order}/send-email', [CareerServiceOrderController::class, 'sendEmail'])->name('send-email');
+        Route::delete('bulk-delete', [CareerServiceOrderController::class, 'bulkDestroy'])->name('bulk-destroy');
     });
 
     Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers', 'prefix' => 'job-board', 'middleware' => 'auth'], function (): void {
@@ -182,6 +184,18 @@ AdminHelper::registerRoutes(function (): void {
                 'uses' => 'JobController@analytics',
                 'permission' => 'jobs.index',
             ])->wherePrimaryKey();
+
+            Route::get('{id}/generate-cover-image', [
+                'as'         => 'generate-cover-image',
+                'uses'       => 'JobCoverImageController@generate',
+                'permission' => 'jobs.edit',
+            ])->wherePrimaryKey();
+
+            Route::get('{job}/post-kit', [
+                'as'         => 'post-kit',
+                'uses'       => 'TelegramSocialMessageController@showAdmin',
+                'permission' => 'jobs.edit',
+            ])->wherePrimaryKey();
         });
 
         Route::group(['prefix' => 'automations', 'as' => 'job-board.automations.'], function (): void {
@@ -224,6 +238,12 @@ AdminHelper::registerRoutes(function (): void {
             Route::post('actions/regenerate-today', [
                 'as'         => 'regenerate-today',
                 'uses'       => 'SocialAutomationController@regenerateTodayJobs',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('actions/whapi-send-yesterday', [
+                'as'         => 'whapi-send-yesterday',
+                'uses'       => 'SocialAutomationController@whapiSendYesterdayJobs',
                 'permission' => 'job-board.automations.index',
             ]);
         });

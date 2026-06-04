@@ -84,6 +84,7 @@ class Job extends BaseModel
         'facebook_image',
         'linkedin_image',
         'whatsapp_image',
+        'twitter_image',
     ];
 
     protected $casts = [

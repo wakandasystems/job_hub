@@ -7,6 +7,9 @@ use Botble\Base\Http\Responses\BaseHttpResponse;
 use Botble\Base\Supports\Breadcrumb;
 use Botble\JobBoard\Models\CareerServiceOrder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
@@ -65,9 +68,15 @@ class CareerServiceOrderController extends BaseController
 
         $deliveryStatuses = CareerServiceOrder::deliveryStatuses();
 
+        $emailLogs = DB::table('jb_career_service_email_logs')
+            ->where('order_id', $careerServiceOrder->id)
+            ->orderByDesc('created_at')
+            ->get();
+
         return view('plugins/job-board::career-service-orders.edit', [
             'order' => $careerServiceOrder,
             'deliveryStatuses' => $deliveryStatuses,
+            'emailLogs' => $emailLogs,
         ]);
     }
 
@@ -92,6 +101,31 @@ class CareerServiceOrderController extends BaseController
             ->setPreviousUrl(route('career-service-orders.index'))
             ->setNextUrl(route('career-service-orders.edit', $careerServiceOrder))
             ->setMessage('Career service order updated successfully.');
+    }
+
+    public function bulkDestroy(Request $request, BaseHttpResponse $response)
+    {
+        $ids = array_filter(array_map('intval', (array) $request->input('ids', [])));
+
+        if (empty($ids)) {
+            return $response->setError()->setMessage('No orders selected.');
+        }
+
+        $orders = CareerServiceOrder::query()->whereIn('id', $ids)->get();
+
+        foreach ($orders as $order) {
+            if ($order->candidate_cv_path) {
+                Storage::disk('local')->delete($order->candidate_cv_path);
+            }
+            if ($order->reviewed_cv_path) {
+                Storage::disk('local')->delete($order->reviewed_cv_path);
+            }
+            $order->delete();
+        }
+
+        return $response
+            ->setNextUrl(route('career-service-orders.index'))
+            ->setMessage(count($orders) . ' order(s) deleted successfully.');
     }
 
     public function destroy(CareerServiceOrder $careerServiceOrder, BaseHttpResponse $response)
@@ -151,6 +185,45 @@ class CareerServiceOrderController extends BaseController
             $careerServiceOrder->candidate_cv_path,
             'candidate-cv-order-' . str_pad($careerServiceOrder->id, 6, '0', STR_PAD_LEFT) . '.' . pathinfo($careerServiceOrder->candidate_cv_path, PATHINFO_EXTENSION)
         );
+    }
+
+    public function sendEmail(CareerServiceOrder $careerServiceOrder, Request $request, BaseHttpResponse $response)
+    {
+        $validated = $request->validate([
+            'to_email' => ['required', 'email'],
+            'subject'  => ['required', 'string', 'max:255'],
+            'body'     => ['required', 'string'],
+        ]);
+
+        try {
+            Mail::raw($validated['body'], function ($m) use ($validated, $careerServiceOrder): void {
+                $m->to($validated['to_email'])
+                  ->subject($validated['subject'])
+                  ->replyTo(
+                      setting('email_from_address', config('mail.from.address')),
+                      setting('email_from_name', config('mail.from.name'))
+                  );
+            });
+
+            DB::table('jb_career_service_email_logs')->insert([
+                'order_id'   => $careerServiceOrder->id,
+                'to_email'   => $validated['to_email'],
+                'subject'    => $validated['subject'],
+                'body'       => $validated['body'],
+                'sent_by'    => Auth::user()?->name ?? 'Admin',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            return $response
+                ->setError()
+                ->setNextUrl(route('career-service-orders.edit', $careerServiceOrder))
+                ->setMessage('Failed to send email: ' . $e->getMessage());
+        }
+
+        return $response
+            ->setNextUrl(route('career-service-orders.edit', $careerServiceOrder))
+            ->setMessage('Email sent successfully to ' . $validated['to_email']);
     }
 
     public function downloadReviewedCv(CareerServiceOrder $careerServiceOrder)

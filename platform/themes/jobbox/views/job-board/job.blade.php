@@ -111,9 +111,11 @@
     <div class="container">
         <div class="banner-hero banner-image-single">
            <div class="wrap-cover-image">
-               @if(! $job->hide_company && $company->id && $company->cover_image_url)
+               @if($job->cover_image)
+                   <img src="{{ \Illuminate\Support\Facades\Storage::disk('public')->url($job->cover_image) }}" alt="{{ $job->name }}">
+               @elseif(! $job->hide_company && $company->id && $company->cover_image_url)
                    <img src="{{ $company->cover_image_url }}" alt="{{ $company->name }}">
-               @elseif (theme_option('default_company_cover_image'))
+               @elseif(theme_option('default_company_cover_image'))
                    <img src="{{ RvMedia::getImageUrl(theme_option('default_company_cover_image')) }}" alt="{{ $company->name }}">
                @else
                    <img src="{{ Theme::asset()->url('imgs/backgrounds/cover-image-default.png') }}" alt="{{ $company->name }}">

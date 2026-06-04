@@ -730,6 +730,11 @@ class JobBoardServiceProvider extends ServiceProvider
                         'name' => 'plugins/job-board::dashboard.menu.jobs',
                         'url' => fn () => route('public.account.jobs.index'),
                         'icon' => 'ti ti-briefcase',
+                        'badge' => fn () => Job::query()
+                            ->where('author_id', auth('account')->id())
+                            ->where('author_type', Account::class)
+                            ->where('status', 'published')
+                            ->count() ?: null,
                     ])
                     ->when(JobBoardHelper::employerManageCompanyInfo(), function (DashboardMenuSupport $dashboardMenu): void {
                         $dashboardMenu
@@ -740,6 +745,7 @@ class JobBoardServiceProvider extends ServiceProvider
                                 'name' => 'plugins/job-board::dashboard.menu.companies',
                                 'url' => fn () => route('public.account.companies.index'),
                                 'icon' => 'ti ti-building',
+                                'badge' => fn () => auth('account')->user()?->companies()->count() ?: null,
                             ]);
                     })
                     ->when(JobBoardHelper::isEnabledReview(), function (DashboardMenuSupport $dashboardMenu): void {
@@ -751,6 +757,7 @@ class JobBoardServiceProvider extends ServiceProvider
                                 'name' => 'plugins/job-board::dashboard.menu.reviews',
                                 'url' => fn () => route('public.account.reviews.index'),
                                 'icon' => 'ti ti-star',
+                                'badge' => fn () => auth('account')->user()?->reviews()->count() ?: null,
                             ]);
                     })
                     ->registerItem([
@@ -760,6 +767,7 @@ class JobBoardServiceProvider extends ServiceProvider
                         'name' => 'plugins/job-board::dashboard.menu.applicants',
                         'url' => fn () => route('public.account.applicants.index'),
                         'icon' => 'ti ti-users-group',
+                        'badge' => fn () => auth('account')->user()?->applicants()->count() ?: null,
                     ])
                     ->when(JobBoardHelper::isEnabledCreditsSystem(), static function (DashboardMenuSupport $dashboardMenu): void {
                         $dashboardMenu
@@ -770,6 +778,10 @@ class JobBoardServiceProvider extends ServiceProvider
                                 'name' => 'plugins/job-board::dashboard.menu.invoices',
                                 'url' => fn () => route('public.account.invoices.index'),
                                 'icon' => 'ti ti-file-invoice',
+                                'badge' => static fn () => Invoice::query()
+                                    ->whereHas('payment', static fn ($q) => $q->where('customer_id', auth('account')->id()))
+                                    ->where('status', 'pending')
+                                    ->count() ?: null,
                             ])
                             ->registerItem([
                                 'id' => 'cms-account-credits',

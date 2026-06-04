@@ -45,7 +45,15 @@ document.addEventListener("DOMContentLoaded", function() {
             const selectedAccountType = document.querySelector("input[name=\"account_type\"]:checked");
 
             if (!selectedAccountType) {
-                alert("{{ trans('plugins/job-board::account.registration.please_select_account_type') }}");
+                let errEl = document.getElementById('account-type-error');
+                if (!errEl) {
+                    errEl = document.createElement('div');
+                    errEl.id = 'account-type-error';
+                    errEl.className = 'alert alert-danger mt-2 py-2 small';
+                    form.prepend(errEl);
+                }
+                errEl.textContent = "{{ trans('plugins/job-board::account.registration.please_select_account_type') }}";
+                errEl.style.display = 'block';
                 return;
             }
 

@@ -554,7 +554,9 @@
                 return;
             }
 
-            window.prompt('{{ __('Copy profile link') }}', url);
+            // Clipboard API unavailable — show modal with copyable link
+            document.getElementById('copyLinkInput').value = url;
+            new bootstrap.Modal(document.getElementById('copyLinkModal')).show();
         });
     }
 
@@ -578,7 +580,8 @@
                 btn.disabled = false;
                 btn.innerHTML = btn.dataset.origLabel || 'Unlock';
                 var msg = (data.message || 'Could not unlock profile.').replace(/<[^>]+>/g, '');
-                alert(msg);
+                document.getElementById('themeErrorMsg').textContent = msg;
+                new bootstrap.Modal(document.getElementById('themeErrorModal')).show();
             }
         })
         .catch(function () {
@@ -611,4 +614,37 @@
     }
 }());
 </script>
+
+{{-- Copy-link fallback modal --}}
+<div class="modal fade" id="copyLinkModal" tabindex="-1" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">{{ __('Copy profile link') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="copyLinkInput" readonly>
+                    <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('copyLinkInput').value).then(()=>{this.textContent='Copied!';setTimeout(()=>{this.textContent='Copy'},1500)})">Copy</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- Generic theme error modal --}}
+<div class="modal fade" id="themeErrorModal" tabindex="-1" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-body text-center py-4">
+                <div class="mb-3 text-danger fs-1"><i class="fi-rr-exclamation"></i></div>
+                <p id="themeErrorMsg" class="mb-0"></p>
+            </div>
+            <div class="modal-footer justify-content-center">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">{{ __('Close') }}</button>
+            </div>
+        </div>
+    </div>
+</div>
 @endpush

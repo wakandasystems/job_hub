@@ -33,6 +33,9 @@
     <a href="{{ sign_up_url }}" style="display: inline-block; padding: 10px 20px; background-color: #22c55e; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">Sign Up Now</a>
 </p>
 
-<p style="margin-top: 20px; font-size: 12px; color: #6b7280;">You are receiving this email because you subscribed to the Wakanda Jobs newsletter.</p>
+<p style="margin-top: 20px; font-size: 12px; color: #6b7280;">
+    You are receiving this email because you subscribed to the Wakanda Jobs newsletter.<br>
+    Don't want to receive these emails? <a href="{{ unsubscribe_url }}" style="color: #6b7280; text-decoration: underline;">Unsubscribe here</a>.
+</p>
 
 {{ footer }}

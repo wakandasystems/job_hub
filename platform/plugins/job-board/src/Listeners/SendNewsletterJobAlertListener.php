@@ -9,6 +9,7 @@ use Botble\Newsletter\Models\Newsletter;
 use Botble\Newsletter\Enums\NewsletterStatusEnum;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\URL;
 use Throwable;
 
 class SendNewsletterJobAlertListener implements ShouldQueue
@@ -17,6 +18,10 @@ class SendNewsletterJobAlertListener implements ShouldQueue
     public int $tries = 2;
     public function handle(JobPublishedEvent $event): void
     {
+        if (! setting('job_board_newsletter_broadcast_enabled', false)) {
+            return;
+        }
+
         $job = $event->job;
         $job->loadMissing(['company', 'country']);
 
@@ -42,7 +47,7 @@ class SendNewsletterJobAlertListener implements ShouldQueue
             ->map(fn ($email) => strtolower($email))
             ->toArray();
 
-        $signUpUrl = 'https://www.wakandajobs.com/admin/job-board/job-applications';
+        $signUpUrl = 'https://www.wakandajobs.com/register';
 
         foreach ($subscribers as $subscriber) {
             $email = strtolower($subscriber->email);
@@ -57,6 +62,8 @@ class SendNewsletterJobAlertListener implements ShouldQueue
                 continue;
             }
 
+            $unsubscribeUrl = URL::signedRoute('public.newsletter.unsubscribe', ['user' => $subscriber->id]);
+
             try {
                 EmailHandler::setModule(JOB_BOARD_MODULE_SCREEN_NAME)
                     ->setVariableValues([
@@ -69,6 +76,7 @@ class SendNewsletterJobAlertListener implements ShouldQueue
                         'job_deadline' => ($job->application_closing_date ?? $job->expire_date)?->format('M j, Y') ?? '',
                         'job_description' => \Illuminate\Support\Str::limit(strip_tags($job->description ?? $job->content ?? ''), 400, '...'),
                         'sign_up_url' => $signUpUrl,
+                        'unsubscribe_url' => $unsubscribeUrl,
                     ])
                     ->sendUsingTemplate('newsletter-job-alert', $subscriber->email);
 

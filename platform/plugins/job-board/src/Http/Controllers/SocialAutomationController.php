@@ -32,13 +32,15 @@ class SocialAutomationController extends BaseController
             ->get()
             ->groupBy('platform');
 
-        return view('plugins/job-board::automations.index', compact('automations'));
+        $countries = DB::table('countries')->orderBy('name')->pluck('name', 'id');
+
+        return view('plugins/job-board::automations.index', compact('automations', 'countries'));
     }
 
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'platform' => ['required', Rule::in(['facebook', 'linkedin', 'whatsapp', 'telegram'])],
+            'platform' => ['required', Rule::in(['facebook', 'linkedin', 'whatsapp', 'telegram', 'whapi'])],
             'name'     => ['required', 'string', 'max:150'],
             'settings' => ['nullable', 'array'],
         ]);
@@ -64,7 +66,9 @@ class SocialAutomationController extends BaseController
 
         // Merge new settings over existing — blank password fields keep the saved value.
         // Checkbox keys are absent when unchecked, so explicitly set them to 0 if missing.
-        $checkboxKeys = ['generate_image'];
+        // Select keys (like country_id) must always override so clearing the selection works.
+        $checkboxKeys = ['generate_image', 'send_image'];
+        $selectKeys   = ['country_id'];
         $existing = $automation->settings ?? [];
         $incoming = $validated['settings'] ?? [];
         foreach ($checkboxKeys as $key) {
@@ -74,6 +78,12 @@ class SocialAutomationController extends BaseController
         // Allow checkbox=0 to override existing=1
         foreach ($checkboxKeys as $key) {
             $merged[$key] = $incoming[$key];
+        }
+        // Allow empty string to clear select fields (e.g. country_id → all countries)
+        foreach ($selectKeys as $key) {
+            if (array_key_exists($key, $incoming)) {
+                $merged[$key] = $incoming[$key] === '' ? null : $incoming[$key];
+            }
         }
 
         $automation->fill([
@@ -199,5 +209,80 @@ class SocialAutomationController extends BaseController
         }
 
         return $this->httpResponse()->setMessage("Sent {$totalSent} job(s) to Telegram.");
+    }
+
+    public function whapiSendYesterdayJobs(SocialPublisherService $publisher)
+    {
+        $automations = SocialAutomation::query()
+            ->where('platform', 'whapi')
+            ->where('is_active', true)
+            ->get();
+
+        if ($automations->isEmpty()) {
+            return $this->httpResponse()->setError()->setMessage('No active Whapi automations configured.');
+        }
+
+        $totalQueued = 0;
+
+        foreach ($automations as $automation) {
+            $settings  = $automation->settings ?? [];
+            $token     = trim((string) ($settings['token'] ?? ''));
+            $channelId = trim((string) ($settings['channel_id'] ?? ''));
+            $countryId = isset($settings['country_id']) && $settings['country_id'] !== ''
+                ? (int) $settings['country_id']
+                : null;
+            $gatewayUrl = rtrim(trim((string) ($settings['gateway_url'] ?? '')), '/') ?: 'https://gate.whapi.cloud';
+
+            if ($token === '' || $channelId === '') {
+                continue;
+            }
+
+            if (! str_ends_with($channelId, '@newsletter')) {
+                $channelId .= '@newsletter';
+            }
+
+            $query = Job::query()
+                ->with(['company', 'slugable', 'country', 'currency', 'jobTypes'])
+                ->where('status', JobStatusEnum::PUBLISHED)
+                ->whereDate('created_at', today()->subDay())
+                ->orderByDesc('created_at');
+
+            if ($countryId) {
+                $query->where('country_id', $countryId);
+            }
+
+            $jobs = $query->get();
+
+            if ($jobs->isEmpty()) {
+                continue;
+            }
+
+            // Dispatch to the queue so the HTTP request doesn't time out
+            $automationId  = $automation->getKey();
+            $capturedToken = $token;
+            $capturedCh    = $channelId;
+            $capturedGw    = $gatewayUrl;
+
+            dispatch(function () use ($jobs, $capturedToken, $capturedCh, $capturedGw, $publisher): void {
+                foreach ($jobs as $job) {
+                    try {
+                        $posts = $publisher->buildPlatformPosts($job);
+                        $msg   = $posts['whatsapp'] ?? $job->name;
+
+                        Http::timeout(20)->withToken($capturedToken)->post("{$capturedGw}/messages/text", [
+                            'to'   => $capturedCh,
+                            'body' => $msg,
+                        ]);
+                    } catch (\Throwable) {
+                        // Silently continue on individual failures
+                    }
+                    sleep(1);
+                }
+            })->onQueue('emails');
+
+            $totalQueued += $jobs->count();
+        }
+
+        return $this->httpResponse()->setMessage("Queued {$totalQueued} job(s) for WhatsApp Channel delivery.");
     }
 }

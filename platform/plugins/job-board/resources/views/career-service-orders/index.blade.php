@@ -67,10 +67,24 @@
                 </div>
             </form>
 
+            {{-- Bulk action toolbar (hidden until checkboxes selected) --}}
+            <div id="bulk-toolbar" class="d-none mb-3 p-2 bg-light border rounded d-flex align-items-center gap-3">
+                <span id="bulk-count" class="fw-semibold text-muted small"></span>
+                <button type="button" class="btn btn-danger btn-sm" id="bulk-delete-btn">
+                    <i class="ti ti-trash me-1"></i>Delete Selected
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="bulk-clear-btn">
+                    Clear selection
+                </button>
+            </div>
+
             <div class="table-responsive">
                 <table class="table table-vcenter table-striped">
                     <thead>
                         <tr>
+                            <th width="36">
+                                <input type="checkbox" id="select-all" class="form-check-input">
+                            </th>
                             <th width="70">ID</th>
                             <th>Service</th>
                             <th>Customer</th>
@@ -85,6 +99,9 @@
                     <tbody>
                         @forelse($orders as $order)
                             <tr>
+                                <td>
+                                    <input type="checkbox" class="form-check-input row-check" value="{{ $order->id }}">
+                                </td>
                                 <td>#{{ $order->id }}</td>
                                 <td>
                                     <strong>{{ $order->service_name }}</strong>
@@ -127,7 +144,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="text-center text-muted">No career service orders found.</td>
+                                <td colspan="10" class="text-center text-muted">No career service orders found.</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -139,7 +156,7 @@
     </x-core::card>
 @endsection
 
-{{-- Delete confirmation modal --}}
+{{-- Single delete confirmation modal --}}
 <div class="modal fade" id="delete-order-modal" tabindex="-1" aria-labelledby="delete-order-label" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -174,12 +191,100 @@
     </div>
 </div>
 
+{{-- Bulk delete confirmation modal --}}
+<div class="modal fade" id="bulk-delete-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title text-danger">Delete Selected Orders</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-1">You are about to permanently delete <strong id="bulk-modal-count"></strong>. This will also remove any uploaded CV files and cannot be undone.</p>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form id="bulk-delete-form" method="POST" action="{{ route('career-service-orders.bulk-destroy') }}">
+                    @csrf
+                    @method('DELETE')
+                    <div id="bulk-ids-container"></div>
+                    <button type="submit" class="btn btn-danger">Yes, delete all</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 @push('footer')
 <script>
+(function () {
+    const selectAll   = document.getElementById('select-all');
+    const toolbar     = document.getElementById('bulk-toolbar');
+    const countLabel  = document.getElementById('bulk-count');
+    const clearBtn    = document.getElementById('bulk-clear-btn');
+    const deleteBtn   = document.getElementById('bulk-delete-btn');
+
+    function getChecked() {
+        return Array.from(document.querySelectorAll('.row-check:checked'));
+    }
+
+    function syncToolbar() {
+        const checked = getChecked();
+        if (checked.length > 0) {
+            toolbar.classList.remove('d-none');
+            toolbar.classList.add('d-flex');
+            countLabel.textContent = checked.length + ' order' + (checked.length > 1 ? 's' : '') + ' selected';
+        } else {
+            toolbar.classList.add('d-none');
+            toolbar.classList.remove('d-flex');
+        }
+        const all = document.querySelectorAll('.row-check');
+        selectAll.indeterminate = checked.length > 0 && checked.length < all.length;
+        selectAll.checked = all.length > 0 && checked.length === all.length;
+    }
+
+    selectAll.addEventListener('change', function () {
+        document.querySelectorAll('.row-check').forEach(cb => cb.checked = selectAll.checked);
+        syncToolbar();
+    });
+
+    document.querySelectorAll('.row-check').forEach(cb => {
+        cb.addEventListener('change', syncToolbar);
+    });
+
+    clearBtn.addEventListener('click', function () {
+        document.querySelectorAll('.row-check').forEach(cb => cb.checked = false);
+        selectAll.checked = false;
+        syncToolbar();
+    });
+
+    deleteBtn.addEventListener('click', function () {
+        const checked = getChecked();
+        if (!checked.length) return;
+
+        const count = checked.length;
+        document.getElementById('bulk-modal-count').textContent =
+            count + ' order' + (count > 1 ? 's' : '');
+
+        const container = document.getElementById('bulk-ids-container');
+        container.innerHTML = '';
+        checked.forEach(cb => {
+            const inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = 'ids[]';
+            inp.value = cb.value;
+            container.appendChild(inp);
+        });
+
+        new bootstrap.Modal(document.getElementById('bulk-delete-modal')).show();
+    });
+
+    // Single delete modal
     document.getElementById('delete-order-modal').addEventListener('show.bs.modal', function (e) {
         var btn = e.relatedTarget;
         document.getElementById('delete-order-form').action = btn.dataset.action;
         document.getElementById('delete-order-label-text').textContent = btn.dataset.label;
     });
+})();
 </script>
 @endpush

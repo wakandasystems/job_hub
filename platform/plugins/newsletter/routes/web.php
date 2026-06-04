@@ -9,14 +9,32 @@ Route::group(['namespace' => 'Botble\Newsletter\Http\Controllers'], function ():
     AdminHelper::registerRoutes(function (): void {
         Route::group(['prefix' => 'newsletters', 'as' => 'newsletter.'], function (): void {
             Route::get('send', [
-                'as' => 'send',
-                'uses' => 'NewsletterController@send',
+                'as'         => 'send',
+                'uses'       => 'NewsletterController@send',
                 'permission' => 'newsletter.index',
             ]);
 
             Route::post('send', [
-                'as' => 'send.post',
-                'uses' => 'NewsletterController@sendPost',
+                'as'         => 'send.post',
+                'uses'       => 'NewsletterController@sendPost',
+                'permission' => 'newsletter.index',
+            ]);
+
+            Route::get('send-status/{sendId}', [
+                'as'         => 'send.status',
+                'uses'       => 'NewsletterController@sendStatus',
+                'permission' => 'newsletter.index',
+            ]);
+
+            Route::post('{sendId}/resend', [
+                'as'         => 'resend',
+                'uses'       => 'NewsletterController@resend',
+                'permission' => 'newsletter.index',
+            ]);
+
+            Route::post('{sendId}/cancel', [
+                'as'         => 'cancel',
+                'uses'       => 'NewsletterController@cancel',
                 'permission' => 'newsletter.index',
             ]);
 

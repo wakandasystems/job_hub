@@ -18,6 +18,102 @@ use Illuminate\Support\Facades\URL;
 class TelegramSocialMessageController extends BaseController
 {
     // -------------------------------------------------------------------------
+    // Admin Post Kit (no Telegram context — opened from admin job edit page)
+    // -------------------------------------------------------------------------
+
+    public function showAdmin(Job $job): \Illuminate\Http\Response
+    {
+        $job->load(['company', 'slugable', 'country', 'currency', 'jobTypes']);
+        $publisher = app(SocialPublisherService::class);
+
+        $aiPrompt = $tiktokImagePrompt = $storyboardPrompt = $geminiPrompt = null;
+        $coverImagePrompt = $facebookImagePrompt = $linkedinImagePrompt = $twitterImagePrompt = null;
+        $platformPosts = [];
+        $companyLogoUrl = $companyName = null;
+
+        try { $aiPrompt = $publisher->buildAiImagePrompt($job); } catch (\Throwable) {}
+        try { $tiktokImagePrompt = $publisher->buildTikTokImagePrompt($job); } catch (\Throwable) {}
+        try { $storyboardPrompt = $publisher->buildStoryboardPrompt($job); } catch (\Throwable) {}
+        try { $geminiPrompt = $publisher->buildGeminiVideoPrompt($job); } catch (\Throwable) {}
+        try { $coverImagePrompt = $publisher->buildCoverImagePrompt($job); } catch (\Throwable) {}
+        try { $facebookImagePrompt = $publisher->buildFacebookImagePrompt($job); } catch (\Throwable) {}
+        try { $linkedinImagePrompt = $publisher->buildLinkedInImagePrompt($job); } catch (\Throwable) {}
+        try { $twitterImagePrompt = $publisher->buildTwitterImagePrompt($job); } catch (\Throwable) {}
+        try { $platformPosts = $publisher->buildPlatformPosts($job); } catch (\Throwable) {}
+
+        if (! $aiPrompt) {
+            return response($this->expiredHtml());
+        }
+
+        $jobImages = [
+            'cover_image'    => null,
+            'tiktok_image'   => null,
+            'facebook_image' => null,
+            'linkedin_image' => null,
+            'whatsapp_image' => null,
+            'twitter_image'  => null,
+        ];
+        $companyId = null;
+        $jobUrl    = null;
+
+        foreach (array_keys($jobImages) as $col) {
+            if (! empty($job->{$col})) {
+                $jobImages[$col] = \Botble\Media\Facades\RvMedia::getImageUrl($job->{$col});
+            }
+        }
+        if ($job->company) {
+            $companyId = $job->company->id;
+            if (! empty($job->company->logo)) {
+                $companyLogoUrl = \Botble\Media\Facades\RvMedia::getImageUrl($job->company->logo);
+                $companyName    = $job->company->name;
+            }
+        }
+        $jobName = $job->name;
+        if (! empty($job->slugable->key)) {
+            $jobUrl = rtrim(config('app.url'), '/') . '/jobs/' . $job->slugable->key;
+        }
+
+        $uploadParams = array_filter(['job_id' => $job->getKey(), 'company_id' => $companyId]);
+        $makeUploadUrl = fn (string $type) => URL::temporarySignedRoute(
+            'public.telegram-social-upload',
+            now()->addDays(7),
+            array_merge($uploadParams, ['type' => $type]),
+        );
+        $uploadUrls = [
+            'company_logo'   => $makeUploadUrl('company_logo'),
+            'cover_image'    => $makeUploadUrl('cover_image'),
+            'tiktok_image'   => $makeUploadUrl('tiktok_image'),
+            'facebook_image' => $makeUploadUrl('facebook_image'),
+            'linkedin_image' => $makeUploadUrl('linkedin_image'),
+            'whatsapp_image' => $makeUploadUrl('whatsapp_image'),
+            'twitter_image'  => $makeUploadUrl('twitter_image'),
+        ];
+
+        $adminEditUrl = route('jobs.edit', $job->getKey());
+
+        return response($this->renderPostKitHtml(
+            aiPrompt: $aiPrompt,
+            storyboardPrompt: $storyboardPrompt,
+            geminiPrompt: $geminiPrompt,
+            tiktokImagePrompt: $tiktokImagePrompt,
+            coverImagePrompt: $coverImagePrompt,
+            facebookImagePrompt: $facebookImagePrompt,
+            linkedinImagePrompt: $linkedinImagePrompt,
+            twitterImagePrompt: $twitterImagePrompt,
+            platformPosts: $platformPosts,
+            jobImages: $jobImages,
+            companyLogoUrl: $companyLogoUrl,
+            companyName: $companyName,
+            jobName: $jobName,
+            jobUrl: $jobUrl,
+            uploadUrls: $uploadUrls,
+            step2Url: null,
+            heroBadge: '🔧 Admin Post Kit',
+            adminEditUrl: $adminEditUrl,
+        ));
+    }
+
+    // -------------------------------------------------------------------------
     // Step 1: AI image prompt + platform posts (does NOT delete Telegram message)
     // -------------------------------------------------------------------------
 
@@ -34,10 +130,13 @@ class TelegramSocialMessageController extends BaseController
         $companyLogoUrl = null;
         $companyName    = null;
 
-        $storyboardPrompt  = null;
-        $geminiPrompt      = null;
-        $tiktokImagePrompt = null;
-        $coverImagePrompt  = null;
+        $storyboardPrompt    = null;
+        $geminiPrompt        = null;
+        $tiktokImagePrompt   = null;
+        $coverImagePrompt    = null;
+        $facebookImagePrompt = null;
+        $linkedinImagePrompt = null;
+        $twitterImagePrompt  = null;
 
         $jobName = null;
 
@@ -55,7 +154,7 @@ class TelegramSocialMessageController extends BaseController
         }
 
         // Fallback: regenerate any missing fields from the job record
-        $needsRegeneration = (! $aiPrompt || empty($platformPosts) || ! $storyboardPrompt || ! $geminiPrompt || ! $tiktokImagePrompt || ! $coverImagePrompt);
+        $needsRegeneration = (! $aiPrompt || empty($platformPosts) || ! $storyboardPrompt || ! $geminiPrompt || ! $tiktokImagePrompt || ! $coverImagePrompt || ! $facebookImagePrompt || ! $linkedinImagePrompt || ! $twitterImagePrompt);
         if ($needsRegeneration && $jobId) {
             $job = Job::with(['company', 'slugable', 'country', 'currency', 'jobTypes'])->find($jobId);
             if ($job) {
@@ -75,6 +174,15 @@ class TelegramSocialMessageController extends BaseController
                 if (! $coverImagePrompt) {
                     try { $coverImagePrompt = $publisher->buildCoverImagePrompt($job); } catch (\Throwable) {}
                 }
+                if (! $facebookImagePrompt) {
+                    try { $facebookImagePrompt = $publisher->buildFacebookImagePrompt($job); } catch (\Throwable) {}
+                }
+                if (! $linkedinImagePrompt) {
+                    try { $linkedinImagePrompt = $publisher->buildLinkedInImagePrompt($job); } catch (\Throwable) {}
+                }
+                if (! $twitterImagePrompt) {
+                    try { $twitterImagePrompt = $publisher->buildTwitterImagePrompt($job); } catch (\Throwable) {}
+                }
                 if (empty($platformPosts)) {
                     try { $platformPosts = $publisher->buildPlatformPosts($job); } catch (\Throwable) {}
                 }
@@ -92,6 +200,7 @@ class TelegramSocialMessageController extends BaseController
             'facebook_image' => null,
             'linkedin_image' => null,
             'whatsapp_image' => null,
+            'twitter_image'  => null,
         ];
         $companyId = null;
         $jobUrl    = null;
@@ -109,7 +218,9 @@ class TelegramSocialMessageController extends BaseController
                         $companyId = $liveJob->company->id;
                         if (! $companyLogoUrl && ! empty($liveJob->company->logo)) {
                             $companyLogoUrl = \Botble\Media\Facades\RvMedia::getImageUrl($liveJob->company->logo);
-                            $companyName    = $liveJob->company->name;
+                        }
+                        if (! $companyName) {
+                            $companyName = $liveJob->company->name;
                         }
                     }
                     if (! $jobName && $liveJob->name) {
@@ -166,22 +277,20 @@ class TelegramSocialMessageController extends BaseController
             'facebook_image' => $makeUploadUrl('facebook_image'),
             'linkedin_image' => $makeUploadUrl('linkedin_image'),
             'whatsapp_image' => $makeUploadUrl('whatsapp_image'),
+            'twitter_image'  => $makeUploadUrl('twitter_image'),
         ];
 
-        // Build platform cards HTML
-        $platforms = [
-            'tiktok'    => ['🎵', 'TikTok',           '#010101', $platformPosts['tiktok']    ?? ''],
-            'twitter'   => ['𝕏',  'X / Twitter',      '#000000', $platformPosts['twitter']   ?? ''],
-            'linkedin'  => ['in', 'LinkedIn',          '#0A66C2', $platformPosts['linkedin']  ?? ''],
-            'facebook'  => ['f',  'Facebook',          '#1877F2', $platformPosts['facebook']  ?? ''],
-            'whatsapp'  => ['💬', 'WhatsApp Channel',  '#25D366', $platformPosts['whatsapp']  ?? ''],
-        ];
+
 
         $storyboardSafe    = mb_convert_encoding((string) $storyboardPrompt, 'UTF-8', 'UTF-8');
         $geminiSafe        = mb_convert_encoding((string) $geminiPrompt, 'UTF-8', 'UTF-8');
         $tiktokImageSafe   = mb_convert_encoding((string) $tiktokImagePrompt, 'UTF-8', 'UTF-8');
         $coverImageSafe    = mb_convert_encoding((string) $coverImagePrompt, 'UTF-8', 'UTF-8');
         $aiPromptJson      = json_encode($aiPrompt, JSON_UNESCAPED_UNICODE);
+        $facebookImageSafe = mb_convert_encoding((string) $facebookImagePrompt, 'UTF-8', 'UTF-8');
+        $linkedinImageSafe = mb_convert_encoding((string) $linkedinImagePrompt, 'UTF-8', 'UTF-8');
+        $twitterImageSafe  = mb_convert_encoding((string) $twitterImagePrompt, 'UTF-8', 'UTF-8');
+
         $storyboardJson    = json_encode($storyboardSafe, JSON_UNESCAPED_UNICODE);
         $geminiJson        = json_encode($geminiSafe, JSON_UNESCAPED_UNICODE);
         $tiktokImageJson   = json_encode($tiktokImageSafe, JSON_UNESCAPED_UNICODE);
@@ -190,6 +299,25 @@ class TelegramSocialMessageController extends BaseController
         $jobImagesJson     = json_encode($jobImages, JSON_UNESCAPED_UNICODE);
         $companyLogoJson   = json_encode($companyLogoUrl, JSON_UNESCAPED_UNICODE);
         $csrfToken         = csrf_token();
+
+        // Per-slot copy prompts (whatsapp reuses the general 9:16 portrait prompt)
+        $slotPromptsJson = json_encode([
+            'cover_image'    => $coverImageSafe,
+            'tiktok_image'   => $tiktokImageSafe,
+            'whatsapp_image' => $aiPrompt,
+            'facebook_image' => $facebookImageSafe,
+            'linkedin_image' => $linkedinImageSafe,
+            'twitter_image'  => $twitterImageSafe,
+        ], JSON_UNESCAPED_UNICODE);
+
+        // Platform post text per social slot
+        $slotPostsJson = json_encode([
+            'tiktok_image'   => $platformPosts['tiktok']   ?? '',
+            'whatsapp_image' => $platformPosts['whatsapp']  ?? '',
+            'facebook_image' => $platformPosts['facebook']  ?? '',
+            'linkedin_image' => $platformPosts['linkedin']  ?? '',
+            'twitter_image'  => $platformPosts['twitter']   ?? '',
+        ], JSON_UNESCAPED_UNICODE);
 
         $escapedPrompt      = htmlspecialchars($aiPrompt, ENT_QUOTES, 'UTF-8');
         $escapedStoryboard  = htmlspecialchars($storyboardSafe, ENT_QUOTES, 'UTF-8');
@@ -202,27 +330,8 @@ class TelegramSocialMessageController extends BaseController
         $escapedJobUrl   = $jobUrl ? htmlspecialchars($jobUrl, ENT_QUOTES, 'UTF-8') : '';
         $heroSubLine     = $escapedCompany ? "{$escapedJobName} &middot; {$escapedCompany}" : $escapedJobName;
         $heroCompanyHtml = $escapedCompany ? "<div class=\"hero-company\">🏢 {$escapedCompany}</div>" : '';
-        $heroLinkHtml    = $escapedJobUrl ? "<a href=\"{$escapedJobUrl}\" target=\"_blank\" rel=\"noopener\" class=\"hero-job-link\">🔗 <span>{$escapedJobUrl}</span></a>" : '';
+        $jobBtnHtml      = $escapedJobUrl ? "<a href=\"{$escapedJobUrl}\" target=\"_blank\" rel=\"noopener\" class=\"bb-job\">🔗 View Job</a>" : '';
 
-        // Platform cards (Social tab)
-        $platformCardsHtml = '';
-        foreach ($platforms as $key => [$icon, $label, $color, $text]) {
-            if (! $text) continue;
-            $esc      = htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
-            $rows     = min(14, max(5, substr_count($text, "\n") + 2));
-            $charLen  = mb_strlen($text);
-            $platformCardsHtml .= <<<CARD
-            <div class="platform-card" id="card-{$key}">
-                <div class="platform-header" style="--c:{$color}">
-                    <span class="platform-icon">{$icon}</span>
-                    <span class="platform-name">{$label}</span>
-                    <span class="char-count">{$charLen} chars</span>
-                    <button class="copy-platform-btn" onclick="copyPlatform('{$key}', this)">📋 Copy</button>
-                </div>
-                <textarea id="ta-{$key}" readonly rows="{$rows}">{$esc}</textarea>
-            </div>
-            CARD;
-        }
 
         // Attachment tip (Image tab)
         $wjLogo1 = 'https://www.wakandajobs.com/storage/gemini-generated-image-s1e9dgs1e9dgs1e9.png';
@@ -242,12 +351,6 @@ class TelegramSocialMessageController extends BaseController
             ? '<a href="' . htmlspecialchars($step2Url, ENT_QUOTES) . '" class="bb-next">Next: Get Post Text →</a>'
             : '<span class="bb-next bb-next--disabled">Next: Get Post Text</span>';
 
-        // Cover image button
-        $coverBtnHtml = '';
-        if ($jobId) {
-            $coverUrl = route('jobs.generate-cover-image', ['id' => $jobId]);
-            $coverBtnHtml = '<a href="' . htmlspecialchars($coverUrl, ENT_QUOTES) . '" class="bb-cover" title="Generate job page banner image (1854×848)">🖼 Cover Image</a>';
-        }
 
         $html = <<<HTML
         <!doctype html>
@@ -275,8 +378,8 @@ class TelegramSocialMessageController extends BaseController
                 .hero h1{color:#fff;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;opacity:.7;margin-bottom:5px;position:relative}
                 .hero-job-title{color:#fff;font-size:20px;font-weight:800;line-height:1.25;margin-bottom:4px;position:relative}
                 .hero-company{color:rgba(255,255,255,.75);font-size:13px;font-weight:500;margin-bottom:10px;position:relative}
-                .hero-job-link{display:inline-flex;align-items:center;gap:5px;color:rgba(255,255,255,.55);font-size:11px;text-decoration:none;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:20px;padding:3px 10px 3px 8px;margin-bottom:18px;position:relative;transition:background .15s}
-                .hero-job-link:hover{background:rgba(255,255,255,.2);color:#fff}
+                .hero-job-link{display:inline-flex;align-items:center;gap:6px;color:#fff;font-size:12px;font-weight:700;text-decoration:none;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:9px;padding:7px 14px;margin-bottom:18px;position:relative;transition:background .15s;backdrop-filter:blur(6px)}
+                .hero-job-link:hover{background:rgba(255,255,255,.28);color:#fff}
 
                 /* ── Tab bar ── */
                 .tab-bar{position:sticky;top:0;z-index:100;background:var(--slate);padding:10px 16px 0;border-bottom:2px solid #e2e8f0}
@@ -315,6 +418,9 @@ class TelegramSocialMessageController extends BaseController
                 .img-slot{background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 8px rgba(0,0,0,.06)}
                 .img-slot.full-width{grid-column:1/-1}
                 .img-slot-head{padding:10px 12px 8px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;gap:8px}
+                .img-copy-btn{margin-left:auto;flex-shrink:0;padding:5px 10px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;font-weight:700;color:#475569;cursor:pointer;transition:all .15s;white-space:nowrap}
+                .img-copy-btn:hover{background:var(--p);color:#fff;border-color:var(--p)}
+                .img-copy-btn.ok{background:#16a34a;color:#fff;border-color:#16a34a}
                 .img-slot-icon{font-size:16px;flex-shrink:0}
                 .img-slot-info{flex:1;min-width:0}
                 .img-slot-label{font-size:12px;font-weight:700;color:#1e293b;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -336,6 +442,15 @@ class TelegramSocialMessageController extends BaseController
                 .img-upload-zone-label{font-size:11.5px;font-weight:600;color:#475569}
                 .img-upload-zone-sub{font-size:10px;color:var(--muted)}
 
+                /* Card footer buttons */
+                .img-slot-footer{display:flex;gap:7px;margin-top:10px}
+                .img-footer-btn{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;text-decoration:none;background:#f8fafc;color:#475569;white-space:nowrap}
+                .img-footer-btn:hover{border-color:var(--p);color:var(--p);background:#faf5ff}
+                .img-footer-btn.ok{background:#16a34a;color:#fff;border-color:#16a34a}
+                .img-footer-btn:disabled,.img-footer-btn[aria-disabled="true"]{opacity:.35;pointer-events:none;cursor:default}
+                .img-footer-btn.dl{color:#0ea5e9;border-color:#bae6fd;background:#f0f9ff}
+                .img-footer-btn.dl:hover{background:#0ea5e9;color:#fff;border-color:#0ea5e9}
+
                 /* Status / progress */
                 .img-progress{margin-top:8px;display:none}
                 .img-progress-bar-wrap{height:6px;background:#e2e8f0;border-radius:99px;overflow:hidden}
@@ -346,30 +461,7 @@ class TelegramSocialMessageController extends BaseController
                 .img-progress-label.done{color:#16a34a}
                 .img-progress-label.fail{color:#dc2626}
 
-                /* ── Platform cards (Social tab) ── */
-                .platform-card{background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 8px rgba(0,0,0,.06);margin-bottom:12px}
-                .platform-header{display:flex;align-items:center;gap:10px;padding:11px 14px;background:color-mix(in srgb,var(--c) 8%,#fff);border-bottom:1px solid color-mix(in srgb,var(--c) 12%,#fff)}
-                .platform-icon{width:32px;height:32px;background:var(--c);color:#fff;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;flex-shrink:0}
-                .platform-name{font-weight:700;font-size:14px;flex-grow:1;color:#1e293b}
-                .char-count{font-size:11px;color:var(--muted);margin-right:2px;white-space:nowrap}
-                .copy-platform-btn{padding:7px 15px;background:var(--c);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s;white-space:nowrap}
-                .copy-platform-btn:hover{opacity:.85}
-                .copy-platform-btn.ok{background:#16a34a !important}
-                .platform-card textarea{border:none;border-radius:0;background:#fff;padding:12px 14px;font-size:12.5px}
 
-                /* ── Collapsible prompts ── */
-                .prompt-group{margin-bottom:10px}
-                details.prompt-collapse{background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,.05)}
-                details.prompt-collapse summary{display:flex;align-items:center;gap:10px;padding:13px 16px;cursor:pointer;list-style:none;user-select:none;font-size:13px;font-weight:700;color:#1e293b;border-bottom:1px solid transparent;transition:border-color .15s}
-                details.prompt-collapse[open] summary{border-color:#f1f5f9}
-                details.prompt-collapse summary::-webkit-details-marker{display:none}
-                .prompt-collapse-icon{font-size:15px;flex-shrink:0}
-                .prompt-collapse-label{flex:1}
-                .prompt-collapse-caret{margin-left:auto;font-size:10px;color:var(--muted);transition:transform .18s}
-                details.prompt-collapse[open] .prompt-collapse-caret{transform:rotate(90deg)}
-                .prompt-collapse-body{padding:14px 16px 16px}
-                .prompt-collapse-body textarea{margin-bottom:10px}
-                .prompt-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--p);margin-bottom:8px}
 
                 /* ── Video tab ── */
                 .video-hero{background:linear-gradient(160deg,#020617 0%,#0d1424 55%,#1a0a2e 100%);border-radius:18px;padding:22px 18px 20px;margin-bottom:14px;position:relative;overflow:hidden}
@@ -422,9 +514,8 @@ class TelegramSocialMessageController extends BaseController
                 .bb-next:hover{background:var(--dark2);color:#fff}
                 .bb-next--disabled{opacity:.4;cursor:default;pointer-events:none}
                 .bb-close-tip{font-size:11.5px;color:#666;text-align:center;margin-top:6px;max-width:640px;margin-left:auto;margin-right:auto;display:none}
-                .bb-cover{padding:10px 14px;background:#7c3aed;color:#fff;border:none;border-radius:11px;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:5px}
-                .bb-cover:hover{background:#6d28d9;color:#fff}
-                .bb-cover.done{background:#16a34a}
+                .bb-job{padding:10px 14px;background:#7c3aed;color:#fff;border:none;border-radius:11px;font-size:13px;font-weight:700;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:5px;transition:background .15s}
+                .bb-job:hover{background:#6d28d9;color:#fff}
             </style>
         </head>
         <body>
@@ -436,7 +527,6 @@ class TelegramSocialMessageController extends BaseController
                 <h1>Content Creator</h1>
                 <div class="hero-job-title">{$escapedJobName}</div>
                 {$heroCompanyHtml}
-                {$heroLinkHtml}
             </div>
         </div>
 
@@ -446,7 +536,6 @@ class TelegramSocialMessageController extends BaseController
                 <div class="tab-nav">
                     <button class="tab-btn active" onclick="switchTab('image',this)">🎨 Images</button>
                     <button class="tab-btn" onclick="switchTab('video',this)">🎬 Video</button>
-                    <button class="tab-btn" onclick="switchTab('social',this)">📲 Social</button>
                 </div>
             </div>
         </div>
@@ -463,8 +552,8 @@ class TelegramSocialMessageController extends BaseController
                         <div class="img-slot-head">
                             <span class="img-slot-icon">🏢</span>
                             <div class="img-slot-info">
-                                <span class="img-slot-label">Company Logo</span>
-                                <span class="img-slot-dim">Square or landscape · PNG/WebP</span>
+                                <span class="img-slot-label">{$escapedCompany}</span>
+                                <span class="img-slot-dim">Company Logo · Square or landscape · PNG/WebP</span>
                             </div>
                         </div>
                         <div class="img-slot-body">
@@ -486,6 +575,9 @@ class TelegramSocialMessageController extends BaseController
                                 <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-company_logo"></div></div>
                                 <div class="img-progress-label" id="label-company_logo"></div>
                             </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-company_logo" href="#" download="company-logo" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                            </div>
                         </div>
                     </div>
 
@@ -496,6 +588,7 @@ class TelegramSocialMessageController extends BaseController
                                 <span class="img-slot-label">Job Cover Image</span>
                                 <span class="img-slot-dim">1854 × 848 px · landscape banner</span>
                             </div>
+                            <button class="img-copy-btn" onclick="copySlotPrompt('cover_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
                         </div>
                         <div class="img-slot-body">
                             <div id="preview-cover_image" style="display:none">
@@ -516,6 +609,9 @@ class TelegramSocialMessageController extends BaseController
                                 <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-cover_image"></div></div>
                                 <div class="img-progress-label" id="label-cover_image"></div>
                             </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-cover_image" href="#" download="cover-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                            </div>
                         </div>
                     </div>
 
@@ -527,6 +623,7 @@ class TelegramSocialMessageController extends BaseController
                                 <span class="img-slot-label">TikTok</span>
                                 <span class="img-slot-dim">1080 × 1920 · 9:16</span>
                             </div>
+                            <button class="img-copy-btn" onclick="copySlotPrompt('tiktok_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
                         </div>
                         <div class="img-slot-body">
                             <div id="preview-tiktok_image" style="display:none">
@@ -547,6 +644,10 @@ class TelegramSocialMessageController extends BaseController
                                 <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-tiktok_image"></div></div>
                                 <div class="img-progress-label" id="label-tiktok_image"></div>
                             </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-tiktok_image" href="#" download="tiktok-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <button class="img-footer-btn" onclick="copySlotPost('tiktok_image',this)">📋 Post Text</button>
+                            </div>
                         </div>
                     </div>
 
@@ -558,6 +659,7 @@ class TelegramSocialMessageController extends BaseController
                                 <span class="img-slot-label">WhatsApp</span>
                                 <span class="img-slot-dim">1080 × 1920 · status</span>
                             </div>
+                            <button class="img-copy-btn" onclick="copySlotPrompt('whatsapp_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
                         </div>
                         <div class="img-slot-body">
                             <div id="preview-whatsapp_image" style="display:none">
@@ -578,6 +680,10 @@ class TelegramSocialMessageController extends BaseController
                                 <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-whatsapp_image"></div></div>
                                 <div class="img-progress-label" id="label-whatsapp_image"></div>
                             </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-whatsapp_image" href="#" download="whatsapp-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <button class="img-footer-btn" onclick="copySlotPost('whatsapp_image',this)">📋 Post Text</button>
+                            </div>
                         </div>
                     </div>
 
@@ -589,6 +695,7 @@ class TelegramSocialMessageController extends BaseController
                                 <span class="img-slot-label">Facebook</span>
                                 <span class="img-slot-dim">1200 × 630 · landscape</span>
                             </div>
+                            <button class="img-copy-btn" onclick="copySlotPrompt('facebook_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
                         </div>
                         <div class="img-slot-body">
                             <div id="preview-facebook_image" style="display:none">
@@ -609,6 +716,10 @@ class TelegramSocialMessageController extends BaseController
                                 <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-facebook_image"></div></div>
                                 <div class="img-progress-label" id="label-facebook_image"></div>
                             </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-facebook_image" href="#" download="facebook-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <button class="img-footer-btn" onclick="copySlotPost('facebook_image',this)">📋 Post Text</button>
+                            </div>
                         </div>
                     </div>
 
@@ -620,6 +731,7 @@ class TelegramSocialMessageController extends BaseController
                                 <span class="img-slot-label">LinkedIn</span>
                                 <span class="img-slot-dim">1200 × 627 · landscape</span>
                             </div>
+                            <button class="img-copy-btn" onclick="copySlotPrompt('linkedin_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
                         </div>
                         <div class="img-slot-body">
                             <div id="preview-linkedin_image" style="display:none">
@@ -640,65 +752,50 @@ class TelegramSocialMessageController extends BaseController
                                 <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-linkedin_image"></div></div>
                                 <div class="img-progress-label" id="label-linkedin_image"></div>
                             </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-linkedin_image" href="#" download="linkedin-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <button class="img-footer-btn" onclick="copySlotPost('linkedin_image',this)">📋 Post Text</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Twitter / X image -->
+                    <div class="img-slot" id="slot-twitter_image">
+                        <div class="img-slot-head">
+                            <span class="img-slot-icon">𝕏</span>
+                            <div class="img-slot-info">
+                                <span class="img-slot-label">X / Twitter</span>
+                                <span class="img-slot-dim">1200 × 675 · 16:9</span>
+                            </div>
+                            <button class="img-copy-btn" onclick="copySlotPrompt('twitter_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
+                        </div>
+                        <div class="img-slot-body">
+                            <div id="preview-twitter_image" style="display:none">
+                                <div class="img-preview-wrap" style="aspect-ratio:16/9">
+                                    <img id="img-twitter_image" src="" alt="X / Twitter image">
+                                    <div class="img-preview-overlay">
+                                        <button class="img-replace-btn" onclick="triggerUpload('twitter_image')">🔄 Replace</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="zone-twitter_image" class="img-upload-zone" onclick="triggerUpload('twitter_image')" ondragover="onDragOver(event,'twitter_image')" ondragleave="onDragLeave('twitter_image')" ondrop="onDrop(event,'twitter_image')">
+                                <div class="img-upload-zone-icon">𝕏</div>
+                                <div class="img-upload-zone-label">Upload X / Twitter Image</div>
+                                <div class="img-upload-zone-sub">1200 × 675</div>
+                            </div>
+                            <input type="file" id="file-twitter_image" accept="image/*" onchange="handleFileSelect('twitter_image',this)" style="display:none">
+                            <div class="img-progress" id="progress-twitter_image">
+                                <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-twitter_image"></div></div>
+                                <div class="img-progress-label" id="label-twitter_image"></div>
+                            </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-twitter_image" href="#" download="twitter-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <button class="img-footer-btn" onclick="copySlotPost('twitter_image',this)">📋 Post Text</button>
+                            </div>
                         </div>
                     </div>
 
                 </div><!-- /img-grid -->
-
-                <!-- ── Collapsed Prompts ── -->
-                <div class="prompt-group">
-                    <details class="prompt-collapse">
-                        <summary>
-                            <span class="prompt-collapse-icon">🎨</span>
-                            <span class="prompt-collapse-label">General Image Prompt (ChatGPT / DALL·E / Midjourney)</span>
-                            <span class="prompt-collapse-caret">▶</span>
-                        </summary>
-                        <div class="prompt-collapse-body">
-                            <div class="prompt-section-label">9:16 portrait · Instagram Stories · Facebook Stories · WhatsApp Status</div>
-                            <textarea id="ai-prompt" readonly rows="10">{$escapedPrompt}</textarea>
-                            {$attachmentTipHtml}
-                            <div class="btn-row">
-                                <button class="btn btn-purple" id="ai-copy-btn" onclick="copyAi()">📋 Copy Image Prompt</button>
-                            </div>
-                        </div>
-                    </details>
-                </div>
-
-                <div class="prompt-group">
-                    <details class="prompt-collapse" style="border-top:3px solid #010101">
-                        <summary>
-                            <span class="prompt-collapse-icon">🎵</span>
-                            <span class="prompt-collapse-label">TikTok Image Prompt</span>
-                            <span class="prompt-collapse-caret">▶</span>
-                        </summary>
-                        <div class="prompt-collapse-body">
-                            <div class="prompt-section-label">CTA: "Link in bio to apply! 👆" — no URL (TikTok links aren't clickable)</div>
-                            <textarea id="tiktok-image-prompt" readonly rows="10">{$escapedTiktokImage}</textarea>
-                            {$attachmentTipHtml}
-                            <div class="btn-row">
-                                <button class="btn btn-purple" id="tiktok-img-copy-btn" onclick="copyTiktokImage()">📋 Copy TikTok Image Prompt</button>
-                            </div>
-                        </div>
-                    </details>
-                </div>
-
-                <div class="prompt-group">
-                    <details class="prompt-collapse" style="border-top:3px solid #7c3aed">
-                        <summary>
-                            <span class="prompt-collapse-icon">🖼</span>
-                            <span class="prompt-collapse-label">Job Cover Image Prompt (1854 × 848)</span>
-                            <span class="prompt-collapse-caret">▶</span>
-                        </summary>
-                        <div class="prompt-collapse-body">
-                            <div class="prompt-section-label">Landscape banner for the job page header on wakandajobs.com/jobs/…</div>
-                            <textarea id="cover-image-prompt" readonly rows="14">{$escapedCoverImage}</textarea>
-                            {$attachmentTipHtml}
-                            <div class="btn-row">
-                                <button class="btn btn-purple" onclick="copyField('cover-image-prompt',this,'📋 Copy Cover Image Prompt')">📋 Copy Cover Image Prompt</button>
-                            </div>
-                        </div>
-                    </details>
-                </div>
 
             </div><!-- /tab-image -->
 
@@ -796,21 +893,13 @@ class TelegramSocialMessageController extends BaseController
                 </div><!-- /video-hero -->
             </div>
 
-            <!-- ══════════════ SOCIAL TAB ══════════════ -->
-            <div id="tab-social" class="tab-pane">
-                <div class="tip-blue" style="margin-bottom:14px">
-                    📋 Each post is ready to paste — just copy, open the platform, and post. Character counts shown for each.
-                </div>
-                {$platformCardsHtml}
-            </div>
-
         </div><!-- /page -->
 
         <!-- ── Sticky bottom bar ── -->
         <div class="bottom-bar">
             <div class="bottom-bar-inner">
                 <button class="bb-dismiss" id="dismiss-btn" onclick="dismiss()">🗑 Dismiss</button>
-                {$coverBtnHtml}
+                {$jobBtnHtml}
                 {$nextBtnHtml}
             </div>
             <div class="bb-close-tip" id="close-tip"></div>
@@ -825,6 +914,8 @@ class TelegramSocialMessageController extends BaseController
             const uploadUrls      = {$uploadUrlsJson};
             const jobImages       = {$jobImagesJson};
             const companyLogoUrl  = {$companyLogoJson};
+            const slotPrompts     = {$slotPromptsJson};
+            const slotPosts       = {$slotPostsJson};
             const csrfToken       = document.querySelector('meta[name="csrf-token"]').content;
 
             // ── Init image previews on page load ──
@@ -836,6 +927,7 @@ class TelegramSocialMessageController extends BaseController
                     facebook_image: jobImages.facebook_image,
                     linkedin_image: jobImages.linkedin_image,
                     whatsapp_image: jobImages.whatsapp_image,
+                    twitter_image:  jobImages.twitter_image,
                 };
                 for (const [key, url] of Object.entries(slots)) {
                     if (url) showPreview(key, url);
@@ -843,13 +935,23 @@ class TelegramSocialMessageController extends BaseController
             })();
 
             function showPreview(key, url) {
-                const img   = document.getElementById('img-' + key);
-                const prev  = document.getElementById('preview-' + key);
-                const zone  = document.getElementById('zone-' + key);
+                const img  = document.getElementById('img-' + key);
+                const prev = document.getElementById('preview-' + key);
+                const zone = document.getElementById('zone-' + key);
+                const dl   = document.getElementById('dl-' + key);
                 if (!img || !prev) return;
                 img.src = url;
                 prev.style.display = 'block';
                 if (zone) zone.style.display = 'none';
+                if (dl) { dl.href = url; dl.style.opacity = '1'; dl.style.pointerEvents = 'auto'; }
+                const slot = document.getElementById('slot-' + key);
+                if (slot) { const cb = slot.querySelector('.img-copy-btn'); if (cb) cb.style.display = 'none'; }
+            }
+
+            function copySlotPost(key, btn) {
+                const text = slotPosts[key];
+                if (!text) return;
+                doCopy(text, btn, '📋 Post Text');
             }
 
             function triggerUpload(key) {
@@ -921,7 +1023,7 @@ class TelegramSocialMessageController extends BaseController
                     if (xhr.status >= 200 && xhr.status < 300 && data.ok !== false) {
                         if (data.url) showPreview(key, data.url);
                         setProgress(key, 100, 'done', '✅ Saved!');
-                        setTimeout(() => hideProgress(key), 3000);
+                        setTimeout(() => location.reload(), 1200);
                     } else {
                         const msg = data.message || ('Upload failed (' + xhr.status + ')');
                         setProgress(key, 100, 'fail', '❌ ' + msg);
@@ -946,17 +1048,13 @@ class TelegramSocialMessageController extends BaseController
                 btn.classList.add('active');
             }
 
+            function copySlotPrompt(key, btn) {
+                const text = slotPrompts[key];
+                if (!text) return;
+                doCopy(text, btn, '📋 Copy');
+            }
             function copyField(id, btn, resetLabel) {
                 doCopy(document.getElementById(id).value, btn, resetLabel);
-            }
-            function copyAi() {
-                doCopy(aiPromptText, document.getElementById('ai-copy-btn'), '📋 Copy Image Prompt');
-            }
-            function copyTiktokImage() {
-                doCopy(tiktokImageText, document.getElementById('tiktok-img-copy-btn'), '📋 Copy TikTok Image Prompt');
-            }
-            function copyPlatform(key, btn) {
-                doCopy(document.getElementById('ta-' + key).value, btn, '📋 Copy');
             }
 
             function dismiss() {
@@ -1034,7 +1132,7 @@ class TelegramSocialMessageController extends BaseController
         $jobId   = $request->query('job_id');
         $companyId = $request->query('company_id');
 
-        $allowedTypes = ['company_logo', 'cover_image', 'tiktok_image', 'facebook_image', 'linkedin_image', 'whatsapp_image'];
+        $allowedTypes = ['company_logo', 'cover_image', 'tiktok_image', 'facebook_image', 'linkedin_image', 'whatsapp_image', 'twitter_image'];
         if (! in_array($type, $allowedTypes, true)) {
             return response()->json(['ok' => false, 'message' => 'Invalid upload type.'], 422);
         }
@@ -1084,6 +1182,7 @@ class TelegramSocialMessageController extends BaseController
                 'facebook_image' => 'job-social/facebook',
                 'linkedin_image' => 'job-social/linkedin',
                 'whatsapp_image' => 'job-social/whatsapp',
+                'twitter_image'  => 'job-social/twitter',
                 default          => 'job-social',
             };
 
@@ -1235,6 +1334,896 @@ class TelegramSocialMessageController extends BaseController
         HTML;
 
         return response($html);
+    }
+
+    private function renderPostKitHtml(
+        string $aiPrompt,
+        ?string $storyboardPrompt,
+        ?string $geminiPrompt,
+        ?string $tiktokImagePrompt,
+        ?string $coverImagePrompt,
+        ?string $facebookImagePrompt,
+        ?string $linkedinImagePrompt,
+        ?string $twitterImagePrompt,
+        array $platformPosts,
+        array $jobImages,
+        ?string $companyLogoUrl,
+        ?string $companyName,
+        ?string $jobName,
+        ?string $jobUrl,
+        array $uploadUrls,
+        ?string $step2Url,
+        string $heroBadge,
+        ?string $adminEditUrl,
+    ): string {
+        $storyboardSafe    = mb_convert_encoding((string) $storyboardPrompt, 'UTF-8', 'UTF-8');
+        $geminiSafe        = mb_convert_encoding((string) $geminiPrompt, 'UTF-8', 'UTF-8');
+        $tiktokImageSafe   = mb_convert_encoding((string) $tiktokImagePrompt, 'UTF-8', 'UTF-8');
+        $coverImageSafe    = mb_convert_encoding((string) $coverImagePrompt, 'UTF-8', 'UTF-8');
+        $facebookImageSafe = mb_convert_encoding((string) $facebookImagePrompt, 'UTF-8', 'UTF-8');
+        $linkedinImageSafe = mb_convert_encoding((string) $linkedinImagePrompt, 'UTF-8', 'UTF-8');
+        $twitterImageSafe  = mb_convert_encoding((string) $twitterImagePrompt, 'UTF-8', 'UTF-8');
+
+        $aiPromptJson    = json_encode($aiPrompt, JSON_UNESCAPED_UNICODE);
+        $storyboardJson  = json_encode($storyboardSafe, JSON_UNESCAPED_UNICODE);
+        $geminiJson      = json_encode($geminiSafe, JSON_UNESCAPED_UNICODE);
+        $tiktokImageJson = json_encode($tiktokImageSafe, JSON_UNESCAPED_UNICODE);
+        $step2UrlJson    = json_encode($step2Url ?? '', JSON_UNESCAPED_UNICODE);
+        $uploadUrlsJson  = json_encode($uploadUrls, JSON_UNESCAPED_UNICODE);
+        $jobImagesJson   = json_encode($jobImages, JSON_UNESCAPED_UNICODE);
+        $companyLogoJson = json_encode($companyLogoUrl, JSON_UNESCAPED_UNICODE);
+        $csrfToken       = csrf_token();
+
+        $slotPromptsJson = json_encode([
+            'cover_image'    => $coverImageSafe,
+            'tiktok_image'   => $tiktokImageSafe,
+            'whatsapp_image' => $aiPrompt,
+            'facebook_image' => $facebookImageSafe,
+            'linkedin_image' => $linkedinImageSafe,
+            'twitter_image'  => $twitterImageSafe,
+        ], JSON_UNESCAPED_UNICODE);
+
+        $slotPostsJson = json_encode([
+            'tiktok_image'   => $platformPosts['tiktok']   ?? '',
+            'whatsapp_image' => $platformPosts['whatsapp']  ?? '',
+            'facebook_image' => $platformPosts['facebook']  ?? '',
+            'linkedin_image' => $platformPosts['linkedin']  ?? '',
+            'twitter_image'  => $platformPosts['twitter']   ?? '',
+        ], JSON_UNESCAPED_UNICODE);
+
+        $escapedStoryboard  = htmlspecialchars($storyboardSafe, ENT_QUOTES, 'UTF-8');
+        $escapedGemini      = htmlspecialchars($geminiSafe, ENT_QUOTES, 'UTF-8');
+        $escapedTiktokImage = htmlspecialchars($tiktokImageSafe, ENT_QUOTES, 'UTF-8');
+        $escapedCoverImage  = htmlspecialchars($coverImageSafe, ENT_QUOTES, 'UTF-8');
+
+        $escapedJobName  = htmlspecialchars((string) ($jobName ?? 'New Job'), ENT_QUOTES, 'UTF-8');
+        $escapedCompany  = htmlspecialchars((string) ($companyName ?? ''), ENT_QUOTES, 'UTF-8');
+        $escapedJobUrl   = $jobUrl ? htmlspecialchars($jobUrl, ENT_QUOTES, 'UTF-8') : '';
+        $heroCompanyHtml = $escapedCompany ? "<div class=\"hero-company\">🏢 {$escapedCompany}</div>" : '';
+        $jobBtnHtml      = $escapedJobUrl ? "<a href=\"{$escapedJobUrl}\" target=\"_blank\" rel=\"noopener\" class=\"bb-job\">🔗 View Job</a>" : '';
+        $escapedHeroBadge = htmlspecialchars($heroBadge, ENT_QUOTES, 'UTF-8');
+
+        $wjLogo1 = 'https://www.wakandajobs.com/storage/gemini-generated-image-s1e9dgs1e9dgs1e9.png';
+        $wjLogo2 = 'https://www.wakandajobs.com/storage/chatgpt-image-may-14-2026-03-00-04-pm.png';
+        $attachmentTipHtml  = '<div class="tip-amber">💡 <strong>Attach these to ChatGPT BEFORE pasting the prompt</strong> (ChatGPT cannot fetch URLs):<br>';
+        $attachmentTipHtml .= '<a href="' . $wjLogo1 . '" target="_blank" rel="noopener" class="logo-link">WJ Logo 1 →</a>';
+        $attachmentTipHtml .= ' &nbsp;|&nbsp; <a href="' . $wjLogo2 . '" target="_blank" rel="noopener" class="logo-link">WJ Logo 2 →</a>';
+        if ($companyLogoUrl) {
+            $escapedLogoUrl  = htmlspecialchars($companyLogoUrl, ENT_QUOTES, 'UTF-8');
+            $escapedCompName = htmlspecialchars((string) $companyName, ENT_QUOTES, 'UTF-8');
+            $attachmentTipHtml .= ' &nbsp;|&nbsp; <a href="' . $escapedLogoUrl . '" target="_blank" rel="noopener" class="logo-link">' . $escapedCompName . ' logo →</a>';
+        }
+        $attachmentTipHtml .= '</div>';
+
+        // Bottom bar — admin gets a back link + close tab; Telegram gets dismiss + next
+        if ($adminEditUrl !== null) {
+            $escapedAdminUrl = htmlspecialchars($adminEditUrl, ENT_QUOTES, 'UTF-8');
+            $dismissBtnHtml  = "<a href=\"{$escapedAdminUrl}\" class=\"bb-dismiss\" style=\"text-decoration:none;display:inline-flex;align-items:center;justify-content:center\">← Back to Edit</a>";
+            $nextBtnHtml     = '<button onclick="window.close()" class="bb-next" style="background:#475569">✕ Close Tab</button>';
+            $jsDismissFn     = '';
+        } else {
+            $dismissBtnHtml = '<button class="bb-dismiss" id="dismiss-btn" onclick="dismiss()">🗑 Dismiss</button>';
+            $nextBtnHtml    = $step2Url
+                ? '<a href="' . htmlspecialchars($step2Url, ENT_QUOTES) . '" class="bb-next">Next: Get Post Text →</a>'
+                : '<span class="bb-next bb-next--disabled">Next: Get Post Text</span>';
+            $jsDismissFn = <<<'JSFN'
+
+            function dismiss() {
+                const btn = document.getElementById('dismiss-btn');
+                const tip = document.getElementById('close-tip');
+                btn.disabled = true;
+                btn.textContent = '⏳ Dismissing…';
+                if (!step2Url) {
+                    btn.classList.add('done');
+                    btn.textContent = '✅ Done';
+                    tip.textContent = 'You can close this tab.';
+                    tip.style.display = 'block';
+                    setTimeout(() => window.close(), 600);
+                    return;
+                }
+                fetch(step2Url, {
+                    credentials: 'same-origin',
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+                })
+                .then(async r => {
+                    const d = await r.json().catch(() => ({}));
+                    if (!r.ok || d.ok === false) throw new Error(d.message || 'Telegram could not remove the message.');
+                    btn.classList.add('done');
+                    btn.textContent = '✅ Done';
+                    tip.textContent = '✅ Telegram message deleted — you can close this tab.';
+                    tip.style.display = 'block';
+                    setTimeout(() => window.close(), 600);
+                })
+                .catch(err => {
+                    btn.disabled = false;
+                    btn.textContent = '🗑 Retry Dismiss';
+                    tip.textContent = err.message || 'Could not dismiss. Please try again.';
+                    tip.style.color = '#b91c1c';
+                    tip.style.display = 'block';
+                });
+            }
+JSFN;
+        }
+
+        return <<<HTML
+        <!doctype html>
+        <html lang="en">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>Post Kit — Wakanda Jobs</title>
+            <meta name="csrf-token" content="{$csrfToken}">
+            <style>
+                *{box-sizing:border-box;margin:0;padding:0}
+                :root{
+                    --p:#7c3aed;--pd:#5b21b6;--pl:#a78bfa;
+                    --dark:#0f172a;--dark2:#1e293b;--dark3:#334155;
+                    --slate:#f1f5f9;--muted:#64748b;
+                }
+                body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--slate);min-height:100vh;padding-bottom:90px}
+                .page{max-width:640px;margin:0 auto}
+
+                /* ── Hero ── */
+                .hero{background:linear-gradient(135deg,#3b0764 0%,#6d28d9 55%,#7c3aed 100%);padding:22px 16px 0;position:relative;overflow:hidden}
+                .hero::before{content:'';position:absolute;top:-60px;right:-60px;width:220px;height:220px;background:radial-gradient(circle,rgba(167,139,250,.25) 0%,transparent 70%);pointer-events:none}
+                .hero::after{content:'';position:absolute;bottom:0;left:0;right:0;height:22px;background:var(--slate);border-radius:22px 22px 0 0}
+                .hero-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.18);color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:20px;border:1px solid rgba(255,255,255,.3);backdrop-filter:blur(6px);margin-bottom:10px}
+                .hero h1{color:#fff;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;opacity:.7;margin-bottom:5px;position:relative}
+                .hero-job-title{color:#fff;font-size:20px;font-weight:800;line-height:1.25;margin-bottom:4px;position:relative}
+                .hero-company{color:rgba(255,255,255,.75);font-size:13px;font-weight:500;margin-bottom:10px;position:relative}
+                .hero-job-link{display:inline-flex;align-items:center;gap:6px;color:#fff;font-size:12px;font-weight:700;text-decoration:none;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:9px;padding:7px 14px;margin-bottom:18px;position:relative;transition:background .15s;backdrop-filter:blur(6px)}
+                .hero-job-link:hover{background:rgba(255,255,255,.28);color:#fff}
+
+                /* ── Tab bar ── */
+                .tab-bar{position:sticky;top:0;z-index:100;background:var(--slate);padding:10px 16px 0;border-bottom:2px solid #e2e8f0}
+                .tab-nav{display:flex;gap:3px;background:#e2e8f0;border-radius:12px;padding:4px}
+                .tab-btn{flex:1;padding:8px 6px;background:none;border:none;border-radius:9px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .18s;white-space:nowrap}
+                .tab-btn.active{background:#fff;color:var(--p);box-shadow:0 1px 5px rgba(0,0,0,.1)}
+
+                /* ── Tab panes ── */
+                .tab-pane{display:none;padding:16px 16px 8px}
+                .tab-pane.active{display:block}
+
+                /* ── Cards ── */
+                .card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 1px 8px rgba(0,0,0,.06);margin-bottom:14px}
+                .section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--p);margin-bottom:10px}
+
+                /* ── Textareas ── */
+                textarea{width:100%;border:1.5px solid #e2e8f0;border-radius:10px;padding:11px 13px;font-size:12.5px;font-family:inherit;resize:vertical;color:#334155;background:#f8fafc;line-height:1.6}
+                textarea:focus{outline:none;border-color:var(--p);background:#fff}
+
+                /* ── Buttons ── */
+                .btn-row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+                .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 18px;border:none;border-radius:10px;font-size:13.5px;font-weight:700;cursor:pointer;transition:all .15s;text-decoration:none;flex:1}
+                .btn-purple{background:var(--p);color:#fff}
+                .btn-purple:hover{background:var(--pd)}
+                .btn-purple.ok{background:#16a34a}
+                .btn-dark{background:var(--dark);color:#fff}
+                .btn-dark:hover{background:var(--dark2);color:#fff}
+
+                /* ── Tips ── */
+                .tip-amber{margin-top:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:11px 14px;font-size:12px;color:#92400e;line-height:1.6}
+                .tip-blue{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;font-size:12px;color:#1e40af;line-height:1.6;margin-bottom:14px}
+                .logo-link{color:var(--p);font-weight:600;word-break:break-all}
+
+                /* ── Image slots ── */
+                .img-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+                .img-slot{background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 8px rgba(0,0,0,.06)}
+                .img-slot.full-width{grid-column:1/-1}
+                .img-slot-head{padding:10px 12px 8px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;gap:8px}
+                .img-copy-btn{margin-left:auto;flex-shrink:0;padding:5px 10px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;font-weight:700;color:#475569;cursor:pointer;transition:all .15s;white-space:nowrap}
+                .img-copy-btn:hover{background:var(--p);color:#fff;border-color:var(--p)}
+                .img-copy-btn.ok{background:#16a34a;color:#fff;border-color:#16a34a}
+                .img-slot-icon{font-size:16px;flex-shrink:0}
+                .img-slot-info{flex:1;min-width:0}
+                .img-slot-label{font-size:12px;font-weight:700;color:#1e293b;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                .img-slot-dim{font-size:10px;color:var(--muted);display:block}
+                .img-slot-body{padding:10px 12px 12px;position:relative}
+
+                /* Preview state */
+                .img-preview-wrap{position:relative;border-radius:10px;overflow:hidden;background:#0f172a;aspect-ratio:attr(data-ratio);min-height:80px}
+                .img-preview-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+                .img-preview-overlay{position:absolute;inset:0;background:rgba(0,0,0,.45);opacity:0;transition:opacity .18s;display:flex;align-items:center;justify-content:center}
+                .img-preview-wrap:hover .img-preview-overlay{opacity:1}
+                .img-replace-btn{background:rgba(255,255,255,.92);color:#1e293b;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px}
+
+                /* Upload zone state */
+                .img-upload-zone{border:2px dashed #cbd5e1;border-radius:10px;padding:18px 12px;text-align:center;cursor:pointer;transition:all .18s;background:#f8fafc;min-height:80px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+                .img-upload-zone:hover{border-color:var(--p);background:#faf5ff}
+                .img-upload-zone.dragging{border-color:var(--p);background:#f3e8ff}
+                .img-upload-zone-icon{font-size:22px;margin-bottom:2px}
+                .img-upload-zone-label{font-size:11.5px;font-weight:600;color:#475569}
+                .img-upload-zone-sub{font-size:10px;color:var(--muted)}
+
+                /* Card footer buttons */
+                .img-slot-footer{display:flex;gap:7px;margin-top:10px}
+                .img-footer-btn{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;text-decoration:none;background:#f8fafc;color:#475569;white-space:nowrap}
+                .img-footer-btn:hover{border-color:var(--p);color:var(--p);background:#faf5ff}
+                .img-footer-btn.ok{background:#16a34a;color:#fff;border-color:#16a34a}
+                .img-footer-btn:disabled,.img-footer-btn[aria-disabled="true"]{opacity:.35;pointer-events:none;cursor:default}
+                .img-footer-btn.dl{color:#0ea5e9;border-color:#bae6fd;background:#f0f9ff}
+                .img-footer-btn.dl:hover{background:#0ea5e9;color:#fff;border-color:#0ea5e9}
+
+                /* Status / progress */
+                .img-progress{margin-top:8px;display:none}
+                .img-progress-bar-wrap{height:6px;background:#e2e8f0;border-radius:99px;overflow:hidden}
+                .img-progress-bar{height:100%;width:0%;background:var(--p);border-radius:99px;transition:width .1s linear}
+                .img-progress-bar.done{background:#16a34a}
+                .img-progress-bar.fail{background:#dc2626}
+                .img-progress-label{margin-top:4px;font-size:11px;font-weight:700;text-align:center;color:var(--p)}
+                .img-progress-label.done{color:#16a34a}
+                .img-progress-label.fail{color:#dc2626}
+
+                /* ── Video tab ── */
+                .video-hero{background:linear-gradient(160deg,#020617 0%,#0d1424 55%,#1a0a2e 100%);border-radius:18px;padding:22px 18px 20px;margin-bottom:14px;position:relative;overflow:hidden}
+                .video-hero::before{content:'';position:absolute;top:-50px;right:-50px;width:200px;height:200px;background:radial-gradient(circle,rgba(124,58,237,.25) 0%,transparent 65%);pointer-events:none}
+                .video-hero::after{content:'';position:absolute;bottom:-40px;left:-40px;width:160px;height:160px;background:radial-gradient(circle,rgba(245,158,11,.1) 0%,transparent 65%);pointer-events:none}
+                .video-hero-eyebrow{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#a78bfa;margin-bottom:6px;position:relative}
+                .video-hero-title{font-size:20px;font-weight:800;color:#fff;margin-bottom:4px;position:relative}
+                .video-hero-sub{font-size:12px;color:#94a3b8;margin-bottom:18px;position:relative}
+
+                /* Flow diagram */
+                .flow{display:flex;align-items:center;gap:0;margin-bottom:18px;overflow-x:auto;padding-bottom:2px;position:relative}
+                .flow-node{flex:1;min-width:68px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:11px;padding:10px 6px;text-align:center}
+                .flow-node-icon{font-size:20px;margin-bottom:4px}
+                .flow-node-label{font-size:9.5px;color:#cbd5e1;font-weight:700;line-height:1.3;text-transform:uppercase;letter-spacing:.04em}
+                .flow-node-sub{font-size:9px;color:#64748b;margin-top:2px}
+                .flow-arrow{color:#a78bfa;font-size:16px;padding:0 5px;flex-shrink:0;font-weight:700}
+
+                /* Frame strip */
+                .frame-strip{display:flex;gap:6px;margin-bottom:18px;position:relative}
+                .frame-card{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:9px 4px;text-align:center}
+                .frame-num{width:22px;height:22px;background:var(--p);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;margin:0 auto 4px}
+                .frame-tag{font-size:8.5px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.2}
+                .frame-time{font-size:8px;color:#475569;margin-top:3px}
+
+                /* Video step cards */
+                .vstep{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:17px 16px;margin-bottom:12px;position:relative}
+                .vstep-header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+                .vstep-num{width:28px;height:28px;background:var(--p);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0}
+                .vstep h4{font-size:13.5px;font-weight:700;color:#f1f5f9;line-height:1.3}
+                .vstep-where{font-size:11px;font-weight:600;color:#a78bfa;margin-left:auto;white-space:nowrap}
+                .vstep p{font-size:11.5px;color:#94a3b8;margin-bottom:10px;line-height:1.5}
+                .vstep textarea{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.15);color:#e2e8f0}
+                .vstep textarea:focus{background:rgba(255,255,255,.12);border-color:#a78bfa}
+                .vstep .btn-row .btn-purple{background:rgba(124,58,237,.75);border:1px solid rgba(167,139,250,.4)}
+                .vstep .btn-row .btn-purple:hover{background:var(--p)}
+                .vstep .btn-row .btn-purple.ok{background:#16a34a}
+                .vstep-gemini{background:linear-gradient(135deg,rgba(66,133,244,.12) 0%,rgba(52,168,83,.08) 50%,rgba(251,188,4,.08) 100%);border:1px solid rgba(66,133,244,.3)}
+                .gemini-badge-wrap{margin-bottom:10px}
+                .gemini-badge{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.02em;padding:3px 11px;border-radius:20px;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.3)}
+                .g-b{color:#4285F4}.g-e{color:#EA4335}.g-y{color:#FBBC04}.g-g{color:#34A853}
+                .gemini-model-tip{font-size:11px;color:#93c5fd;background:rgba(37,99,235,.2);border:1px solid rgba(59,130,246,.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;line-height:1.5}
+
+                /* ── Sticky bottom bar ── */
+                .bottom-bar{position:fixed;bottom:0;left:0;right:0;background:rgba(241,245,249,.96);backdrop-filter:blur(14px);border-top:1px solid #e2e8f0;padding:10px 16px 14px;z-index:200}
+                .bottom-bar-inner{display:flex;gap:8px;max-width:640px;margin:0 auto;align-items:center}
+                .bb-dismiss{padding:12px 16px;background:#dc2626;color:#fff;border:none;border-radius:11px;font-size:13.5px;font-weight:700;cursor:pointer;transition:background .15s;white-space:nowrap}
+                .bb-dismiss:hover{background:#b91c1c}
+                .bb-dismiss.done{background:#16a34a;cursor:default}
+                .bb-next{flex:1;display:flex;align-items:center;justify-content:center;padding:12px 16px;background:var(--dark);color:#fff;border-radius:11px;font-size:13.5px;font-weight:700;text-decoration:none;transition:background .15s;border:none;cursor:pointer}
+                .bb-next:hover{background:var(--dark2);color:#fff}
+                .bb-next--disabled{opacity:.4;cursor:default;pointer-events:none}
+                .bb-close-tip{font-size:11.5px;color:#666;text-align:center;margin-top:6px;max-width:640px;margin-left:auto;margin-right:auto;display:none}
+                .bb-job{padding:10px 14px;background:#7c3aed;color:#fff;border:none;border-radius:11px;font-size:13px;font-weight:700;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:5px;transition:background .15s}
+                .bb-job:hover{background:#6d28d9;color:#fff}
+                /* ── Desktop layout ── */
+                @media(min-width:900px){
+                    body{padding-bottom:80px}
+                    .page{max-width:1200px}
+                    .hero{padding:36px 48px 0}
+                    .hero-job-title{font-size:28px}
+                    .hero::after{height:28px;border-radius:28px 28px 0 0}
+                    .tab-bar{padding:14px 48px 0}
+                    .tab-nav{max-width:500px}
+                    .tab-pane{padding:28px 48px 16px}
+                    .img-grid{grid-template-columns:repeat(3,1fr);gap:16px}
+                    .img-slot.full-width{grid-column:1/-1}
+                    .img-slot-label{font-size:13px}
+                    .vstep-pair{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+                    .vstep-pair>.vstep{margin-bottom:0}
+                    .video-hero{padding:30px 28px 26px}
+                    .bottom-bar{padding:14px 48px 18px}
+                    .bottom-bar-inner{max-width:1200px;gap:16px}
+                    .bb-dismiss,.bb-next{font-size:14px;padding:13px 22px}
+                    .bb-job{font-size:13.5px;padding:12px 18px}
+                }
+                @media(min-width:1200px){
+                    .page{max-width:1400px}
+                    .hero{padding:40px 64px 0}
+                    .tab-bar{padding:14px 64px 0}
+                    .tab-pane{padding:32px 64px 20px}
+                    .img-grid{grid-template-columns:repeat(4,1fr);gap:18px}
+                    .bottom-bar{padding:14px 64px 20px}
+                    .bottom-bar-inner{max-width:1400px}
+                }
+            </style>
+        </head>
+        <body>
+
+        <!-- ── Hero ── -->
+        <div class="hero">
+            <div class="page">
+                <div class="hero-badge">{$escapedHeroBadge}</div>
+                <h1>Content Creator</h1>
+                <div class="hero-job-title">{$escapedJobName}</div>
+                {$heroCompanyHtml}
+            </div>
+        </div>
+
+        <!-- ── Tab bar ── -->
+        <div class="tab-bar">
+            <div class="page">
+                <div class="tab-nav">
+                    <button class="tab-btn active" onclick="switchTab('image',this)">🎨 Images</button>
+                    <button class="tab-btn" onclick="switchTab('video',this)">🎬 Video</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="page">
+
+            <!-- ══════════════ IMAGE TAB ══════════════ -->
+            <div id="tab-image" class="tab-pane active">
+
+                <!-- Company Logo + Cover Image row -->
+                <div class="img-grid">
+
+                    <div class="img-slot full-width" id="slot-company_logo">
+                        <div class="img-slot-head">
+                            <span class="img-slot-icon">🏢</span>
+                            <div class="img-slot-info">
+                                <span class="img-slot-label">Company Logo</span>
+                                <span class="img-slot-dim">Square or landscape · PNG/WebP</span>
+                            </div>
+                        </div>
+                        <div class="img-slot-body">
+                            <div id="preview-company_logo" style="display:none">
+                                <div class="img-preview-wrap" style="max-height:120px;aspect-ratio:auto">
+                                    <img id="img-company_logo" src="" alt="Company logo" style="height:120px;width:auto;margin:0 auto;display:block;object-fit:contain;background:#f8fafc;border-radius:8px">
+                                    <div class="img-preview-overlay">
+                                        <button class="img-replace-btn" onclick="triggerUpload('company_logo')">🔄 Replace</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="zone-company_logo" class="img-upload-zone" onclick="triggerUpload('company_logo')" ondragover="onDragOver(event,'company_logo')" ondragleave="onDragLeave('company_logo')" ondrop="onDrop(event,'company_logo')">
+                                <div class="img-upload-zone-icon">🖼</div>
+                                <div class="img-upload-zone-label">Upload Company Logo</div>
+                                <div class="img-upload-zone-sub">PNG · JPG · WebP</div>
+                            </div>
+                            <input type="file" id="file-company_logo" accept="image/*" onchange="handleFileSelect('company_logo',this)" style="display:none">
+                            <div class="img-progress" id="progress-company_logo">
+                                <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-company_logo"></div></div>
+                                <div class="img-progress-label" id="label-company_logo"></div>
+                            </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-company_logo" href="#" download="company-logo" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="img-slot full-width" id="slot-cover_image">
+                        <div class="img-slot-head">
+                            <span class="img-slot-icon">🖼</span>
+                            <div class="img-slot-info">
+                                <span class="img-slot-label">Job Cover Image</span>
+                                <span class="img-slot-dim">1854 × 848 px · landscape banner</span>
+                            </div>
+                            <button class="img-copy-btn" onclick="copySlotPrompt('cover_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
+                        </div>
+                        <div class="img-slot-body">
+                            <div id="preview-cover_image" style="display:none">
+                                <div class="img-preview-wrap" style="aspect-ratio:1854/848">
+                                    <img id="img-cover_image" src="" alt="Cover image">
+                                    <div class="img-preview-overlay">
+                                        <button class="img-replace-btn" onclick="triggerUpload('cover_image')">🔄 Replace</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="zone-cover_image" class="img-upload-zone" onclick="triggerUpload('cover_image')" ondragover="onDragOver(event,'cover_image')" ondragleave="onDragLeave('cover_image')" ondrop="onDrop(event,'cover_image')">
+                                <div class="img-upload-zone-icon">🖼</div>
+                                <div class="img-upload-zone-label">Upload Job Cover Image</div>
+                                <div class="img-upload-zone-sub">1854 × 848 px · PNG · JPG · WebP</div>
+                            </div>
+                            <input type="file" id="file-cover_image" accept="image/*" onchange="handleFileSelect('cover_image',this)" style="display:none">
+                            <div class="img-progress" id="progress-cover_image">
+                                <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-cover_image"></div></div>
+                                <div class="img-progress-label" id="label-cover_image"></div>
+                            </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-cover_image" href="#" download="cover-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TikTok image -->
+                    <div class="img-slot" id="slot-tiktok_image">
+                        <div class="img-slot-head">
+                            <span class="img-slot-icon">🎵</span>
+                            <div class="img-slot-info">
+                                <span class="img-slot-label">TikTok</span>
+                                <span class="img-slot-dim">1080 × 1920 · 9:16</span>
+                            </div>
+                            <button class="img-copy-btn" onclick="copySlotPrompt('tiktok_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
+                        </div>
+                        <div class="img-slot-body">
+                            <div id="preview-tiktok_image" style="display:none">
+                                <div class="img-preview-wrap" style="aspect-ratio:9/16">
+                                    <img id="img-tiktok_image" src="" alt="TikTok image">
+                                    <div class="img-preview-overlay">
+                                        <button class="img-replace-btn" onclick="triggerUpload('tiktok_image')">🔄 Replace</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="zone-tiktok_image" class="img-upload-zone" onclick="triggerUpload('tiktok_image')" ondragover="onDragOver(event,'tiktok_image')" ondragleave="onDragLeave('tiktok_image')" ondrop="onDrop(event,'tiktok_image')">
+                                <div class="img-upload-zone-icon">🎵</div>
+                                <div class="img-upload-zone-label">Upload TikTok Image</div>
+                                <div class="img-upload-zone-sub">1080 × 1920</div>
+                            </div>
+                            <input type="file" id="file-tiktok_image" accept="image/*" onchange="handleFileSelect('tiktok_image',this)" style="display:none">
+                            <div class="img-progress" id="progress-tiktok_image">
+                                <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-tiktok_image"></div></div>
+                                <div class="img-progress-label" id="label-tiktok_image"></div>
+                            </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-tiktok_image" href="#" download="tiktok-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <button class="img-footer-btn" onclick="copySlotPost('tiktok_image',this)">📋 Post Text</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- WhatsApp image -->
+                    <div class="img-slot" id="slot-whatsapp_image">
+                        <div class="img-slot-head">
+                            <span class="img-slot-icon">💬</span>
+                            <div class="img-slot-info">
+                                <span class="img-slot-label">WhatsApp</span>
+                                <span class="img-slot-dim">1080 × 1920 · status</span>
+                            </div>
+                            <button class="img-copy-btn" onclick="copySlotPrompt('whatsapp_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
+                        </div>
+                        <div class="img-slot-body">
+                            <div id="preview-whatsapp_image" style="display:none">
+                                <div class="img-preview-wrap" style="aspect-ratio:9/16">
+                                    <img id="img-whatsapp_image" src="" alt="WhatsApp image">
+                                    <div class="img-preview-overlay">
+                                        <button class="img-replace-btn" onclick="triggerUpload('whatsapp_image')">🔄 Replace</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="zone-whatsapp_image" class="img-upload-zone" onclick="triggerUpload('whatsapp_image')" ondragover="onDragOver(event,'whatsapp_image')" ondragleave="onDragLeave('whatsapp_image')" ondrop="onDrop(event,'whatsapp_image')">
+                                <div class="img-upload-zone-icon">💬</div>
+                                <div class="img-upload-zone-label">Upload WhatsApp Image</div>
+                                <div class="img-upload-zone-sub">1080 × 1920</div>
+                            </div>
+                            <input type="file" id="file-whatsapp_image" accept="image/*" onchange="handleFileSelect('whatsapp_image',this)" style="display:none">
+                            <div class="img-progress" id="progress-whatsapp_image">
+                                <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-whatsapp_image"></div></div>
+                                <div class="img-progress-label" id="label-whatsapp_image"></div>
+                            </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-whatsapp_image" href="#" download="whatsapp-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <button class="img-footer-btn" onclick="copySlotPost('whatsapp_image',this)">📋 Post Text</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Facebook image -->
+                    <div class="img-slot" id="slot-facebook_image">
+                        <div class="img-slot-head">
+                            <span class="img-slot-icon">f</span>
+                            <div class="img-slot-info">
+                                <span class="img-slot-label">Facebook</span>
+                                <span class="img-slot-dim">1200 × 630 · landscape</span>
+                            </div>
+                            <button class="img-copy-btn" onclick="copySlotPrompt('facebook_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
+                        </div>
+                        <div class="img-slot-body">
+                            <div id="preview-facebook_image" style="display:none">
+                                <div class="img-preview-wrap" style="aspect-ratio:1200/630">
+                                    <img id="img-facebook_image" src="" alt="Facebook image">
+                                    <div class="img-preview-overlay">
+                                        <button class="img-replace-btn" onclick="triggerUpload('facebook_image')">🔄 Replace</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="zone-facebook_image" class="img-upload-zone" onclick="triggerUpload('facebook_image')" ondragover="onDragOver(event,'facebook_image')" ondragleave="onDragLeave('facebook_image')" ondrop="onDrop(event,'facebook_image')">
+                                <div class="img-upload-zone-icon">f</div>
+                                <div class="img-upload-zone-label">Upload Facebook Image</div>
+                                <div class="img-upload-zone-sub">1200 × 630</div>
+                            </div>
+                            <input type="file" id="file-facebook_image" accept="image/*" onchange="handleFileSelect('facebook_image',this)" style="display:none">
+                            <div class="img-progress" id="progress-facebook_image">
+                                <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-facebook_image"></div></div>
+                                <div class="img-progress-label" id="label-facebook_image"></div>
+                            </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-facebook_image" href="#" download="facebook-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <button class="img-footer-btn" onclick="copySlotPost('facebook_image',this)">📋 Post Text</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- LinkedIn image -->
+                    <div class="img-slot" id="slot-linkedin_image">
+                        <div class="img-slot-head">
+                            <span class="img-slot-icon">in</span>
+                            <div class="img-slot-info">
+                                <span class="img-slot-label">LinkedIn</span>
+                                <span class="img-slot-dim">1200 × 627 · landscape</span>
+                            </div>
+                            <button class="img-copy-btn" onclick="copySlotPrompt('linkedin_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
+                        </div>
+                        <div class="img-slot-body">
+                            <div id="preview-linkedin_image" style="display:none">
+                                <div class="img-preview-wrap" style="aspect-ratio:1200/627">
+                                    <img id="img-linkedin_image" src="" alt="LinkedIn image">
+                                    <div class="img-preview-overlay">
+                                        <button class="img-replace-btn" onclick="triggerUpload('linkedin_image')">🔄 Replace</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="zone-linkedin_image" class="img-upload-zone" onclick="triggerUpload('linkedin_image')" ondragover="onDragOver(event,'linkedin_image')" ondragleave="onDragLeave('linkedin_image')" ondrop="onDrop(event,'linkedin_image')">
+                                <div class="img-upload-zone-icon">in</div>
+                                <div class="img-upload-zone-label">Upload LinkedIn Image</div>
+                                <div class="img-upload-zone-sub">1200 × 627</div>
+                            </div>
+                            <input type="file" id="file-linkedin_image" accept="image/*" onchange="handleFileSelect('linkedin_image',this)" style="display:none">
+                            <div class="img-progress" id="progress-linkedin_image">
+                                <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-linkedin_image"></div></div>
+                                <div class="img-progress-label" id="label-linkedin_image"></div>
+                            </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-linkedin_image" href="#" download="linkedin-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <button class="img-footer-btn" onclick="copySlotPost('linkedin_image',this)">📋 Post Text</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Twitter / X image -->
+                    <div class="img-slot" id="slot-twitter_image">
+                        <div class="img-slot-head">
+                            <span class="img-slot-icon">𝕏</span>
+                            <div class="img-slot-info">
+                                <span class="img-slot-label">X / Twitter</span>
+                                <span class="img-slot-dim">1200 × 675 · 16:9</span>
+                            </div>
+                            <button class="img-copy-btn" onclick="copySlotPrompt('twitter_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
+                        </div>
+                        <div class="img-slot-body">
+                            <div id="preview-twitter_image" style="display:none">
+                                <div class="img-preview-wrap" style="aspect-ratio:16/9">
+                                    <img id="img-twitter_image" src="" alt="X / Twitter image">
+                                    <div class="img-preview-overlay">
+                                        <button class="img-replace-btn" onclick="triggerUpload('twitter_image')">🔄 Replace</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="zone-twitter_image" class="img-upload-zone" onclick="triggerUpload('twitter_image')" ondragover="onDragOver(event,'twitter_image')" ondragleave="onDragLeave('twitter_image')" ondrop="onDrop(event,'twitter_image')">
+                                <div class="img-upload-zone-icon">𝕏</div>
+                                <div class="img-upload-zone-label">Upload X / Twitter Image</div>
+                                <div class="img-upload-zone-sub">1200 × 675</div>
+                            </div>
+                            <input type="file" id="file-twitter_image" accept="image/*" onchange="handleFileSelect('twitter_image',this)" style="display:none">
+                            <div class="img-progress" id="progress-twitter_image">
+                                <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-twitter_image"></div></div>
+                                <div class="img-progress-label" id="label-twitter_image"></div>
+                            </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-twitter_image" href="#" download="twitter-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <button class="img-footer-btn" onclick="copySlotPost('twitter_image',this)">📋 Post Text</button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div><!-- /img-grid -->
+
+            </div><!-- /tab-image -->
+
+            <!-- ══════════════ VIDEO TAB ══════════════ -->
+            <div id="tab-video" class="tab-pane">
+                <div class="video-hero">
+
+                    <div class="video-hero-eyebrow">🎬 10-Second Video Ad</div>
+                    <div class="video-hero-title">TikTok · Reels · WhatsApp Status</div>
+                    <div class="video-hero-sub">Two AI tools. Four frames. One scroll-stopping video.</div>
+
+                    <div class="flow">
+                        <div class="flow-node">
+                            <div class="flow-node-icon">💬</div>
+                            <div class="flow-node-label">ChatGPT</div>
+                            <div class="flow-node-sub">4 frames</div>
+                        </div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-node">
+                            <div class="flow-node-icon">🖼</div>
+                            <div class="flow-node-label">Download</div>
+                            <div class="flow-node-sub">all 4 JPEGs</div>
+                        </div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-node" style="background:rgba(66,133,244,.15);border-color:rgba(66,133,244,.3)">
+                            <div class="flow-node-icon">✨</div>
+                            <div class="flow-node-label">Gemini</div>
+                            <div class="flow-node-sub">10s video</div>
+                        </div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-node" style="background:rgba(52,168,83,.12);border-color:rgba(52,168,83,.3)">
+                            <div class="flow-node-icon">🎥</div>
+                            <div class="flow-node-label">MP4 done</div>
+                            <div class="flow-node-sub">post it!</div>
+                        </div>
+                    </div>
+
+                    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#64748b;margin-bottom:7px">Video timeline</div>
+                    <div class="frame-strip">
+                        <div class="frame-card">
+                            <div class="frame-num">1</div>
+                            <div class="frame-tag">Hook</div>
+                            <div class="frame-time">0 – 2 s</div>
+                        </div>
+                        <div class="frame-card">
+                            <div class="frame-num">2</div>
+                            <div class="frame-tag">Oppty</div>
+                            <div class="frame-time">2 – 5 s</div>
+                        </div>
+                        <div class="frame-card">
+                            <div class="frame-num">3</div>
+                            <div class="frame-tag">Details</div>
+                            <div class="frame-time">5 – 8 s</div>
+                        </div>
+                        <div class="frame-card" style="background:rgba(124,58,237,.15);border-color:rgba(124,58,237,.35)">
+                            <div class="frame-num">4</div>
+                            <div class="frame-tag">CTA 🚀</div>
+                            <div class="frame-time">8 – 10 s</div>
+                        </div>
+                    </div>
+
+                    <div class="vstep-pair">
+
+                    <div class="vstep">
+                        <div class="vstep-header">
+                            <div class="vstep-num">1</div>
+                            <h4>Storyboard — 4 portrait frames</h4>
+                            <span class="vstep-where">→ ChatGPT</span>
+                        </div>
+                        <p>Paste into ChatGPT (attach Wakanda Jobs logo). It generates 4 sequential 1080×1920 images — one per scene. Download all four.</p>
+                        <textarea id="storyboard-ta" readonly rows="8">{$escapedStoryboard}</textarea>
+                        <div class="btn-row" style="margin-top:10px">
+                            <button class="btn btn-purple" onclick="copyField('storyboard-ta',this,'📋 Copy Storyboard')">📋 Copy Storyboard</button>
+                        </div>
+                    </div>
+
+                    <div class="vstep vstep-gemini">
+                        <div class="gemini-badge-wrap">
+                            <span class="gemini-badge"><span class="g-b">G</span><span class="g-e">e</span><span class="g-y">m</span><span class="g-g">i</span><span class="g-b">n</span><span class="g-e">i</span> <span style="color:#fff;opacity:.8">Omni</span> — Video Generation</span>
+                        </div>
+                        <div class="vstep-header">
+                            <div class="vstep-num" style="background:linear-gradient(135deg,#4285F4,#34A853)">2</div>
+                            <h4>Animate 4 frames → 10-second video</h4>
+                            <span class="vstep-where" style="color:#4ade80">→ Gemini</span>
+                        </div>
+                        <div class="gemini-model-tip">
+                            📌 <strong>Use:</strong> <strong>Gemini 2.0 Flash</strong> (Experimental) with video generation, or <strong>Google Veo 2</strong> via Gemini Advanced.<br>
+                            📎 <strong>Attach in order:</strong> Frame 1 → Frame 2 → Frame 3 → Frame 4 → Wakanda Jobs logo PNG — then paste the prompt below.
+                        </div>
+                        <p>Gemini animates the 4 frames into a punchy 10-second MP4 with transitions, text effects, Amapiano/Afrobeats audio, and the Wakanda Jobs logo as a persistent watermark.</p>
+                        <textarea id="gemini-ta" readonly rows="9">{$escapedGemini}</textarea>
+                        <div class="btn-row" style="margin-top:10px">
+                            <button class="btn btn-purple" onclick="copyField('gemini-ta',this,'📋 Copy Gemini Script')">📋 Copy Gemini Script</button>
+                        </div>
+                    </div><!-- /.vstep-pair -->
+
+                </div><!-- /video-hero -->
+            </div>
+
+        </div><!-- /page -->
+
+        <!-- ── Sticky bottom bar ── -->
+        <div class="bottom-bar">
+            <div class="bottom-bar-inner">
+                {$dismissBtnHtml}
+                {$jobBtnHtml}
+                {$nextBtnHtml}
+            </div>
+            <div class="bb-close-tip" id="close-tip"></div>
+        </div>
+
+        <script>
+            const aiPromptText    = {$aiPromptJson};
+            const tiktokImageText = {$tiktokImageJson};
+            const storyboardText  = {$storyboardJson};
+            const geminiText      = {$geminiJson};
+            const step2Url        = {$step2UrlJson};
+            const uploadUrls      = {$uploadUrlsJson};
+            const jobImages       = {$jobImagesJson};
+            const companyLogoUrl  = {$companyLogoJson};
+            const slotPrompts     = {$slotPromptsJson};
+            const slotPosts       = {$slotPostsJson};
+            const csrfToken       = document.querySelector('meta[name="csrf-token"]').content;
+
+            // ── Init image previews on page load ──
+            (function initImages() {
+                const slots = {
+                    company_logo:   companyLogoUrl,
+                    cover_image:    jobImages.cover_image,
+                    tiktok_image:   jobImages.tiktok_image,
+                    facebook_image: jobImages.facebook_image,
+                    linkedin_image: jobImages.linkedin_image,
+                    whatsapp_image: jobImages.whatsapp_image,
+                    twitter_image:  jobImages.twitter_image,
+                };
+                for (const [key, url] of Object.entries(slots)) {
+                    if (url) showPreview(key, url);
+                }
+            })();
+
+            function showPreview(key, url) {
+                const img  = document.getElementById('img-' + key);
+                const prev = document.getElementById('preview-' + key);
+                const zone = document.getElementById('zone-' + key);
+                const dl   = document.getElementById('dl-' + key);
+                if (!img || !prev) return;
+                img.src = url;
+                prev.style.display = 'block';
+                if (zone) zone.style.display = 'none';
+                if (dl) { dl.href = url; dl.style.opacity = '1'; dl.style.pointerEvents = 'auto'; }
+                const slot = document.getElementById('slot-' + key);
+                if (slot) { const cb = slot.querySelector('.img-copy-btn'); if (cb) cb.style.display = 'none'; }
+            }
+
+            function copySlotPost(key, btn) {
+                const text = slotPosts[key];
+                if (!text) return;
+                doCopy(text, btn, '📋 Post Text');
+            }
+
+            function triggerUpload(key) {
+                document.getElementById('file-' + key)?.click();
+            }
+
+            function onDragOver(e, key) {
+                e.preventDefault();
+                document.getElementById('zone-' + key)?.classList.add('dragging');
+            }
+            function onDragLeave(key) {
+                document.getElementById('zone-' + key)?.classList.remove('dragging');
+            }
+            function onDrop(e, key) {
+                e.preventDefault();
+                onDragLeave(key);
+                const file = e.dataTransfer?.files?.[0];
+                if (file) doUpload(key, file);
+            }
+
+            function handleFileSelect(key, input) {
+                const file = input.files?.[0];
+                if (file) doUpload(key, file);
+            }
+
+            function setProgress(key, pct, state, label) {
+                const wrap  = document.getElementById('progress-' + key);
+                const bar   = document.getElementById('bar-' + key);
+                const lbl   = document.getElementById('label-' + key);
+                if (!wrap) return;
+                wrap.style.display = 'block';
+                bar.style.width = pct + '%';
+                bar.className = 'img-progress-bar' + (state ? ' ' + state : '');
+                lbl.textContent = label;
+                lbl.className = 'img-progress-label' + (state ? ' ' + state : '');
+            }
+
+            function hideProgress(key) {
+                const wrap = document.getElementById('progress-' + key);
+                if (wrap) wrap.style.display = 'none';
+            }
+
+            function doUpload(key, file) {
+                const url = uploadUrls[key];
+                if (!url) { setProgress(key, 100, 'fail', '❌ Upload not available.'); return; }
+
+                const reader = new FileReader();
+                reader.onload = e => showPreview(key, e.target.result);
+                reader.readAsDataURL(file);
+
+                setProgress(key, 0, '', 'Uploading… 0%');
+
+                const fd = new FormData();
+                fd.append('image', file);
+                fd.append('type', key);
+
+                const xhr = new XMLHttpRequest();
+
+                xhr.upload.onprogress = function(e) {
+                    if (!e.lengthComputable) return;
+                    const pct = Math.round((e.loaded / e.total) * 95);
+                    setProgress(key, pct, '', 'Uploading… ' + pct + '%');
+                };
+
+                xhr.onload = function() {
+                    let data = {};
+                    try { data = JSON.parse(xhr.responseText); } catch {}
+                    if (xhr.status >= 200 && xhr.status < 300 && data.ok !== false) {
+                        if (data.url) showPreview(key, data.url);
+                        setProgress(key, 100, 'done', '✅ Saved!');
+                        setTimeout(() => hideProgress(key), 3000);
+                    } else {
+                        const msg = data.message || ('Upload failed (' + xhr.status + ')');
+                        setProgress(key, 100, 'fail', '❌ ' + msg);
+                    }
+                };
+
+                xhr.onerror = function() {
+                    setProgress(key, 100, 'fail', '❌ Network error — please retry.');
+                };
+
+                xhr.open('POST', url);
+                xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                xhr.setRequestHeader('X-CSRF-TOKEN', csrfToken);
+                xhr.send(fd);
+            }
+
+            function switchTab(name, btn) {
+                document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.getElementById('tab-' + name).classList.add('active');
+                btn.classList.add('active');
+            }
+
+            function copySlotPrompt(key, btn) {
+                const text = slotPrompts[key];
+                if (!text) return;
+                doCopy(text, btn, '📋 Copy');
+            }
+            function copyField(id, btn, resetLabel) {
+                doCopy(document.getElementById(id).value, btn, resetLabel);
+            }
+            {$jsDismissFn}
+            function doCopy(text, btn, resetLabel) {
+                if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(text).then(() => showOk(btn, resetLabel)).catch(() => legacyCopy(text, btn, resetLabel));
+                } else {
+                    legacyCopy(text, btn, resetLabel);
+                }
+            }
+            function legacyCopy(text, btn, resetLabel) {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
+                document.body.appendChild(ta);
+                ta.focus(); ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                showOk(btn, resetLabel);
+            }
+            function showOk(btn, resetLabel) {
+                btn.textContent = '✅ Copied!';
+                btn.classList.add('ok');
+                setTimeout(() => { btn.textContent = resetLabel; btn.classList.remove('ok'); }, 2200);
+            }
+        </script>
+        </body>
+        </html>
+        HTML;
     }
 
     private function expiredHtml(): string

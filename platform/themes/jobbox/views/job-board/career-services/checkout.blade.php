@@ -20,16 +20,6 @@
                             </div>
                             <div class="text-end flex-shrink-0">
                                 <div class="fs-3 fw-bold text-primary">{{ $pricing['display'] ?? ($currency . ' ' . number_format($amount, 2)) }}</div>
-                                @if(isset($pricing) && $pricing['origin_currency_code'] !== $pricing['currency_code'])
-                                    <div class="font-xs text-muted">
-                                        {{ __('Converted for :country', ['country' => $pricing['target_country'] ?? $pricing['currency_code']]) }}
-                                    </div>
-                                @endif
-                                @if(isset($pricing))
-                                    <div class="font-xs text-muted">
-                                        {{ __('Original: :country :price', ['country' => $pricing['origin_country'] ?? $pricing['origin_currency_code'], 'price' => $pricing['origin_display']]) }}
-                                    </div>
-                                @endif
                             </div>
                         </div>
                     </div>
@@ -72,8 +62,8 @@
                                         value="{{ old('customer_email', auth('account')->user()?->email) }}" required>
                                 </div>
                                 <div class="mb-0">
-                                    <label class="form-label">Phone Number</label>
-                                    <input type="tel" name="customer_phone" class="form-control"
+                                    <label class="form-label">Phone Number <span class="text-danger">*</span></label>
+                                    <input type="tel" name="customer_phone" class="form-control" required
                                         value="{{ old('customer_phone', auth('account')->user()?->phone) }}"
                                         placeholder="+260 97x xxx xxx">
                                 </div>
@@ -102,3 +92,48 @@
         </div>
     </div>
 </section>
+
+@push('footer')
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const btn = document.querySelector('.payment-checkout-btn');
+    if (!btn) return;
+
+    btn.addEventListener('click', function (e) {
+        const form = btn.closest('form');
+        if (!form) return;
+
+        const required = form.querySelectorAll('[required]');
+        let firstInvalid = null;
+
+        required.forEach(function (field) {
+            field.classList.remove('is-invalid');
+            const next = field.nextElementSibling;
+            if (next && next.classList.contains('invalid-feedback')) next.remove();
+        });
+
+        required.forEach(function (field) {
+            const empty = field.value.trim() === '';
+            const badEmail = field.type === 'email' && field.value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(field.value);
+
+            if (empty || badEmail) {
+                field.classList.add('is-invalid');
+                const msg = document.createElement('div');
+                msg.className = 'invalid-feedback d-block';
+                msg.textContent = empty
+                    ? (field.name === 'customer_phone' ? 'Phone number is required.' : 'This field is required.')
+                    : 'Please enter a valid email address.';
+                field.insertAdjacentElement('afterend', msg);
+                if (!firstInvalid) firstInvalid = field;
+            }
+        });
+
+        if (firstInvalid) {
+            e.stopImmediatePropagation();
+            firstInvalid.focus();
+            firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, true); // capture phase — fires before payment.js document-level handler
+});
+</script>
+@endpush

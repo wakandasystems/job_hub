@@ -35,6 +35,7 @@ class SocialPublisherService
                     'linkedin' => $this->postToLinkedIn($automation, $job),
                     'whatsapp' => $this->postToWhatsApp($automation, $job),
                     'telegram' => $this->postToTelegram($automation, $job),
+                    'whapi'    => $this->postToWhapiChannel($automation, $job),
                     default    => false,
                 };
 
@@ -127,6 +128,8 @@ class SocialPublisherService
             $details[] = "Type: {$jobTypes}";
         }
 
+        $applyEmail = $this->extractApplyEmail($job);
+
         $detailsText = implode(' | ', $details);
 
         $prompt  = "Generate a professional job advertisement image for Wakanda Jobs (wakandajobs.com) — an African job platform.";
@@ -140,11 +143,10 @@ class SocialPublisherService
 
         // Company logo — colours, placement, and branding
         if ($companyLogoUrl) {
-            $prompt .= " IMPORTANT BRANDING: The company '{$company}' has an official logo available at this URL: {$companyLogoUrl}";
-            $prompt .= " Fetch that logo and do the following: (1) Place it accurately in the top-right corner — do NOT invent or guess the logo, use only the real one from that URL.";
-            $prompt .= " (2) Extract the dominant colours from that logo and use them as the primary colour palette for the ENTIRE image — the background, environment, surfaces, props, and any banners or graphic elements should all reflect those brand colours.";
-            $prompt .= " (3) Dress the Black African professionals in clothing that incorporates or complements those brand colours, so the people feel part of the company's visual identity.";
-            $prompt .= " (4) Any decorative banners, overlays, or graphic shapes in the image should also use the company logo and its colours, making the whole composition feel like a branded, personalised advertisement for '{$company}'.";
+            $prompt .= " " . $this->companyLogoLine($company, $companyLogoUrl);
+            $prompt .= " (1) Place the real logo in the top-right corner.";
+            $prompt .= " (2) Dress the Black African professionals in clothing that incorporates or complements the logo's brand colours, so the people feel part of the company's visual identity.";
+            $prompt .= " (3) Any decorative banners, overlays, or graphic shapes should also use the company logo's colours, making the whole composition feel like a branded advertisement for '{$company}'.";
         } else {
             if ($company) {
                 $prompt .= " There is no company logo available for '{$company}', so render a clean professional text badge or monogram for the company name in the top-right corner.";
@@ -153,7 +155,7 @@ class SocialPublisherService
         }
 
         $prompt .= " Feature Black African professionals dressed appropriately for the role in the scene.";
-        $prompt .= " Include the Wakanda Jobs logo (attached) in the top-left corner.";
+        $prompt .= " " . $this->wakandaLogoLine();
         if ($companyLogoUrl) {
             $prompt .= " The Wakanda Jobs logo should be smaller and secondary to the company branding — this image should feel like a '{$company}' ad first.";
         }
@@ -169,11 +171,284 @@ class SocialPublisherService
             $prompt .= " | Company: {$company}";
         }
         $prompt .= " | {$detailsText}.";
+        if ($applyEmail) {
+            $prompt .= " Also display the apply email prominently on the image: 'Apply: {$applyEmail}'.";
+        }
         $prompt .= " Add a 'Apply Now at wakandajobs.com' call-to-action at the bottom.";
         $prompt .= " Overall feel: modern, clean, corporate, inspiring confidence.";
         $prompt .= " IMPORTANT — IMAGE DIMENSIONS: Generate this image at exactly 1080 × 1920 pixels, 9:16 portrait aspect ratio, optimised for TikTok, Instagram Stories, Facebook Stories, and WhatsApp Status. Do NOT generate a landscape or square image.";
 
         return $prompt;
+    }
+
+    public function buildTikTokImagePrompt(Job $job): string
+    {
+        $title    = trim((string) $job->name);
+        $company  = trim((string) ($job->company?->name ?? ''));
+        $location = trim((string) ($job->getLocationAttribute() ?: $job->address ?: 'Zambia'));
+        $deadline = $job->application_closing_date ?: $job->expire_date;
+        $country  = trim((string) ($job->country?->name ?? 'Zambia'));
+
+        $companyLogoUrl = null;
+        if ($job->company && ! empty($job->company->logo)) {
+            try {
+                $companyLogoUrl = RvMedia::getImageUrl($job->company->logo);
+            } catch (Throwable) {}
+        }
+
+        $flagColors = $this->getFlagColors($country);
+
+        $details = [];
+        if ($company) {
+            $details[] = "Company: {$company}";
+        }
+        $details[] = "Location: {$location}";
+
+        try {
+            if (! $job->hide_salary && $job->salary_text) {
+                $salary = (string) $job->salary_text;
+                if (! in_array(strtolower($salary), ['attractive', 'negotiable', 'competitive'])) {
+                    $details[] = "Salary: {$salary}";
+                }
+            }
+        } catch (Throwable) {}
+
+        if ($deadline) {
+            $details[] = "Deadline: " . $deadline->format('M j, Y');
+        }
+
+        $jobTypes = $job->jobTypes->pluck('name')->filter()->implode(' / ');
+        if ($jobTypes) {
+            $details[] = "Type: {$jobTypes}";
+        }
+
+        $applyEmail = $this->extractApplyEmail($job);
+
+        $detailsText = implode(' | ', $details);
+
+        $prompt  = "Generate a professional TikTok job advertisement image for Wakanda Jobs — an African job platform.";
+        $prompt .= " The job being advertised is: {$title}";
+        if ($company) {
+            $prompt .= " at {$company}";
+        }
+        $prompt .= ".";
+
+        $prompt .= " Make the image ultra-realistic, professional, and trustworthy — like a Fortune 500 recruitment ad.";
+
+        if ($companyLogoUrl) {
+            $prompt .= " " . $this->companyLogoLine($company, $companyLogoUrl);
+            $prompt .= " (1) Place the real logo in the top-right corner.";
+            $prompt .= " (2) Dress the Black African professionals in clothing that incorporates or complements the logo's brand colours.";
+            $prompt .= " (3) Any decorative banners, overlays, or graphic shapes should use the company logo's colours, making the composition feel like a branded advertisement for '{$company}'.";
+        } else {
+            if ($company) {
+                $prompt .= " There is no company logo available for '{$company}', so render a clean professional text badge or monogram for the company name in the top-right corner.";
+            }
+            $prompt .= " Use the Wakanda Jobs purple/violet colour palette as the primary design theme.";
+        }
+
+        $prompt .= " Feature Black African professionals dressed appropriately for the role in the scene.";
+        $prompt .= " " . $this->wakandaLogoLine();
+        if ($companyLogoUrl) {
+            $prompt .= " The Wakanda Jobs logo should be smaller and secondary to the company branding — this image should feel like a '{$company}' ad first.";
+        }
+
+        if ($flagColors) {
+            $prompt .= " Add a subtle, tasteful country flag accent for {$country}: a thin horizontal band at the very bottom of the image using the flag colors {$flagColors}.";
+            $prompt .= " The flag colors should be understated — a quiet nod to the country, not a loud centerpiece.";
+        }
+
+        $prompt .= " The image must clearly display the following text overlay: Job Title: {$title}";
+        if ($company) {
+            $prompt .= " | Company: {$company}";
+        }
+        $prompt .= " | {$detailsText}.";
+        if ($applyEmail) {
+            $prompt .= " Also display the apply email prominently on the image: 'Apply: {$applyEmail}'.";
+        }
+        $prompt .= " IMPORTANT — TikTok CTA: Place a high-visibility 'LINK IN BIO TO APPLY 👆' call-to-action banner in the UPPER THIRD of the image (approximately 15–30% from the top) — NOT at the bottom, where TikTok's UI chrome (username, buttons, caption) will cover it. Style it as a wide full-bleed banner or pill with maximum contrast: large bold white text on a solid black or deep-purple background (or vice versa). The text must be at least 80px tall and clearly legible at a glance on a phone screen. Do NOT include any website URL (e.g. wakandajobs.com) anywhere in the image — TikTok description links are not clickable, so the only apply instruction must be the bio-link CTA banner.";
+        $prompt .= " Overall feel: modern, clean, corporate, inspiring confidence.";
+        $prompt .= " IMPORTANT — IMAGE DIMENSIONS: Generate this image at exactly 1080 × 1920 pixels, 9:16 portrait aspect ratio, optimised for TikTok. Do NOT generate a landscape or square image.";
+
+        return $prompt;
+    }
+
+    public function buildCoverImagePrompt(Job $job): string
+    {
+        $title    = trim((string) $job->name);
+        $company  = trim((string) ($job->company?->name ?? ''));
+        $location = trim((string) ($job->getLocationAttribute() ?: $job->address ?: ''));
+        $country  = trim((string) ($job->country?->name ?? ''));
+        $deadline = $job->application_closing_date ?: $job->expire_date;
+
+        $companyLogoUrl = null;
+        if ($job->company && ! empty($job->company->logo)) {
+            try { $companyLogoUrl = RvMedia::getImageUrl($job->company->logo); } catch (Throwable) {}
+        }
+
+        $details = [];
+        if ($company)  $details[] = $company;
+        if ($location) $details[] = $location;
+        if ($deadline) $details[] = 'Apply by ' . $deadline->format('M j, Y');
+
+        try {
+            if (! $job->hide_salary && $job->salary_text) {
+                $salary = (string) $job->salary_text;
+                if (! in_array(strtolower($salary), ['attractive', 'negotiable', 'competitive'])) {
+                    $details[] = $salary;
+                }
+            }
+        } catch (Throwable) {}
+
+        $flagColors = $this->getFlagColors($country);
+
+        $p  = "Generate a professional, high-quality landscape cover/banner image for a job listing page on Wakanda Jobs (wakandajobs.com) — an African job platform.";
+        $p .= "\n\n";
+        $p .= "═══ JOB DETAILS ═══\n";
+        $p .= "Job Title: {$title}\n";
+        if ($company)  $p .= "Company: {$company}\n";
+        if ($location) $p .= "Location: {$location}\n";
+        if ($deadline) $p .= "Deadline: " . $deadline->format('M j, Y') . "\n";
+        $p .= "\n";
+
+        $p .= "═══ DESIGN SPECIFICATIONS ═══\n";
+        $p .= "• DIMENSIONS: Exactly 1854 × 848 pixels — wide landscape, 16:9-ish banner ratio. This will be used as a page-width header image on a job listing page.\n";
+        $p .= "• LAYOUT: Horizontal split composition. Left ~60% carries the text and people. Right ~40% carries the company logo, a large subtle decorative circle/shape, and brand colours.\n";
+        $p .= "• FEEL: Ultra-realistic, professional corporate photography style — like a high-end recruitment agency header. Clean, modern, inspiring.\n";
+        $p .= "\n";
+
+        $p .= "═══ CONTENT REQUIREMENTS ═══\n";
+        $p .= "• Show Black African professionals in a realistic work environment suitable for the role '{$title}'. The people should look confident, aspirational, and engaged.\n";
+        $p .= "• LEFT PANEL TEXT OVERLAYS (use clean white or lavender text on the dark background):\n";
+        $p .= "    — Large bold heading: \"{$title}\"\n";
+        if ($company) $p .= "    — Subheading: \"at {$company}\"\n";
+        if ($details) $p .= "    — Detail row: \"" . implode('  ·  ', $details) . "\"\n";
+        $p .= "    — Small CTA strip at bottom: \"Apply at wakandajobs.com\"\n";
+        $p .= "\n";
+
+        if ($companyLogoUrl) {
+            $p .= "═══ COMPANY LOGO BRANDING ═══\n";
+            $p .= $this->companyLogoLine($company, $companyLogoUrl) . "\n";
+            $p .= "• Place the real attached logo prominently in the RIGHT PANEL — centred, on a white or light card/pill background so it pops against the dark scene.\n";
+            $p .= "• Extract the dominant colours from the attached logo and use them as accent colours throughout the image (background tones, overlays, border highlights).\n";
+            $p .= "\n";
+        } else {
+            if ($company) {
+                $p .= "No logo is available for '{$company}'. In the right panel, render a clean typographic badge or monogram with the company initials in a rounded rectangle — use the Wakanda Jobs violet palette.\n\n";
+            }
+        }
+
+        $p .= "═══ WAKANDA JOBS BRANDING ═══\n";
+        $p .= $this->wakandaLogoLine() . "\n";
+        $p .= "• Place the Wakanda Jobs logo small in the bottom-left corner or as a watermark.\n";
+        $p .= "• Background palette: deep dark purple (#1a0533 → #0d0219 gradient) as the primary dark tone.\n";
+        $p .= "• Accent: violet (#7c3aed) thin top bar, lavender (#c4b5fd) for secondary text.\n";
+        $p .= "\n";
+
+        if ($flagColors) {
+            $p .= "═══ COUNTRY ACCENT ═══\n";
+            $p .= "• Add a very subtle {$country} flag-colour strip (colours: {$flagColors}) as a thin bottom border — tasteful, not dominant.\n\n";
+        }
+
+        $p .= "═══ WHAT NOT TO DO ═══\n";
+        $p .= "• Do NOT generate a portrait or square image — must be wide landscape 1854×848.\n";
+        $p .= "• Do NOT make the image look like a social media story — it is a webpage header/banner.\n";
+        $p .= "• Do NOT use stock-photo clip-art style. Aim for authentic photorealistic quality.\n";
+        $p .= "• Do NOT crowd the image with text — keep text minimal, large, and legible.\n";
+
+        return $p;
+    }
+
+    public function buildFacebookImagePrompt(Job $job): string
+    {
+        return $this->buildLandscapeSocialPrompt($job, 'Facebook', 1200, 630,
+            'Facebook news feed post — wide landscape image that stops the scroll.');
+    }
+
+    public function buildLinkedInImagePrompt(Job $job): string
+    {
+        return $this->buildLandscapeSocialPrompt($job, 'LinkedIn', 1200, 627,
+            'LinkedIn post image — professional, corporate landscape format for the LinkedIn feed.');
+    }
+
+    public function buildTwitterImagePrompt(Job $job): string
+    {
+        return $this->buildLandscapeSocialPrompt($job, 'X / Twitter', 1200, 675,
+            'X (Twitter) in-stream post image — bold 16:9 landscape format that stands out in the timeline.');
+    }
+
+    protected function buildLandscapeSocialPrompt(Job $job, string $platform, int $width, int $height, string $platformContext): string
+    {
+        $title    = trim((string) $job->name);
+        $company  = trim((string) ($job->company?->name ?? ''));
+        $location = trim((string) ($job->getLocationAttribute() ?: $job->address ?: ''));
+        $country  = trim((string) ($job->country?->name ?? ''));
+        $deadline = $job->application_closing_date ?: $job->expire_date;
+
+        $companyLogoUrl = null;
+        if ($job->company && ! empty($job->company->logo)) {
+            try { $companyLogoUrl = RvMedia::getImageUrl($job->company->logo); } catch (Throwable) {}
+        }
+
+        $details = [];
+        if ($company)  $details[] = $company;
+        if ($location) $details[] = $location;
+        if ($deadline) $details[] = 'Apply by ' . $deadline->format('M j, Y');
+        try {
+            if (! $job->hide_salary && $job->salary_text) {
+                $salary = (string) $job->salary_text;
+                if (! in_array(strtolower($salary), ['attractive', 'negotiable', 'competitive'])) {
+                    $details[] = $salary;
+                }
+            }
+        } catch (Throwable) {}
+
+        $flagColors = $this->getFlagColors($country);
+
+        $p  = "Generate a professional job advertisement image for Wakanda Jobs (wakandajobs.com) — {$platformContext}\n\n";
+        $p .= "═══ JOB DETAILS ═══\n";
+        $p .= "Job Title: {$title}\n";
+        if ($company)  $p .= "Company: {$company}\n";
+        if ($location) $p .= "Location: {$location}\n";
+        if ($deadline) $p .= "Deadline: " . $deadline->format('M j, Y') . "\n\n";
+
+        $p .= "═══ DESIGN SPECIFICATIONS ═══\n";
+        $p .= "• DIMENSIONS: Exactly {$width} × {$height} pixels — landscape format for {$platform}. Do NOT generate portrait or square.\n";
+        $p .= "• LAYOUT: Two-zone horizontal split. Left ~55% has the headline text and professionals. Right ~45% has the company logo and brand colours on a darker panel.\n";
+        $p .= "• FEEL: Ultra-realistic, polished corporate photography. Clean modern typography. Confident and inspiring.\n\n";
+
+        $p .= "═══ CONTENT ═══\n";
+        $p .= "• Show Black African professionals in a work environment suited to '{$title}'. Confident, aspirational, engaged.\n";
+        $p .= "• TEXT OVERLAYS (white or lavender on dark background):\n";
+        $p .= "    — Large bold heading: \"{$title}\"\n";
+        if ($company) $p .= "    — Subheading: \"at {$company}\"\n";
+        if ($details) $p .= "    — Details: \"" . implode('  ·  ', $details) . "\"\n";
+        $p .= "    — CTA: \"Apply at wakandajobs.com\"\n\n";
+
+        if ($companyLogoUrl) {
+            $p .= "═══ COMPANY LOGO BRANDING ═══\n";
+            $p .= $this->companyLogoLine($company, $companyLogoUrl) . "\n";
+            $p .= "• Place the real attached logo prominently in the right panel.\n";
+            $p .= "• Extract dominant colours from the attached logo and use them as accents across the entire image.\n\n";
+        } elseif ($company) {
+            $p .= "No logo available for '{$company}'. Render a clean typographic badge/monogram in the right panel using the Wakanda Jobs violet palette.\n\n";
+        }
+
+        $p .= "═══ WAKANDA JOBS BRANDING ═══\n";
+        $p .= $this->wakandaLogoLine() . "\n";
+        $p .= "• Background: deep dark purple (#1a0533 → #0d0219) with violet (#7c3aed) accents.\n";
+        $p .= "• Wakanda Jobs logo small in the bottom-left corner.\n\n";
+
+        if ($flagColors) {
+            $p .= "• Subtle {$country} flag colours ({$flagColors}) as a thin bottom border accent.\n\n";
+        }
+
+        $p .= "═══ WHAT NOT TO DO ═══\n";
+        $p .= "• Do NOT generate portrait or square — must be landscape {$width}×{$height}.\n";
+        $p .= "• Do NOT use clip-art or stock-photo style. Aim for photorealistic quality.\n";
+        $p .= "• Keep text minimal, large, and legible — no text walls.\n";
+
+        return $p;
     }
 
     public function buildStoryboardPrompt(Job $job): string
@@ -239,7 +514,7 @@ Apply at : {$url}
 Each frame : 1080 × 1920 px  (9:16 portrait — TikTok / Stories format)
 Style      : Ultra-realistic, vibrant, professional — Fortune 500 African recruitment ad
 People     : Black African professionals dressed appropriately for the role
-Branding   : Wakanda Jobs logo (attached) in top-left corner of every frame
+Branding   : Wakanda Jobs logo in top-left corner of every frame — fetch from https://www.wakandajobs.com/storage/gemini-generated-image-s1e9dgs1e9dgs1e9.png or https://www.wakandajobs.com/storage/chatgpt-image-may-14-2026-03-00-04-pm.png
 
 ━━━ STORYBOARD FRAMES ━━━
 
@@ -297,12 +572,6 @@ PROMPT;
         [$hookText, $hookSub] = $this->getVideoHook($job);
 
         return <<<PROMPT
-━━━ HOW TO USE THIS PROMPT ━━━
-Model    : Gemini 2.0 Flash (Experimental) — video generation mode
-           OR Google Veo 2 (via Gemini Advanced → "Generate video")
-Attach   : Frame 1, Frame 2, Frame 3, Frame 4 (from ChatGPT), then Wakanda Jobs logo (PNG)
-Then paste this entire prompt below the attachments and hit Generate.
-
 ━━━ MISSION ━━━
 Turn the 4 attached storyboard frames into a single 10-second scroll-stopping video ad
 for TikTok, Instagram Reels, and WhatsApp Status — targeting African job seekers aged 18–40.
@@ -314,7 +583,8 @@ Country  : {$country}
 Apply at : {$url}
 
 ━━━ WAKANDA JOBS LOGO USAGE ━━━
-The Wakanda Jobs logo PNG is attached. Use it as:
+Fetch the Wakanda Jobs logo PNG from: https://www.wakandajobs.com/storage/gemini-generated-image-s1e9dgs1e9dgs1e9.png
+(alternate: https://www.wakandajobs.com/storage/chatgpt-image-may-14-2026-03-00-04-pm.png). Use it as:
   • Persistent watermark — top-left corner of EVERY frame, ~15% screen width, 80% opacity.
   • CTA feature — in Frame 4 only: animate logo from watermark size → 30% width centred,
     0.4 s ease-in, then pulse gently in sync with the "APPLY NOW!" heartbeat.
@@ -366,6 +636,19 @@ F3 → F4 : 1-frame white flash cut
 Music BG : Amapiano log-drum groove or Afrobeats guitar loop — 122–126 BPM, no vocals, no lyrics.
            Energy builds gently from Frame 1 through Frame 3, peaks at Frame 4's CTA.
 
+Voiceover : Male or female Zambian English accent — warm, confident, clear diction.
+            Tone: enthusiastic but professional, like a trusted friend sharing exciting news.
+            Delivery: punchy phrases timed to each frame cut, not rushed.
+            IMPORTANT — LIP SYNC: The on-screen character must visibly talk (mouth moving,
+            realistic lip-sync) in sync with the voiceover throughout the entire video.
+            Their facial expressions should match the energy of each line — excited in Frame 1,
+            proud in Frame 2, focused in Frame 3, pointing/gesturing in Frame 4.
+            Sample script (adapt to fit):
+              Frame 1 → "Aye! Looking for a job? Listen up!"
+              Frame 2 → "{$title}! This is the one."
+              Frame 3 → "Good salary. Great opportunity. Apply before it's gone."
+              Frame 4 → "Click the link — your next chapter starts today!"
+
 Sound FX  :
   Frame 1 → notification 'ping' the instant hook text appears
   Frame 2 → deep cinematic bass thud on the job title impact
@@ -380,6 +663,35 @@ Outro     : Music and SFX fade out in final 0.4 s — clean, professional end.
 • All text must be legible on a mobile screen at arm's length
 • Wakanda Jobs watermark visible in every single frame
 PROMPT;
+    }
+
+    private function companyLogoLine(string $company, string $logoUrl): string
+    {
+        return "⚠️ COMPANY LOGO — CRITICAL INSTRUCTION: I have physically attached the {$company} logo image to this conversation. You MUST use ONLY that attached logo image — do NOT invent, guess, approximate, recreate, or hallucinate any version of this logo. Look at the attached image I sent you and reproduce it exactly. The logo is also available at {$logoUrl} for additional reference, but the attached image is the authoritative source. Place the real logo prominently in the design and extract its dominant colours as the primary palette for the whole image.";
+    }
+
+    private function wakandaLogoLine(): string
+    {
+        $url1 = 'https://www.wakandajobs.com/storage/gemini-generated-image-s1e9dgs1e9dgs1e9.png';
+        $url2 = 'https://www.wakandajobs.com/storage/chatgpt-image-may-14-2026-03-00-04-pm.png';
+        return "Include the Wakanda Jobs logo (already attached to this conversation) in the top-left corner. The logo is also available at {$url1} or {$url2} for reference.";
+    }
+
+    private function extractApplyEmail(Job $job): string
+    {
+        // Prefer the structured apply_email field
+        $email = trim((string) ($job->apply_email ?? ''));
+        if ($email && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return $email;
+        }
+
+        // Fall back to first email found in description text
+        $text = strip_tags((string) ($job->description ?: $job->content ?: ''));
+        if (preg_match('/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/', $text, $m)) {
+            return $m[0];
+        }
+
+        return '';
     }
 
     private function titleContains(string $title, array $keywords): bool
@@ -538,8 +850,7 @@ PROMPT;
         $tiktok .= "\n📍 {$location}";
         if ($salaryLine) $tiktok .= "\n💰 {$salaryLine}";
         if ($deadlineStr) $tiktok .= "\n📅 Deadline: {$deadlineStr}";
-        $tiktok .= "\n\nDon't miss this opportunity — apply NOW! 👇";
-        $tiktok .= "\n🔗 {$url}";
+        $tiktok .= "\n\nDon't miss this! 👆 Link in bio to apply!";
         $tiktok .= "\n\n#JobsIn{$countrySlug} #{$countrySlug}Jobs #JobTok #Hiring #{$countrySlug}Hiring";
         $tiktok .= " #TikTokJobs #JobAlert #NewJob ##{$titleSlug}";
         if ($companySlug) $tiktok .= " #{$companySlug}";
@@ -749,6 +1060,81 @@ PROMPT;
         return $this->sendTelegramCopyPost($token, $chatId, $job, $automation->getKey(), $generateImage, $noInlineButtons);
     }
 
+    // -------------------------------------------------------------------------
+    // WhatsApp Channel via Whapi.io
+    // -------------------------------------------------------------------------
+
+    protected function postToWhapiChannel(SocialAutomation $automation, Job $job): bool
+    {
+        $settings   = $automation->settings ?? [];
+        $token      = trim((string) ($settings['token'] ?? ''));
+        $channelId  = trim((string) ($settings['channel_id'] ?? ''));
+        $countryId  = isset($settings['country_id']) && $settings['country_id'] !== ''
+            ? (int) $settings['country_id']
+            : null;
+        $sendImage  = ! empty($settings['send_image']);
+        $gatewayUrl = rtrim(trim((string) ($settings['gateway_url'] ?? '')), '/') ?: 'https://gate.whapi.cloud';
+
+        if ($token === '' || $channelId === '') {
+            return false;
+        }
+
+        if ($countryId !== null && (int) $job->country_id !== $countryId) {
+            return false;
+        }
+
+        // Ensure newsletter JID suffix
+        if (! str_ends_with($channelId, '@newsletter')) {
+            $channelId .= '@newsletter';
+        }
+
+        $posts   = $this->buildPlatformPosts($job);
+        $message = $posts['whatsapp'] ?? $this->buildJobMessage($job);
+
+        // Attempt image send first if enabled
+        if ($sendImage) {
+            $imagePath = null;
+            try {
+                $imagePath = app(JobImageGeneratorService::class)->generate($job);
+            } catch (Throwable) {
+                $imagePath = null;
+            }
+
+            if ($imagePath && file_exists($imagePath)) {
+                try {
+                    $base64   = base64_encode(file_get_contents($imagePath));
+                    $mediaUri = 'data:image/jpeg;base64,' . $base64;
+
+                    $response = Http::timeout(60)
+                        ->withToken($token)
+                        ->post("{$gatewayUrl}/messages/image", [
+                            'to'      => $channelId,
+                            'media'   => $mediaUri,
+                            'caption' => $message,
+                        ]);
+
+                    if ($response->successful()) {
+                        return true;
+                    }
+                } catch (Throwable) {
+                    // Fall through to text-only
+                } finally {
+                    @unlink($imagePath);
+                }
+            }
+        }
+
+        // Text-only fallback (or primary if image disabled)
+        $response = Http::timeout(20)
+            ->withToken($token)
+            ->post("{$gatewayUrl}/messages/text", [
+                'to'   => $channelId,
+                'body' => $message,
+            ]);
+
+        return $response->successful();
+    }
+
     public function sendTelegramCopyPost(string $token, string $chatId, Job $job, ?int $automationId = null, bool $generateImage = false, bool $noInlineButtons = false): bool
     {
         $postText  = $this->buildManualSocialPost($job);
@@ -867,6 +1253,11 @@ PROMPT;
             $geminiPrompt = $this->buildGeminiVideoPrompt($job);
         } catch (Throwable) {}
 
+        $tiktokImagePrompt = '';
+        try {
+            $tiktokImagePrompt = $this->buildTikTokImagePrompt($job);
+        } catch (Throwable) {}
+
         // Resolve company logo URL for the UI attachment tip
         $companyLogoUrl = null;
         $companyName    = trim((string) ($job->company?->name ?? ''));
@@ -877,15 +1268,16 @@ PROMPT;
         }
 
         Cache::put($cacheKey, [
-            'text'              => $postText,
-            'ai_prompt'         => $aiPrompt,
-            'storyboard_prompt' => $storyboardPrompt,
-            'gemini_prompt'     => $geminiPrompt,
-            'step2_url'         => $step2Url,
-            'platform_posts'    => $platformPosts,
-            'company_logo_url'  => $companyLogoUrl,
-            'company_name'      => $companyName ?: null,
-            'job_name'          => trim((string) $job->name),
+            'text'                => $postText,
+            'ai_prompt'           => $aiPrompt,
+            'tiktok_image_prompt' => $tiktokImagePrompt,
+            'storyboard_prompt'   => $storyboardPrompt,
+            'gemini_prompt'       => $geminiPrompt,
+            'step2_url'           => $step2Url,
+            'platform_posts'      => $platformPosts,
+            'company_logo_url'    => $companyLogoUrl,
+            'company_name'        => $companyName ?: null,
+            'job_name'            => trim((string) $job->name),
         ], now()->addDays(7));
 
         try {

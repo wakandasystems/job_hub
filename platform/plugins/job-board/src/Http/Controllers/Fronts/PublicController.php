@@ -33,6 +33,8 @@ use Botble\SeoHelper\SeoOpenGraph;
 use Botble\Slug\Facades\SlugHelper;
 use Botble\JobBoard\Models\CvReveal;
 use Botble\JobBoard\Supports\CvRevealService;
+use Botble\Newsletter\Enums\NewsletterStatusEnum;
+use Botble\Newsletter\Models\Newsletter;
 use Botble\Theme\Facades\Theme;
 use Exception;
 use GeoIp2\Database\Reader;
@@ -502,6 +504,17 @@ class PublicController extends BaseController
 
             $jobApplication->fill($request->input());
             $jobApplication->save();
+
+            try {
+                $applicantEmail = strtolower(trim((string) $request->input('email', '')));
+                if ($applicantEmail && filter_var($applicantEmail, FILTER_VALIDATE_EMAIL)) {
+                    $applicantName = trim($request->input('first_name', '') . ' ' . $request->input('last_name', '')) ?: null;
+                    Newsletter::firstOrCreate(
+                        ['email' => $applicantEmail],
+                        ['name' => $applicantName, 'status' => NewsletterStatusEnum::SUBSCRIBED]
+                    );
+                }
+            } catch (\Throwable) {}
 
             $job::withoutEvents(fn () => $job::withoutTimestamps(fn () => $job->increment('number_of_applied')));
 

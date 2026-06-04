@@ -21,24 +21,21 @@ class RenewJobsCommand extends Command
             ->where(JobBoardHelper::getJobDisplayQueryConditions())
             ->where('author_type', Account::class)
             ->join('jb_accounts', 'jb_accounts.id', '=', 'jb_jobs.author_id')
-            ->where('jb_accounts.credits', '>', 0)
+            ->whereRaw('(jb_accounts.credits + jb_accounts.free_credits) > 0')
             ->where('jb_jobs.auto_renew', 1)
             ->with(['author'])
             ->select('jb_jobs.*')
             ->get();
 
         foreach ($jobs as $job) {
-            if ($job->author->credits <= 0) {
+            if (! $job->author->canPost()) {
                 continue;
             }
 
             $job->expire_date = Carbon::now()->addDays(JobBoardHelper::jobExpiredDays());
             $job->save();
 
-            if (JobBoardHelper::isEnabledCreditsSystem() && $job->author->credits > 0) {
-                $job->author->credits--;
-                $job->author->save();
-            }
+            $job->author->spendCredits();
 
             EmailHandler::setModule(JOB_BOARD_MODULE_SCREEN_NAME)
                 ->setVariableValues([
