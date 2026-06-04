@@ -84,6 +84,7 @@ AdminHelper::registerRoutes(function (): void {
         Route::get('{candidateAlert}/logs', [CandidateAlertController::class, 'logs'])->name('logs')->wherePrimaryKey('candidateAlert');
         Route::get('{candidateAlert}/preview', [CandidateAlertController::class, 'preview'])->name('preview')->wherePrimaryKey('candidateAlert');
         Route::post('{candidateAlert}/send-now', [CandidateAlertController::class, 'sendNow'])->name('send-now')->wherePrimaryKey('candidateAlert');
+        Route::post('{candidateAlert}/send-welcome', [CandidateAlertController::class, 'sendWelcome'])->name('send-welcome')->wherePrimaryKey('candidateAlert');
         Route::post('analyze-cv', [CandidateAlertController::class, 'analyzeCv'])->name('analyze-cv');
         Route::get('check-phone', [CandidateAlertController::class, 'checkPhone'])->name('check-phone');
         Route::get('location/states', [CandidateAlertController::class, 'locationStates'])->name('location.states');

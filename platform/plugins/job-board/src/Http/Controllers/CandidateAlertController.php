@@ -26,7 +26,18 @@ class CandidateAlertController
 {
     public function index(): View
     {
-        $alerts      = CandidateAlert::with(['logs'])->latest()->paginate(20)->withQueryString();
+        $search  = trim((string) request('q', ''));
+        $baseQuery = CandidateAlert::with(['logs'])->latest();
+
+        if ($search !== '') {
+            $baseQuery->where(fn ($q) =>
+                $q->where('candidate_name', 'like', "%{$search}%")
+                  ->orWhere('label', 'like', "%{$search}%")
+                  ->orWhere('candidate_phone', 'like', "%{$search}%")
+            );
+        }
+
+        $alerts  = $baseQuery->paginate(20)->withQueryString();
         $jobTypes    = JobType::query()->orderBy('name')->pluck('name', 'id');
         $categories  = Category::query()->orderBy('name')->pluck('name', 'id');
         $experiences = JobExperience::query()->orderBy('name')->pluck('name', 'id');
@@ -334,6 +345,19 @@ class CandidateAlertController
         return response()->json(['data' => ['is_active' => ! $wasActive]]);
     }
 
+    public function sendWelcome(CandidateAlert $candidateAlert): JsonResponse
+    {
+        [$token] = $this->getWhapiCredentials();
+
+        if (! $token) {
+            return response()->json(['error' => 'No active Whapi automation configured.'], 422);
+        }
+
+        $this->sendWelcomeMessage($candidateAlert);
+
+        return response()->json(['message' => "Welcome message sent to {$candidateAlert->candidate_name}."]);
+    }
+
     public function logs(CandidateAlert $candidateAlert): JsonResponse
     {
         $logs = $candidateAlert->logs()
@@ -360,16 +384,19 @@ class CandidateAlertController
         $sentJobIds = $candidateAlert->logs()->pluck('job_id')->toArray();
 
         $data = $jobs->take(500)->map(fn (Job $job) => [
-            'id'           => $job->id,
-            'name'         => $job->name,
-            'company'      => $job->company?->name ?? '',
-            'city'         => $job->city?->name ?? '',
-            'state'        => $job->state?->name ?? '',
-            'country'      => $job->country?->name ?? '',
-            'location'     => $this->jobLocation($job),
-            'created'      => $job->created_at?->format('d M Y'),
-            'created_date' => $job->created_at?->format('Y-m-d'),
-            'already_sent' => in_array($job->id, $sentJobIds),
+            'id'            => $job->id,
+            'name'          => $job->name,
+            'company'       => $job->company?->name ?? '',
+            'company_logo'  => $job->company?->logo ? \Botble\Media\Facades\RvMedia::getImageUrl($job->company->logo) : null,
+            'city'          => $job->city?->name ?? '',
+            'state'         => $job->state?->name ?? '',
+            'country'       => $job->country?->name ?? '',
+            'location'      => $this->jobLocation($job),
+            'created'       => $job->created_at?->format('d M Y'),
+            'created_date'  => $job->created_at?->format('Y-m-d'),
+            'deadline'      => $job->never_expired ? null : ($job->expire_date ? \Carbon\Carbon::parse($job->expire_date)->format('d M Y') : null),
+            'deadline_days' => $job->never_expired ? null : ($job->expire_date ? max(-999, (int) now()->diffInDays(\Carbon\Carbon::parse($job->expire_date), false)) : null),
+            'already_sent'  => in_array($job->id, $sentJobIds),
         ]);
 
         return response()->json(['data' => $data, 'total' => $jobs->count()]);
@@ -475,17 +502,25 @@ class CandidateAlertController
             });
         }
 
+        // Job types: include jobs that match OR have no job types assigned (crawled jobs)
         if (! empty($filters['job_type_ids'])) {
             $ids = array_filter(array_map('intval', (array) $filters['job_type_ids']));
             if ($ids) {
-                $query->whereHas('jobTypes', fn ($q) => $q->whereIn('jb_job_types.id', $ids));
+                $query->where(fn ($q) => $q
+                    ->whereHas('jobTypes', fn ($q2) => $q2->whereIn('jb_job_types.id', $ids))
+                    ->orDoesntHave('jobTypes')
+                );
             }
         }
 
+        // Categories: include jobs that match OR have no categories assigned (crawled jobs)
         if (! empty($filters['category_ids'])) {
             $ids = array_filter(array_map('intval', (array) $filters['category_ids']));
             if ($ids) {
-                $query->whereHas('categories', fn ($q) => $q->whereIn('jb_categories.id', $ids));
+                $query->where(fn ($q) => $q
+                    ->whereHas('categories', fn ($q2) => $q2->whereIn('jb_categories.id', $ids))
+                    ->orDoesntHave('categories')
+                );
             }
         }
 
@@ -493,6 +528,14 @@ class CandidateAlertController
         if (! empty($filters['country_ids'])) {
             $ids = array_filter(array_map('intval', (array) $filters['country_ids']));
             if ($ids) $query->whereIn('jb_jobs.country_id', $ids);
+        }
+
+        // City / Province — LIKE search on the free-text address field
+        if (! empty($filters['location_keyword'])) {
+            $loc = trim((string) $filters['location_keyword']);
+            if ($loc !== '') {
+                $query->where('jb_jobs.address', 'like', "%{$loc}%");
+            }
         }
 
         if (! empty($filters['job_experience_id'])) {
@@ -583,7 +626,7 @@ class CandidateAlertController
         $lines   = [];
 
         // Keywords (new multi-value, backward-compat with old single)
-        $keywords = array_values(array_filter(array_map('trim', (array) ($filters['keywords'] ?? ($filters['keyword'] ? [$filters['keyword']] : [])))));
+        $keywords = array_values(array_filter(array_map('trim', (array) ($filters['keywords'] ?? (($filters['keyword'] ?? null) ? [$filters['keyword']] : [])))));
         if ($keywords) {
             $lines[] = '• Keywords: *' . implode('*, *', $keywords) . '*';
         }
@@ -593,6 +636,11 @@ class CandidateAlertController
             $ids   = array_filter(array_map('intval', (array) $filters['country_ids']));
             $names = $ids ? DB::table('countries')->whereIn('id', $ids)->pluck('name')->implode(', ') : '';
             if ($names) $lines[] = "• Countries: *{$names}*";
+        }
+
+        // City / Province
+        if (! empty($filters['location_keyword'])) {
+            $lines[] = "• City/Province: *{$filters['location_keyword']}*";
         }
 
         if (! empty($filters['job_type_ids'])) {
@@ -623,6 +671,12 @@ class CandidateAlertController
         if (! empty($filters['country_ids'])) {
             $ids = array_values(array_filter(array_map('intval', (array) $filters['country_ids'])));
             if ($ids) $clean['country_ids'] = $ids;
+        }
+
+        // City / Province — free-text search against the address field
+        if (! empty($filters['location_keyword'])) {
+            $loc = trim((string) $filters['location_keyword']);
+            if ($loc !== '') $clean['location_keyword'] = $loc;
         }
 
         if (! empty($filters['job_type_ids'])) {

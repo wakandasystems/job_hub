@@ -162,19 +162,21 @@
         </div>
         <hr class="my-2">
 
-        {{-- ── Country ─────────────────────────────────────────────────────── --}}
+        {{-- ── Country + City/Province ─────────────────────────────────────── --}}
         <div class="mb-2">
             <button type="button"
                 class="btn btn-link text-decoration-none text-dark p-0 d-flex align-items-center gap-2 w-100 collapse-toggle-btn"
                 data-bs-toggle="collapse" data-bs-target="#collapse-countries-{{ $tid }}"
                 aria-expanded="false">
                 <i class="fas fa-globe text-muted" style="width:14px"></i>
-                <span class="fw-semibold small">Country</span>
+                <span class="fw-semibold small">Country / Location</span>
                 <span class="badge bg-secondary text-white ms-1 country-count-badge-{{ $tid }}">{{ count($selCountries) }} selected</span>
                 <i class="fas fa-chevron-down ms-auto text-muted small collapse-chevron"></i>
             </button>
             <div class="collapse" id="collapse-countries-{{ $tid }}">
                 <div class="pt-2 ps-4">
+
+                    {{-- Country checkboxes --}}
                     <div class="d-flex gap-2 mb-2">
                         <input type="text" class="form-control form-control-sm filter-search"
                             data-target="countries-box-{{ $tid }}"
@@ -186,7 +188,7 @@
                             data-target="countries-box-{{ $tid }}"
                             data-count-badge="country-count-badge-{{ $tid }}">None</button>
                     </div>
-                    <div class="border rounded p-2" style="max-height:160px;overflow-y:auto" id="countries-box-{{ $tid }}">
+                    <div class="border rounded p-2 mb-3" style="max-height:160px;overflow-y:auto" id="countries-box-{{ $tid }}">
                         <div class="row g-0">
                             @forelse($countries as $countryId => $countryName)
                                 <div class="col-md-4 col-6 checkable-item">
@@ -204,6 +206,18 @@
                             @endforelse
                         </div>
                     </div>
+
+                    {{-- City / Province text search (searches the address field) --}}
+                    <label class="form-label small fw-semibold mb-1">
+                        City / Province <span class="text-muted fw-normal">(optional)</span>
+                    </label>
+                    <input type="text"
+                        name="filters[location_keyword]"
+                        class="form-control form-control-sm"
+                        value="{{ old('filters.location_keyword', $f['location_keyword'] ?? '') }}"
+                        placeholder="e.g. Lusaka, Copperbelt, Ndola, Nairobi…">
+                    <div class="form-text">Searches the job's location text — works even when city data is not structured.</div>
+
                 </div>
             </div>
         </div>
@@ -211,15 +225,25 @@
 
         {{-- ── Job Types ───────────────────────────────────────────── --}}
         <div class="mb-2">
-            <button type="button"
-                class="btn btn-link text-decoration-none text-dark p-0 d-flex align-items-center gap-2 w-100 collapse-toggle-btn"
-                data-bs-toggle="collapse" data-bs-target="#collapse-jobtypes-{{ $tid }}"
-                aria-expanded="false">
-                <i class="fas fa-briefcase text-muted" style="width:14px"></i>
-                <span class="fw-semibold small">Job Types</span>
-                <span class="badge bg-secondary text-white ms-1 jt-count-badge-{{ $tid }}">{{ count($selJobTypes) }} selected</span>
-                <i class="fas fa-chevron-down ms-auto text-muted small collapse-chevron"></i>
-            </button>
+            <div class="d-flex align-items-center gap-1">
+                <button type="button"
+                    class="btn btn-link text-decoration-none text-dark p-0 d-flex align-items-center gap-2 flex-grow-1 collapse-toggle-btn"
+                    data-bs-toggle="collapse" data-bs-target="#collapse-jobtypes-{{ $tid }}"
+                    aria-expanded="false">
+                    <i class="fas fa-briefcase text-muted" style="width:14px"></i>
+                    <span class="fw-semibold small">Job Types</span>
+                    <span class="badge bg-secondary text-white ms-1 jt-count-badge-{{ $tid }}">{{ count($selJobTypes) }} selected</span>
+                    <i class="fas fa-chevron-down ms-auto text-muted small collapse-chevron"></i>
+                </button>
+                <button type="button"
+                    class="btn btn-outline-danger btn-sm py-0 px-2 flex-shrink-0 btn-deselect-all-check"
+                    data-target="jobtypes-box-{{ $tid }}"
+                    data-count-badge="jt-count-badge-{{ $tid }}"
+                    title="Clear all job types"
+                    style="font-size:.7rem;{{ count($selJobTypes) ? '' : 'display:none' }}">
+                    <i class="fas fa-times me-1"></i>Clear
+                </button>
+            </div>
             <div class="collapse" id="collapse-jobtypes-{{ $tid }}">
                 <div class="pt-2 ps-4">
                     <div class="d-flex gap-2 mb-2">
@@ -251,15 +275,25 @@
 
         {{-- ── Categories ──────────────────────────────────────────── --}}
         <div class="mb-2">
-            <button type="button"
-                class="btn btn-link text-decoration-none text-dark p-0 d-flex align-items-center gap-2 w-100 collapse-toggle-btn"
-                data-bs-toggle="collapse" data-bs-target="#collapse-categories-{{ $tid }}"
-                aria-expanded="false">
-                <i class="fas fa-tags text-muted" style="width:14px"></i>
-                <span class="fw-semibold small">Categories</span>
-                <span class="badge bg-secondary text-white ms-1 cat-count-badge-{{ $tid }}">{{ count($selCategories) }} selected</span>
-                <i class="fas fa-chevron-down ms-auto text-muted small collapse-chevron"></i>
-            </button>
+            <div class="d-flex align-items-center gap-1">
+                <button type="button"
+                    class="btn btn-link text-decoration-none text-dark p-0 d-flex align-items-center gap-2 flex-grow-1 collapse-toggle-btn"
+                    data-bs-toggle="collapse" data-bs-target="#collapse-categories-{{ $tid }}"
+                    aria-expanded="false">
+                    <i class="fas fa-tags text-muted" style="width:14px"></i>
+                    <span class="fw-semibold small">Categories</span>
+                    <span class="badge bg-secondary text-white ms-1 cat-count-badge-{{ $tid }}">{{ count($selCategories) }} selected</span>
+                    <i class="fas fa-chevron-down ms-auto text-muted small collapse-chevron"></i>
+                </button>
+                <button type="button"
+                    class="btn btn-outline-danger btn-sm py-0 px-2 flex-shrink-0 btn-deselect-all-check"
+                    data-target="categories-box-{{ $tid }}"
+                    data-count-badge="cat-count-badge-{{ $tid }}"
+                    title="Clear all categories"
+                    style="font-size:.7rem;{{ count($selCategories) ? '' : 'display:none' }}">
+                    <i class="fas fa-times me-1"></i>Clear
+                </button>
+            </div>
             <div class="collapse" id="collapse-categories-{{ $tid }}">
                 <div class="pt-2 ps-4">
                     <div class="d-flex gap-2 mb-2">

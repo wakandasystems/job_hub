@@ -75,14 +75,20 @@ class SendCandidateAlertsCommand extends Command
         if (! empty($filters['job_type_ids'])) {
             $ids = array_filter(array_map('intval', (array) $filters['job_type_ids']));
             if ($ids) {
-                $query->whereHas('jobTypes', fn ($q) => $q->whereIn('jb_job_types.id', $ids));
+                $query->where(fn ($q) => $q
+                    ->whereHas('jobTypes', fn ($q2) => $q2->whereIn('jb_job_types.id', $ids))
+                    ->orDoesntHave('jobTypes')
+                );
             }
         }
 
         if (! empty($filters['category_ids'])) {
             $ids = array_filter(array_map('intval', (array) $filters['category_ids']));
             if ($ids) {
-                $query->whereHas('categories', fn ($q) => $q->whereIn('jb_categories.id', $ids));
+                $query->where(fn ($q) => $q
+                    ->whereHas('categories', fn ($q2) => $q2->whereIn('jb_categories.id', $ids))
+                    ->orDoesntHave('categories')
+                );
             }
         }
 
@@ -90,6 +96,14 @@ class SendCandidateAlertsCommand extends Command
         if (! empty($filters['country_ids'])) {
             $ids = array_filter(array_map('intval', (array) $filters['country_ids']));
             if ($ids) $query->whereIn('jb_jobs.country_id', $ids);
+        }
+
+        // City / Province — LIKE on address field
+        if (! empty($filters['location_keyword'])) {
+            $loc = trim((string) $filters['location_keyword']);
+            if ($loc !== '') {
+                $query->where('jb_jobs.address', 'like', "%{$loc}%");
+            }
         }
 
         if (! empty($filters['job_experience_id'])) {

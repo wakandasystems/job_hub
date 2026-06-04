@@ -38,10 +38,25 @@
     <div class="col-12">
         <x-core::card>
             <x-core::card.header>
-                <h5 class="mb-0 d-flex align-items-center gap-2">
-                    <i class="ti ti-device-mobile-message text-primary"></i>
-                    Candidate VIP Job Alert Subscriptions
-                </h5>
+                <div class="d-flex align-items-center gap-3 w-100 flex-wrap">
+                    <h5 class="mb-0 d-flex align-items-center gap-2 flex-grow-1">
+                        <i class="ti ti-device-mobile-message text-primary"></i>
+                        Candidate VIP Job Alert Subscriptions
+                    </h5>
+                    <form method="GET" action="{{ route('job-board.candidate-alerts.index') }}" class="d-flex gap-2 align-items-center">
+                        <div class="input-group input-group-sm" style="width:260px">
+                            <span class="input-group-text"><i class="fas fa-search"></i></span>
+                            <input type="text" name="q" class="form-control"
+                                placeholder="Search name or alert label…"
+                                value="{{ request('q') }}">
+                            @if(request('q'))
+                                <a href="{{ route('job-board.candidate-alerts.index') }}" class="btn btn-outline-secondary" title="Clear search">
+                                    <i class="fas fa-times"></i>
+                                </a>
+                            @endif
+                        </div>
+                    </form>
+                </div>
             </x-core::card.header>
             <x-core::card.body class="p-0">
                 @if($alerts->isEmpty())
@@ -182,6 +197,13 @@
                                                     data-name="{{ $alert->candidate_name }}">
                                                     <i class="fas fa-paper-plane"></i>
                                                 </button>
+                                                <button type="button"
+                                                    class="btn btn-sm btn-outline-warning btn-send-welcome"
+                                                    title="Resend VIP welcome message via WhatsApp"
+                                                    data-url="{{ route('job-board.candidate-alerts.send-welcome', $alert->id) }}"
+                                                    data-name="{{ $alert->candidate_name }}">
+                                                    <i class="fab fa-whatsapp"></i>
+                                                </button>
                                                 @if($alert->cv_path)
                                                 <span class="btn btn-sm btn-outline-info disabled" title="CV on file — re-upload in Edit to re-analyse">
                                                     <i class="fas fa-file-alt"></i>
@@ -319,6 +341,12 @@
                 </div>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-outline-secondary" id="btnExportCsv" title="Download as CSV spreadsheet">
+                        <i class="fas fa-file-csv me-1"></i> CSV
+                    </button>
+                    <button type="button" class="btn btn-outline-danger" id="btnExportPdf" title="Print / Save as PDF">
+                        <i class="fas fa-file-pdf me-1"></i> PDF
+                    </button>
                     <button type="button" class="btn btn-success" id="btnSendNow" data-send-url="">
                         <i class="fab fa-whatsapp me-1"></i> Send All Matching
                     </button>
@@ -482,6 +510,11 @@ $(function () {
     });
 
     // -- Preview & Send modal --
+    // State hoisted to module scope so Export/PDF buttons can access getFilteredJobs()
+    let previewAllJobs = [];
+    let previewPage    = 1;
+    const PREVIEW_PER_PAGE = 25;
+
     $(document).on('click', '.btn-preview-jobs', function () {
         const $btn    = $(this);
         const url     = $btn.data('url');
@@ -494,11 +527,6 @@ $(function () {
         $('#forceResendCheck').prop('checked', false);
 
         new bootstrap.Modal(document.getElementById('modal-preview')).show();
-
-        // Store loaded jobs for client-side filtering/pagination
-        let previewAllJobs = [];
-        let previewPage    = 1;
-        const PREVIEW_PER_PAGE = 25;
 
         $httpClient.make().get(url)
             .then(({ data: resp }) => {
@@ -554,89 +582,6 @@ $(function () {
                 $('#previewContent').html('<div class="p-4 text-center text-danger">Failed to load matching jobs.</div>');
             });
 
-        function getFilteredJobs() {
-            const country = $('#pv-country').val();
-            const company = ($('#pv-company').val() || '').toLowerCase().trim();
-            const period  = $('#pv-period').val();
-
-            const today = new Date(); today.setHours(0,0,0,0);
-            const cutoff = period === 'today' ? today
-                : period ? new Date(today - parseInt(period) * 86400000) : null;
-
-            return previewAllJobs.filter(job => {
-                if (country && job.country !== country) return false;
-                if (company && !(job.company || '').toLowerCase().includes(company)) return false;
-                if (cutoff && job.created_date) {
-                    const jobDate = new Date(job.created_date);
-                    if (jobDate < cutoff) return false;
-                }
-                return true;
-            });
-        }
-
-        function renderPreviewTable(serverTotal) {
-            const filtered = getFilteredJobs();
-            const total    = filtered.length;
-            const pages    = Math.max(1, Math.ceil(total / PREVIEW_PER_PAGE));
-            previewPage    = Math.min(previewPage, pages);
-            const start    = (previewPage - 1) * PREVIEW_PER_PAGE;
-            const slice    = filtered.slice(start, start + PREVIEW_PER_PAGE);
-
-            const isFiltered = total !== previewAllJobs.length;
-            $('#pv-count-label').text(
-                isFiltered
-                    ? `${total} of ${serverTotal} jobs match filters`
-                    : `${serverTotal} matching job(s) total`
-            );
-
-            let html = '<table class="table table-sm table-hover align-middle mb-0">'
-                + '<thead class="table-light"><tr>'
-                + '<th>Job Title</th><th>Company</th><th>City</th><th>Province / State</th><th>Country</th><th>Posted</th><th>Sent?</th>'
-                + '</tr></thead><tbody>';
-
-            if (!slice.length) {
-                html += '<tr><td colspan="7" class="text-center text-muted py-4">No jobs match your filters.</td></tr>';
-            } else {
-                slice.forEach(job => {
-                    const sentBadge = job.already_sent
-                        ? '<span class="badge bg-success text-white">✓ Sent</span>'
-                        : '<span class="badge bg-secondary text-white">New</span>';
-                    html += `<tr>
-                        <td class="fw-semibold" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(job.name)}">${escHtml(job.name)}</td>
-                        <td class="text-muted small">${escHtml(job.company)}</td>
-                        <td class="text-muted small">${escHtml(job.city || '')}</td>
-                        <td class="text-muted small">${escHtml(job.state || '')}</td>
-                        <td class="text-muted small">${escHtml(job.country || '')}</td>
-                        <td class="text-muted small text-nowrap">${escHtml(job.created)}</td>
-                        <td>${sentBadge}</td>
-                    </tr>`;
-                });
-            }
-            html += '</tbody></table>';
-            $('#pv-table-wrap').html(html);
-
-            // Pagination
-            if (total <= PREVIEW_PER_PAGE) {
-                $('#pv-pagination').empty();
-            } else {
-                const showing = `Showing ${start + 1}–${Math.min(start + PREVIEW_PER_PAGE, total)} of ${total}`;
-                let pager = `<span class="text-muted small">${showing}</span><div class="d-flex gap-1">`;
-                pager += `<button class="btn btn-sm btn-outline-secondary pv-page-btn" data-p="1" ${previewPage === 1 ? 'disabled' : ''}>«</button>`;
-                pager += `<button class="btn btn-sm btn-outline-secondary pv-page-btn" data-p="${previewPage - 1}" ${previewPage === 1 ? 'disabled' : ''}>‹ Prev</button>`;
-
-                // Page number buttons (show up to 5 around current)
-                const range = 2;
-                for (let p = Math.max(1, previewPage - range); p <= Math.min(pages, previewPage + range); p++) {
-                    pager += `<button class="btn btn-sm ${p === previewPage ? 'btn-primary text-white' : 'btn-outline-secondary'} pv-page-btn" data-p="${p}">${p}</button>`;
-                }
-
-                pager += `<button class="btn btn-sm btn-outline-secondary pv-page-btn" data-p="${previewPage + 1}" ${previewPage === pages ? 'disabled' : ''}>Next ›</button>`;
-                pager += `<button class="btn btn-sm btn-outline-secondary pv-page-btn" data-p="${pages}" ${previewPage === pages ? 'disabled' : ''}>»</button>`;
-                pager += `</div>`;
-                $('#pv-pagination').html(pager);
-            }
-        }
-
         // Page button clicks (delegated since pager re-renders)
         $(document).on('click', '.pv-page-btn:not([disabled])', function () {
             previewPage = parseInt($(this).data('p'));
@@ -644,6 +589,101 @@ $(function () {
             $('#pv-table-wrap')[0]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
     });
+
+    // ── getFilteredJobs + renderPreviewTable at module scope ─────────────────
+    // (must be outside the click handler so Export CSV/PDF can call them)
+
+    function getFilteredJobs() {
+        const country = $('#pv-country').val() || '';
+        const company = ($('#pv-company').val() || '').toLowerCase().trim();
+        const period  = $('#pv-period').val() || '';
+
+        const today  = new Date(); today.setHours(0,0,0,0);
+        const cutoff = period === 'today' ? today
+            : period ? new Date(today - parseInt(period) * 86400000) : null;
+
+        const filtered = previewAllJobs.filter(job => {
+            if (country && job.country !== country) return false;
+            if (company && !(job.company || '').toLowerCase().includes(company)) return false;
+            if (cutoff && job.created_date && new Date(job.created_date) < cutoff) return false;
+            return true;
+        });
+
+        return filtered.sort((a, b) => {
+            const da = a.deadline_days !== null && a.deadline_days !== undefined ? a.deadline_days : Infinity;
+            const db = b.deadline_days !== null && b.deadline_days !== undefined ? b.deadline_days : Infinity;
+            return db - da;
+        });
+    }
+
+    function renderPreviewTable(serverTotal) {
+        const filtered = getFilteredJobs();
+        const total    = filtered.length;
+        const pages    = Math.max(1, Math.ceil(total / PREVIEW_PER_PAGE));
+        previewPage    = Math.min(previewPage, pages);
+        const start    = (previewPage - 1) * PREVIEW_PER_PAGE;
+        const slice    = filtered.slice(start, start + PREVIEW_PER_PAGE);
+
+        const isFiltered = total !== previewAllJobs.length;
+        $('#pv-count-label').text(
+            isFiltered ? `${total} of ${serverTotal} jobs match filters` : `${serverTotal} matching job(s) total`
+        );
+
+        let html = '<table class="table table-sm table-hover align-middle mb-0">'
+            + '<thead class="table-light"><tr>'
+            + '<th style="width:36px">#</th><th>Job Title</th><th>Company</th><th>City</th><th>Province / State</th><th>Country</th><th>Posted</th><th>Closes</th><th class="text-center">Sent?</th>'
+            + '</tr></thead><tbody>';
+
+        if (!slice.length) {
+            html += '<tr><td colspan="9" class="text-center text-muted py-4">No jobs match your filters.</td></tr>';
+        } else {
+            slice.forEach((job, idx) => {
+                const rowNum    = start + idx + 1;
+                const sentBadge = job.already_sent
+                    ? '<span class="badge bg-success text-white">✓ Sent</span>'
+                    : '<span class="badge bg-secondary text-white">New</span>';
+
+                let deadlineBadge = '<span class="text-muted small">—</span>';
+                if (job.deadline_days !== null && job.deadline_days !== undefined) {
+                    const d = job.deadline_days;
+                    deadlineBadge = d < 0   ? '<span class="badge bg-danger text-white">Expired</span>'
+                        : d === 0           ? '<span class="badge bg-danger text-white">Today</span>'
+                        : d <= 3            ? `<span class="badge bg-warning text-dark" title="${escHtml(job.deadline)}">${d}d left</span>`
+                        : d <= 14           ? `<span class="badge bg-info text-white" title="${escHtml(job.deadline)}">${d}d left</span>`
+                        :                     `<span class="text-muted small text-nowrap" title="${escHtml(job.deadline)}">${d}d</span>`;
+                }
+
+                html += `<tr>
+                    <td class="text-muted small text-center">${rowNum}</td>
+                    <td class="fw-semibold" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(job.name)}">${escHtml(job.name)}</td>
+                    <td class="text-muted small"><div class="d-flex align-items-center gap-2">${job.company_logo ? `<img src="${escHtml(job.company_logo)}" alt="" style="width:28px;height:28px;object-fit:contain;border-radius:4px;border:1px solid #eee;background:#fff;padding:2px">` : ''}<span>${escHtml(job.company)}</span></div></td>
+                    <td class="text-muted small">${escHtml(job.city || '')}</td>
+                    <td class="text-muted small">${escHtml(job.state || '')}</td>
+                    <td class="text-muted small">${escHtml(job.country || '')}</td>
+                    <td class="text-muted small text-nowrap">${escHtml(job.created)}</td>
+                    <td class="text-nowrap">${deadlineBadge}</td>
+                    <td>${sentBadge}</td>
+                </tr>`;
+            });
+        }
+        html += '</tbody></table>';
+        $('#pv-table-wrap').html(html);
+
+        if (total <= PREVIEW_PER_PAGE) {
+            $('#pv-pagination').empty();
+        } else {
+            const showing = `Showing ${start + 1}–${Math.min(start + PREVIEW_PER_PAGE, total)} of ${total}`;
+            let pager = `<span class="text-muted small">${showing}</span><div class="d-flex gap-1">`;
+            pager += `<button class="btn btn-sm btn-outline-secondary pv-page-btn" data-p="1" ${previewPage===1?'disabled':''}>«</button>`;
+            pager += `<button class="btn btn-sm btn-outline-secondary pv-page-btn" data-p="${previewPage-1}" ${previewPage===1?'disabled':''}>‹ Prev</button>`;
+            for (let p = Math.max(1, previewPage-2); p <= Math.min(pages, previewPage+2); p++) {
+                pager += `<button class="btn btn-sm ${p===previewPage?'btn-primary text-white':'btn-outline-secondary'} pv-page-btn" data-p="${p}">${p}</button>`;
+            }
+            pager += `<button class="btn btn-sm btn-outline-secondary pv-page-btn" data-p="${previewPage+1}" ${previewPage===pages?'disabled':''}>Next ›</button>`;
+            pager += `<button class="btn btn-sm btn-outline-secondary pv-page-btn" data-p="${pages}" ${previewPage===pages?'disabled':''}>»</button></div>`;
+            $('#pv-pagination').html(pager);
+        }
+    }
 
     // Send Now button
     $('#btnSendNow').on('click', function () {
@@ -664,6 +704,27 @@ $(function () {
                 Botble.showError(errMsg);
             })
             .finally(() => $btn.prop('disabled', false).html('<i class="fab fa-whatsapp me-1"></i> Send All Matching'));
+    });
+
+    // ── Resend welcome message ────────────────────────────────────────────────
+    $(document).on('click', '.btn-send-welcome', function () {
+        const $btn = $(this);
+        const url  = $btn.data('url');
+        const name = $btn.data('name');
+
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+
+        $httpClient.make().post(url)
+            .then(({ data: resp }) => {
+                Botble.showSuccess(resp.message || 'Welcome message sent to ' + name + '.');
+            })
+            .catch(({ response }) => {
+                const err = response?.data?.error || 'Failed to send. Check Whapi configuration.';
+                Botble.showError(err);
+            })
+            .finally(() => {
+                $btn.prop('disabled', false).html('<i class="fab fa-whatsapp"></i>');
+            });
     });
 
     // -- Delete --
@@ -689,6 +750,113 @@ $(function () {
                 pendingDeleteUrl = null;
             })
             .catch(() => Botble.showError('Could not delete alert.'));
+    });
+
+    // ── Export CSV ─────────────────────────────────────────────────────────────
+    $(document).on('click', '#btnExportCsv', function () {
+        const filtered = getFilteredJobs();
+        if (!filtered.length) { Botble.showError('No jobs to export.'); return; }
+
+        const headers = ['#', 'Job Title', 'Company', 'City', 'Province/State', 'Country', 'Posted', 'Closing Date', 'Days Left', 'Status'];
+        const rows = filtered.map((job, idx) => [
+            idx + 1,
+            job.name,
+            job.company,
+            job.city  || '',
+            job.state || '',
+            job.country || '',
+            job.created,
+            job.deadline || '',
+            job.deadline_days !== null && job.deadline_days !== undefined
+                ? (job.deadline_days < 0 ? 'Expired' : job.deadline_days + 'd')
+                : '',
+            job.already_sent ? 'Sent' : 'New',
+        ]);
+
+        const csv  = [headers, ...rows]
+            .map(r => r.map(c => '"' + String(c || '').replace(/"/g, '""') + '"').join(','))
+            .join('\n');
+
+        // BOM (﻿) ensures Excel opens UTF-8 correctly
+        const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = 'vip-alert-jobs-' + new Date().toISOString().slice(0, 10) + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+        Botble.showSuccess('Exported ' + filtered.length + ' job(s) to CSV.');
+    });
+
+    // ── Export PDF (print-to-PDF) ──────────────────────────────────────────────
+    $(document).on('click', '#btnExportPdf', function () {
+        const filtered = getFilteredJobs();
+        if (!filtered.length) { Botble.showError('No jobs to export.'); return; }
+
+        const title   = $('#previewModalTitle').text() || 'VIP Alert — Matching Jobs';
+        const date    = new Date().toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+
+        const rows = filtered.map((job, idx) => {
+            const rowNum = idx + 1;
+            const d   = job.deadline_days;
+            const dLabel = d === null || d === undefined ? '—'
+                : d < 0   ? '<span style="color:#dc3545;font-weight:600">Expired</span>'
+                : d === 0 ? '<span style="color:#dc3545;font-weight:600">Today</span>'
+                : d <= 3  ? `<span style="color:#fd7e14;font-weight:600">${d}d left</span>`
+                : d <= 14 ? `<span style="color:#0dcaf0;font-weight:600">${d}d left</span>`
+                : `${d}d`;
+
+            const logo = job.company_logo
+                ? `<img src="${escHtml(job.company_logo)}" style="width:22px;height:22px;object-fit:contain;vertical-align:middle;margin-right:5px;border:1px solid #eee;border-radius:3px">`
+                : '';
+
+            const sentBadge = job.already_sent
+                ? '<span style="background:#198754;color:#fff;padding:1px 6px;border-radius:3px;font-size:11px">✓ Sent</span>'
+                : '<span style="background:#6c757d;color:#fff;padding:1px 6px;border-radius:3px;font-size:11px">New</span>';
+
+            return `<tr>
+                <td style="text-align:center;color:#999;font-size:10px">${rowNum}</td>
+                <td style="max-width:220px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${escHtml(job.name)}">${escHtml(job.name)}</td>
+                <td>${logo}${escHtml(job.company)}</td>
+                <td>${escHtml(job.country || '')}</td>
+                <td>${escHtml(job.created)}</td>
+                <td>${dLabel}</td>
+                <td>${sentBadge}</td>
+            </tr>`;
+        }).join('');
+
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>${escHtml(title)}</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 11px; color: #333; margin: 20px; }
+  h2   { font-size: 15px; margin-bottom: 4px; }
+  p    { color: #666; font-size: 10px; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  th   { background: #f8f9fa; border: 1px solid #dee2e6; padding: 5px 7px; text-align: left; font-size: 10px; }
+  td   { border: 1px solid #dee2e6; padding: 5px 7px; vertical-align: middle; font-size: 11px; }
+  tr:nth-child(even) td { background: #f8f9fa; }
+  @media print { body { margin: 10px; } }
+</style>
+</head>
+<body>
+<h2>${escHtml(title)}</h2>
+<p>Generated: ${date} &nbsp;·&nbsp; ${filtered.length} job(s)</p>
+<table>
+<thead><tr><th>#</th><th>Job Title</th><th>Company</th><th>Country</th><th>Posted</th><th>Closes</th><th>Status</th></tr></thead>
+<tbody>${rows}</tbody>
+</table>
+</body>
+</html>`;
+
+        const w = window.open('', '_blank', 'width=900,height=700');
+        w.document.write(html);
+        w.document.close();
+        w.focus();
+        setTimeout(() => { w.print(); }, 400);
     });
 
     function escHtml(str) {
@@ -1008,6 +1176,9 @@ $(function () {
         const count = $box.find('input[type="checkbox"]:checked').length;
         const total = $box.find('input[type="checkbox"]').length;
         $('.' + badgeClass).text(count + (total > 0 ? ' selected' : ''));
+        // Show/hide sibling Clear button (btn-deselect-all-check next to the collapse toggle)
+        $('[data-target="' + $box.attr('id') + '"].btn-deselect-all-check').filter('.btn-outline-danger')
+            .each(function() { count > 0 ? $(this).show() : $(this).hide(); });
     }
 
     // Search/filter within checkbox lists

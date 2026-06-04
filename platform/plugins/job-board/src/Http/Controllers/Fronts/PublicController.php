@@ -123,8 +123,12 @@ class PublicController extends BaseController
             $company->loadCount('jobs');
 
             if (! $job->hide_company) {
-                if ($company->logo) {
-                    $meta->setImage(RvMedia::getImageUrl($company->logo));
+                // Use company logo as og:image when available
+                if (! empty($company->logo)) {
+                    $logoUrl = RvMedia::getImageUrl($company->logo, null, false);
+                    if ($logoUrl) {
+                        $meta->setImage($logoUrl);
+                    }
                 }
 
                 $condition = [
@@ -146,8 +150,9 @@ class PublicController extends BaseController
             }
         }
 
-        if (! $meta->getProperty('image') && ($defaultOgImage = theme_option('og_image'))) {
-            $meta->setImage(RvMedia::getImageUrl($defaultOgImage));
+        // Fallback: square Wakanda Jobs logo (1254×1254, WhatsApp-friendly)
+        if (! $meta->getProperty('image')) {
+            $meta->setImage(RvMedia::getImageUrl('chatgpt-image-may-14-2026-03-00-04-pm.png'));
         }
 
         SeoHelper::setSeoOpenGraph($meta);
