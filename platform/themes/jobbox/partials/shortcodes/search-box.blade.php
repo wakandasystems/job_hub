@@ -12,7 +12,9 @@
         'RW' => 'rwanda',
         'ZA' => 'southafrica',
         'UG' => 'uganda',
+        'ZM' => 'zambia',
         'ZW' => 'zimbabwe',
+        'MU' => 'mauritius',
     ];
     $countryBannerSrc = null;
     if ($selectedCountry) {
