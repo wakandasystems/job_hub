@@ -1,4 +1,27 @@
-@php($isEnabledAnimation = theme_option('enabled_animation_when_loading_page', 'yes') === 'yes')
+@php
+    $isEnabledAnimation = theme_option('enabled_animation_when_loading_page', 'yes') === 'yes';
+    $selectedCountry = wakanda_selected_country();
+    $countryLogoMap = [
+        'BW' => 'botswana',
+        'CM' => 'cameroon',
+        'GH' => 'ghana',
+        'KE' => 'kenya',
+        'MW' => 'malawi',
+        'MA' => 'morocco',
+        'NG' => 'nigeria',
+        'RW' => 'rwanda',
+        'ZA' => 'southafrica',
+        'UG' => 'uganda',
+        'ZW' => 'zimbabwe',
+    ];
+    $countryBannerSrc = null;
+    if ($selectedCountry) {
+        $logoFile = $countryLogoMap[strtoupper((string) $selectedCountry->code)] ?? null;
+        if ($logoFile && file_exists(public_path('country_logos/' . $logoFile . '.jpeg'))) {
+            $countryBannerSrc = asset('country_logos/' . $logoFile . '.jpeg');
+        }
+    }
+@endphp
 
 @switch($shortcode->style)
     @case('style-2')
@@ -193,7 +216,7 @@
                             <div class="banner-imgs">
                                 @if($url = $shortcode->banner_image_1)
                                     <div @class(['block-1', 'shape-1' => $isEnabledAnimation])>
-                                        <img class="img-responsive" alt="{{ $shortcode->banner_image_1 }}" src="{{ RvMedia::getImageUrl($url) }}">
+                                        <img class="img-responsive" alt="{{ $selectedCountry?->name ?? $shortcode->banner_image_1 }}" src="{{ $countryBannerSrc ?? RvMedia::getImageUrl($url) }}">
                                     </div>
                                 @endif
                                 @if($url = $shortcode->banner_image_2)
