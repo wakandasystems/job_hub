@@ -253,7 +253,7 @@ class JobCrawlerTable extends TableAbstract
         $from = $range['from']->toDateTimeString();
         $to = $range['to']->toDateTimeString();
 
-        $countryFilter = (string) $this->request()->input('country_filter', 'Zambia');
+        $countryFilter = (string) ($this->request()->input('country_filter') ?? '');
 
         $baseQuery = $this->getModel()->query()
             ->select([
@@ -414,7 +414,7 @@ class JobCrawlerTable extends TableAbstract
         $period = $range['period'];
         $from = e((string) $this->request()->input('stats_from', $range['from']->toDateString()));
         $to = e((string) $this->request()->input('stats_to', $range['to']->toDateString()));
-        $countryFilter = (string) $this->request()->input('country_filter', 'Zambia');
+        $countryFilter = (string) ($this->request()->input('country_filter') ?? '');
         $action = e($this->request()->url());
         $query = Arr::except($this->request()->query(), ['stats_period', 'stats_from', 'stats_to', 'country_filter']);
         $hidden = '';

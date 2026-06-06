@@ -13,61 +13,98 @@ class CheckCandidateAlertExpiryCommand extends Command
     protected $signature = 'job-board:check-candidate-alert-expiry';
     protected $description = 'Send expiry warnings and disable expired candidate VIP job alerts';
 
+    private const ADMIN_PHONE     = '260970766123';
+    private const ADMIN_ALERT_URL = 'https://www.wakandajobs.com/admin/job-board/candidate-alerts';
+
     public function handle(): int
     {
         $this->info('Checking candidate alert expiry...');
 
         [$token, $gatewayUrl] = $this->getWhapiCredentials();
 
-        // --- 1. Day-before expiry warning ---
-        $warning = CandidateAlert::where('is_active', true)
+        // 1. 2-day warning
+        $twoDay = CandidateAlert::where('is_active', true)
             ->where('status', 'active')
             ->where('expiry_warning_sent', false)
             ->whereNotNull('expires_at')
-            ->whereDate('expires_at', now()->addDay()->toDateString())
+            ->whereDate('expires_at', now()->addDays(2)->toDateString())
             ->get();
 
-        foreach ($warning as $alert) {
-            $this->line("  Warning → {$alert->candidate_name}");
+        foreach ($twoDay as $alert) {
+            $this->line("  2-day warning → {$alert->candidate_name}");
             if ($token) {
-                $this->sendExpiryWarning($token, $gatewayUrl, $alert);
+                $this->sendTwoDayWarning($token, $gatewayUrl, $alert);
             }
             $alert->update(['expiry_warning_sent' => true]);
         }
 
-        // --- 2. Mark expired and notify ---
+        // 2. Same-day reminder (expires today, not yet marked expired)
+        $sameDay = CandidateAlert::where('is_active', true)
+            ->where('status', 'active')
+            ->where('expiry_sameday_sent', false)
+            ->whereNotNull('expires_at')
+            ->whereDate('expires_at', now()->toDateString())
+            ->get();
+
+        foreach ($sameDay as $alert) {
+            $this->line("  Same-day reminder → {$alert->candidate_name}");
+            if ($token) {
+                $this->sendSameDayReminder($token, $gatewayUrl, $alert);
+            }
+            $alert->update(['expiry_sameday_sent' => true]);
+        }
+
+        // 3. Mark expired + candidate notice + admin notification
         $expired = CandidateAlert::where('status', 'active')
             ->whereNotNull('expires_at')
             ->where('expires_at', '<', now())
             ->get();
 
         foreach ($expired as $alert) {
-            $this->line("  Expired  → {$alert->candidate_name}");
+            $this->line("  Expired → {$alert->candidate_name}");
             $alert->update(['status' => 'expired', 'is_active' => false]);
 
             if ($token && ! $alert->expiry_notice_sent) {
                 $this->sendExpiryNotice($token, $gatewayUrl, $alert);
+                $this->sendAdminExpiredNotice($token, $gatewayUrl, $alert);
                 $alert->update(['expiry_notice_sent' => true]);
             }
         }
 
-        $this->info("Done. Warned: {$warning->count()}, Expired: {$expired->count()}.");
+        $this->info("Done. 2-day warnings: {$twoDay->count()}, Same-day: {$sameDay->count()}, Expired: {$expired->count()}.");
 
         return self::SUCCESS;
     }
 
-    private function sendExpiryWarning(string $token, string $gatewayUrl, CandidateAlert $alert): void
+    private function sendTwoDayWarning(string $token, string $gatewayUrl, CandidateAlert $alert): void
     {
-        $msg  = "⚠️ *Job Alert Expiring Tomorrow!*\n\n";
-        $msg .= "Hi {$alert->candidate_name}! 👋\n\n";
-        $msg .= "Your VIP Job Alert *\"{$alert->label}\"* expires *tomorrow*.\n\n";
-        $msg .= "📅 Expiry: *" . $alert->expires_at?->format('d M Y') . "*\n\n";
-        $msg .= "To keep receiving personalised job alerts, please renew your subscription:\n\n";
-        $msg .= "• 7 Days  — K20\n";
-        $msg .= "• 14 Days — K30\n";
-        $msg .= "• 30 Days — K50\n\n";
-        $msg .= "Contact us today to renew 👇\n";
-        $msg .= "_Wakanda Jobs — wakandajobs.com_";
+        $expiry = $alert->expires_at?->format('d M Y');
+        $msg    = "⚠️ *Job Alert Expiring in 2 Days!*\n\n";
+        $msg   .= "Hi {$alert->candidate_name}! 👋\n\n";
+        $msg   .= "Your VIP Job Alert *\"{$alert->label}\"* expires in *2 days* on *{$expiry}*.\n\n";
+        $msg   .= "🔄 *Renew now to keep receiving personalised job alerts:*\n\n";
+        $msg   .= "• 7 Days  — K20\n";
+        $msg   .= "• 14 Days — K30\n";
+        $msg   .= "• 30 Days — K50\n\n";
+        $msg   .= "Reply *RENEW* or contact us today to stay ahead of new opportunities! 🚀\n\n";
+        $msg   .= "_Wakanda Jobs — wakandajobs.com_";
+
+        $this->dispatchWhatsApp($token, $gatewayUrl, $alert->recipientJid(), $msg);
+    }
+
+    private function sendSameDayReminder(string $token, string $gatewayUrl, CandidateAlert $alert): void
+    {
+        $expiry = $alert->expires_at?->format('d M Y');
+        $msg    = "🔔 *Your Job Alert Expires Today!*\n\n";
+        $msg   .= "Hi {$alert->candidate_name}! 👋\n\n";
+        $msg   .= "This is a final reminder — your VIP Job Alert *\"{$alert->label}\"* expires *today ({$expiry})*.\n\n";
+        $msg   .= "After today you will stop receiving automatic job matches.\n\n";
+        $msg   .= "🔄 *Renew right now to avoid any gap:*\n\n";
+        $msg   .= "• 7 Days  — K20\n";
+        $msg   .= "• 14 Days — K30\n";
+        $msg   .= "• 30 Days — K50\n\n";
+        $msg   .= "Reply *RENEW* and we'll sort you out instantly! ✅\n\n";
+        $msg   .= "_Wakanda Jobs — wakandajobs.com_";
 
         $this->dispatchWhatsApp($token, $gatewayUrl, $alert->recipientJid(), $msg);
     }
@@ -76,16 +113,42 @@ class CheckCandidateAlertExpiryCommand extends Command
     {
         $msg  = "🔴 *Your Job Alert Subscription Has Expired*\n\n";
         $msg .= "Hi {$alert->candidate_name}! 👋\n\n";
-        $msg .= "Your VIP Job Alert *\"{$alert->label}\"* expired today.\n\n";
+        $msg .= "Your VIP Job Alert *\"{$alert->label}\"* has now expired.\n\n";
         $msg .= "You will no longer receive automatic job alerts.\n\n";
         $msg .= "🔄 *Renew your subscription to stay on top of opportunities:*\n\n";
         $msg .= "• 7 Days  — K20\n";
         $msg .= "• 14 Days — K30\n";
         $msg .= "• 30 Days — K50\n\n";
-        $msg .= "Reply or visit *wakandajobs.com* to renew today! 🚀\n\n";
+        $msg .= "Reply *RENEW* or visit *wakandajobs.com* to get back on track! 🚀\n\n";
         $msg .= "_Wakanda Jobs — wakandajobs.com_";
 
         $this->dispatchWhatsApp($token, $gatewayUrl, $alert->recipientJid(), $msg);
+    }
+
+    private function sendAdminExpiredNotice(string $token, string $gatewayUrl, CandidateAlert $alert): void
+    {
+        $adminJid    = self::ADMIN_PHONE . '@s.whatsapp.net';
+        $phone       = preg_replace('/\D/', '', $alert->candidate_phone);
+        $waLink      = "https://wa.me/{$phone}";
+        $expiredOn   = $alert->expires_at?->format('d M Y');
+        $duration    = $alert->duration_days ? "{$alert->duration_days}-day" : 'VIP';
+
+        $msg  = "🔴 *VIP Alert Expired — Action Needed*\n\n";
+        $msg .= "A candidate's job alert subscription has just expired.\n\n";
+        $msg .= "👤 *Name:* {$alert->candidate_name}\n";
+        $msg .= "📱 *Phone:* {$alert->candidate_phone}\n";
+
+        if ($alert->candidate_email) {
+            $msg .= "📧 *Email:* {$alert->candidate_email}\n";
+        }
+
+        $msg .= "📋 *Alert:* {$alert->label}\n";
+        $msg .= "📦 *Package:* {$duration} plan\n";
+        $msg .= "📅 *Expired:* {$expiredOn}\n\n";
+        $msg .= "💬 *Chat with candidate:* {$waLink}\n\n";
+        $msg .= "🔗 *Manage alerts:* " . self::ADMIN_ALERT_URL;
+
+        $this->dispatchWhatsApp($token, $gatewayUrl, $adminJid, $msg);
     }
 
     private function dispatchWhatsApp(string $token, string $gatewayUrl, string $to, string $body): void

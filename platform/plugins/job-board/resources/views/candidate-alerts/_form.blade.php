@@ -103,11 +103,27 @@
     {{-- TAB 2 — FILTERS                                               --}}
     {{-- ══════════════════════════════════════════════════════════════ --}}
     <div class="tab-pane fade" id="tab-filters-{{ $tid }}" role="tabpanel">
-        <p class="text-muted small mb-3">
-            <i class="fas fa-info-circle me-1"></i>
-            Leave sections empty to match all. Multiple values within a section are matched with <strong>OR</strong> logic
-            (e.g. selecting "Full-time" and "Part-time" sends jobs of either type).
-        </p>
+        <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+            <p class="text-muted small mb-0">
+                <i class="fas fa-info-circle me-1"></i>
+                Leave sections empty to match all. Multiple values within a section are matched with <strong>OR</strong> logic.
+            </p>
+            <button type="button"
+                class="btn btn-outline-success btn-sm btn-preview-filters flex-shrink-0"
+                data-url="{{ route('job-board.candidate-alerts.preview-filters') }}"
+                data-tid="{{ $tid }}">
+                <i class="fas fa-eye me-1"></i> Preview Matching Jobs
+            </button>
+        </div>
+
+        {{-- Filter preview result panel --}}
+        <div id="filter-preview-panel-{{ $tid }}" class="d-none mb-3 border rounded">
+            <div class="d-flex align-items-center justify-content-between px-3 py-2 bg-light border-bottom">
+                <span class="fw-semibold small" id="filter-preview-label-{{ $tid }}">Matching jobs</span>
+                <button type="button" class="btn-close btn-sm btn-close-filter-preview" data-tid="{{ $tid }}" style="font-size:.7rem"></button>
+            </div>
+            <div id="filter-preview-body-{{ $tid }}" style="max-height:260px;overflow-y:auto;font-size:.82rem"></div>
+        </div>
 
         {{-- ── Keywords ──────────────────────────────────────────── --}}
         <div class="mb-2">
@@ -145,11 +161,50 @@
                             </div>
                         @endif
                     </div>
-                    <button type="button" class="btn btn-outline-secondary btn-sm mt-1 btn-add-kw"
-                        data-target="keywords-list-{{ $tid }}"
-                        data-count-badge="kw-count-badge-{{ $tid }}">
-                        <i class="fas fa-plus me-1"></i> Add Keyword
-                    </button>
+                    <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+                        <button type="button" class="btn btn-outline-secondary btn-sm btn-add-kw"
+                            data-target="keywords-list-{{ $tid }}"
+                            data-count-badge="kw-count-badge-{{ $tid }}">
+                            <i class="fas fa-plus me-1"></i> Add Keyword
+                        </button>
+                        <div class="dropdown">
+                            <button type="button" class="btn btn-outline-primary btn-sm dropdown-toggle"
+                                data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-magic me-1"></i> Quick Add
+                            </button>
+                            <div class="dropdown-menu dropdown-menu-end shadow-sm" style="min-width:260px;max-height:380px;overflow-y:auto">
+                                <h6 class="dropdown-header">Click a group to add its keywords</h6>
+                                @php
+                                $kwPresets = [
+                                    ['label' => '🎓 Grade 12 / Entry Level', 'keywords' => ['grade 12', 'grade twelve', 'form five', 'O level', 'GCSE', 'school leaver', 'entry level', 'no experience required', 'minimum qualification', 'junior', 'trainee']],
+                                    ['label' => '🎓 Intern / Attachment', 'keywords' => ['intern', 'internship', 'graduate trainee', 'attachment', 'industrial attachment', 'graduate program', 'apprentice', 'trainee', 'vacation work']],
+                                    ['label' => '⏰ Part Time / Casual', 'keywords' => ['part time', 'part-time', 'casual', 'weekend', 'evening', 'flexible hours', 'temporary', 'contract', 'freelance', 'remote']],
+                                    ['label' => '🧹 Service & Hospitality', 'keywords' => ['waiter', 'waitress', 'bartender', 'cleaner', 'housekeeper', 'domestic worker', 'caretaker', 'cook', 'kitchen assistant', 'hotel staff']],
+                                    ['label' => '🔒 Security & General Labour', 'keywords' => ['security guard', 'security officer', 'driver', 'gardener', 'general hand', 'labourer', 'casual worker', 'messenger', 'forklift operator']],
+                                    ['label' => '💰 Accounting & Finance', 'keywords' => ['accountant', 'auditor', 'bookkeeper', 'finance officer', 'accounts clerk', 'financial analyst', 'cashier', 'payroll officer', 'credit analyst']],
+                                    ['label' => '🏦 Banking & Insurance', 'keywords' => ['bank teller', 'banking officer', 'relationship manager', 'underwriter', 'claims officer', 'insurance agent', 'banker']],
+                                    ['label' => '🏥 Nursing & Health', 'keywords' => ['nurse', 'nursing officer', 'clinical officer', 'midwife', 'pharmacist', 'doctor', 'health worker', 'radiographer', 'physiotherapist', 'medical officer']],
+                                    ['label' => '💻 IT & Technology', 'keywords' => ['software developer', 'programmer', 'IT officer', 'systems administrator', 'web developer', 'data analyst', 'network engineer', 'database administrator', 'ICT officer']],
+                                    ['label' => '📚 Education & Teaching', 'keywords' => ['teacher', 'lecturer', 'tutor', 'school administrator', 'early childhood', 'education officer', 'head teacher']],
+                                    ['label' => '⚙️ Engineering', 'keywords' => ['engineer', 'civil engineer', 'electrical engineer', 'mechanical engineer', 'structural engineer', 'project manager', 'quantity surveyor', 'site engineer']],
+                                    ['label' => '👥 HR & Administration', 'keywords' => ['human resources', 'HR officer', 'HR manager', 'recruitment officer', 'administrative officer', 'secretary', 'receptionist', 'office manager']],
+                                    ['label' => '📣 Sales & Marketing', 'keywords' => ['sales representative', 'marketing officer', 'business development', 'sales executive', 'brand ambassador', 'sales manager', 'digital marketing']],
+                                    ['label' => '⚖️ Legal', 'keywords' => ['lawyer', 'advocate', 'legal officer', 'paralegal', 'legal assistant', 'compliance officer', 'attorney']],
+                                    ['label' => '🚚 Supply Chain & Logistics', 'keywords' => ['procurement officer', 'supply chain', 'logistics officer', 'warehouse officer', 'inventory manager', 'purchasing officer', 'stores officer']],
+                                ];
+                                @endphp
+                                @foreach($kwPresets as $preset)
+                                <button type="button"
+                                    class="dropdown-item small py-2 btn-kw-preset"
+                                    data-target="keywords-list-{{ $tid }}"
+                                    data-count-badge="kw-count-badge-{{ $tid }}"
+                                    data-keywords="{{ json_encode($preset['keywords']) }}">
+                                    {{ $preset['label'] }}
+                                </button>
+                                @endforeach
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -386,17 +441,17 @@
                             name="duration_days"
                             id="{{ $tid }}-duration-{{ $days }}"
                             value="{{ $days }}"
-                            {{ old('duration_days', 30) == $days ? 'checked' : '' }}>
-                        <label class="form-check-label d-block border rounded p-3 h-100 duration-card {{ $days == 30 ? 'border-success' : 'border-secondary border-opacity-25' }}"
+                            {{ old('duration_days', 60) == $days ? 'checked' : '' }}>
+                        <label class="form-check-label d-block border rounded p-3 h-100 duration-card {{ $days == 60 ? 'border-success' : 'border-secondary border-opacity-25' }}"
                             for="{{ $tid }}-duration-{{ $days }}"
                             style="cursor:pointer;transition:all .15s">
                             <div class="d-flex justify-content-between align-items-center mb-1">
                                 <span class="fw-bold fs-5">{{ $info['label'] }}</span>
                                 <span class="badge {{ $info['badge'] }} fs-6">K{{ number_format($info['price'], 0) }}</span>
                             </div>
-                            @if($days == 30)
+                            @if($days == 60)
                                 <div class="text-success small fw-semibold"><i class="fas fa-star me-1"></i>Best Value</div>
-                            @elseif($days == 14)
+                            @elseif($days == 30)
                                 <div class="text-muted small">Standard plan</div>
                             @else
                                 <div class="text-muted small">Short-term trial</div>
@@ -458,9 +513,9 @@
                                 </div>
                                 @if($days == $alert->duration_days)
                                     <div class="text-primary small fw-semibold"><i class="fas fa-check me-1"></i>Current plan</div>
-                                @elseif($days == 30)
+                                @elseif($days == 60)
                                     <div class="text-success small fw-semibold"><i class="fas fa-star me-1"></i>Best Value</div>
-                                @elseif($days == 14)
+                                @elseif($days == 30)
                                     <div class="text-muted small">Standard plan</div>
                                 @else
                                     <div class="text-muted small">Short-term</div>
@@ -583,4 +638,233 @@
     .collapse-chevron { transition: transform .2s; }
     .duration-card:hover { border-color: #0d6efd !important; background: #f8f9ff; }
     input[type="radio"]:checked + .duration-card { border-color: #0d6efd !important; background: #f0f4ff; box-shadow: 0 0 0 2px #0d6efd40; }
+    .btn-kw-preset:hover { background: #f0f4ff; }
 </style>
+<script>
+(function () {
+
+    // ── Filter preview eye button ─────────────────────────────────────────────
+    $(document).on('click', '.btn-preview-filters', function () {
+        const $btn = $(this);
+        const url  = $btn.data('url');
+        const tid  = $btn.data('tid');
+
+        // Collect current filter values from the form
+        const $form  = $btn.closest('.tab-content').parent();
+
+        const keywords = $('#keywords-list-' + tid + ' input[name="filters[keywords][]"]')
+            .map(function () { return $(this).val().trim(); }).get()
+            .filter(v => v !== '');
+
+        const companyKeywords = $('#company-list-' + tid + ' input[name="filters[company_keywords][]"]')
+            .map(function () { return $(this).val().trim(); }).get()
+            .filter(v => v !== '');
+
+        const countryIds = $('#countries-box-' + tid + ' input[type="checkbox"]:checked')
+            .map(function () { return $(this).val(); }).get();
+
+        const jobTypeIds = $('#jobtypes-box-' + tid + ' input[type="checkbox"]:checked')
+            .map(function () { return $(this).val(); }).get();
+
+        const categoryIds = $('#categories-box-' + tid + ' input[type="checkbox"]:checked')
+            .map(function () { return $(this).val(); }).get();
+
+        const experienceId = $form.find('select[name="filters[job_experience_id]"]').val() || '';
+        const locationKw   = $form.find('input[name="filters[location_keyword]"]').val() || '';
+
+        const filters = {};
+        if (keywords.length)        filters['keywords']          = keywords;
+        if (companyKeywords.length) filters['company_keywords']  = companyKeywords;
+        if (countryIds.length)      filters['country_ids']       = countryIds;
+        if (jobTypeIds.length)      filters['job_type_ids']      = jobTypeIds;
+        if (categoryIds.length)     filters['category_ids']      = categoryIds;
+        if (experienceId)           filters['job_experience_id'] = experienceId;
+        if (locationKw.trim())      filters['location_keyword']  = locationKw.trim();
+
+        const $panel = $('#filter-preview-panel-' + tid);
+        const $body  = $('#filter-preview-body-' + tid);
+        const $label = $('#filter-preview-label-' + tid);
+
+        $panel.removeClass('d-none');
+        $label.text('Loading…');
+        $body.html('<div class="p-3 text-center text-muted"><i class="fas fa-spinner fa-spin me-1"></i> Checking matching jobs…</div>');
+        $btn.prop('disabled', true);
+
+        const csrfToken = $('meta[name="csrf-token"]').attr('content');
+
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
+            body: JSON.stringify({ filters })
+        })
+        .then(r => r.json())
+        .then(resp => {
+            const jobs  = resp.data || [];
+            const total = resp.total || 0;
+            $label.html(total + ' matching job' + (total !== 1 ? 's' : '') + ' found'
+                + (total > 200 ? ' <span class="text-muted">(showing first 200)</span>' : '')
+                + ' &nbsp;<span class="text-muted small fw-normal">— click a row to see why it matched</span>');
+
+            if (!jobs.length) {
+                $body.html('<div class="p-3 text-center text-muted">No matching jobs with the current filters.</div>');
+                return;
+            }
+
+            let html = '<table class="table table-sm table-hover mb-0 align-middle fp-jobs-table">'
+                + '<thead class="table-light"><tr>'
+                + '<th style="width:30px">#</th><th>Job Title</th><th>Company</th><th>Location</th><th style="width:85px">Posted</th>'
+                + '</tr></thead><tbody>';
+
+            jobs.forEach((job, i) => {
+                const reasonsJson = escFp(JSON.stringify(job.match_reasons || []));
+                html += `<tr class="fp-job-row" style="cursor:pointer" data-reasons="${reasonsJson}" title="Click to see why this job matched">
+                    <td class="text-muted text-center">${i + 1}</td>
+                    <td class="fw-semibold" style="max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escFp(job.name)}</td>
+                    <td class="text-muted small">${escFp(job.company)}</td>
+                    <td class="text-muted small">${escFp(job.location || job.country || '')}</td>
+                    <td class="text-muted small text-nowrap">${escFp(job.created)}</td>
+                </tr>
+                <tr class="fp-reason-row d-none">
+                    <td colspan="5" class="p-0"></td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            $body.html(html);
+        })
+        .catch(() => {
+            $body.html('<div class="p-3 text-center text-danger">Preview failed. Try again.</div>');
+            $label.text('Error');
+        })
+        .finally(() => $btn.prop('disabled', false));
+    });
+
+    // Close filter preview panel
+    $(document).on('click', '.btn-close-filter-preview', function () {
+        const tid = $(this).data('tid');
+        $('#filter-preview-panel-' + tid).addClass('d-none');
+    });
+
+    // Expand / collapse match-reason row when a job row is clicked
+    $(document).on('click', '.fp-job-row', function () {
+        const $jobRow    = $(this);
+        const $reasonRow = $jobRow.next('.fp-reason-row');
+        const isOpen     = !$reasonRow.hasClass('d-none');
+
+        // Close all other open reason rows in same table
+        $jobRow.closest('tbody').find('.fp-reason-row').addClass('d-none');
+        $jobRow.closest('tbody').find('.fp-job-row').css('background', '');
+
+        if (isOpen) return; // was already open — just close it
+
+        $jobRow.css('background', '#f0f7ff');
+
+        let reasons = [];
+        try { reasons = JSON.parse($jobRow.attr('data-reasons') || '[]'); } catch (_) {}
+
+        if (!reasons.length) {
+            $reasonRow.find('td').html(
+                '<div class="px-3 py-2 text-muted small"><i class="fas fa-info-circle me-1"></i>No specific filter was the deciding factor (all-jobs match).</div>'
+            );
+            $reasonRow.removeClass('d-none');
+            return;
+        }
+
+        const typeColors = {
+            keyword:  { bg: '#fff3cd', border: '#ffc107', icon: 'fas fa-search',          label: 'Keyword' },
+            company:  { bg: '#d1ecf1', border: '#0dcaf0', icon: 'fas fa-building',        label: 'Company' },
+            job_type: { bg: '#cce5ff', border: '#0d6efd', icon: 'fas fa-briefcase',       label: 'Job Type' },
+            category: { bg: '#d4edda', border: '#198754', icon: 'fas fa-tags',            label: 'Category' },
+            country:  { bg: '#e2d9f3', border: '#6f42c1', icon: 'fas fa-globe',           label: 'Country' },
+            location: { bg: '#fde8d8', border: '#fd7e14', icon: 'fas fa-map-marker-alt',  label: 'Location' },
+        };
+
+        let html = '<div class="px-3 py-2" style="background:#f8faff;border-top:2px solid #0d6efd22">';
+        html += '<div class="small fw-semibold text-primary mb-2"><i class="fas fa-info-circle me-1"></i>Why this job matched:</div>';
+        html += '<div class="d-flex flex-wrap gap-2">';
+
+        reasons.forEach(r => {
+            const cfg = typeColors[r.type] || { bg: '#f8f9fa', border: '#6c757d', icon: 'fas fa-check', label: r.type };
+            const kwBadge = r.keyword
+                ? `<span class="badge" style="background:#333;color:#fff;font-size:.7rem">${escFp(r.keyword)}</span> `
+                : '';
+            const snippet  = r.snippet ? escFp(r.snippet) : '';
+            const highlighted = r.keyword
+                ? snippet.replace(new RegExp('(' + escRegex(r.keyword) + ')', 'gi'), '<mark style="background:#ffe066;padding:0 1px;border-radius:2px">$1</mark>')
+                : snippet;
+
+            html += `<div class="rounded border px-2 py-1" style="background:${cfg.bg};border-color:${cfg.border}!important;max-width:340px">
+                <div class="d-flex align-items-center gap-1 mb-1">
+                    <i class="${cfg.icon} text-secondary" style="font-size:.7rem;width:12px"></i>
+                    <span class="fw-semibold" style="font-size:.72rem;color:#333">${escFp(r.field)}</span>
+                    ${kwBadge}
+                </div>
+                <div class="text-muted" style="font-size:.75rem;word-break:break-word">${highlighted}</div>
+            </div>`;
+        });
+
+        html += '</div></div>';
+
+        $reasonRow.find('td').html(html);
+        $reasonRow.removeClass('d-none');
+    });
+
+    function escRegex(str) {
+        return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function escFp(str) {
+        return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ── Quick-Add keyword preset handler (delegated so it works in dynamically shown modals)
+    $(document).on('click', '.btn-kw-preset', function () {
+        const keywords   = $(this).data('keywords') || [];
+        const listId     = $(this).data('target');
+        const badgeClass = $(this).data('count-badge');
+        const $list      = $('#' + listId);
+
+        const existing = $list.find('input[name="filters[keywords][]"]').map(function () {
+            return $(this).val().trim().toLowerCase();
+        }).get();
+
+        let added = 0;
+        keywords.forEach(function (kw) {
+            if (existing.includes(kw.trim().toLowerCase())) return;
+
+            // Check if there is an empty row we can fill first
+            const $empty = $list.find('input[name="filters[keywords][]"]').filter(function () {
+                return $(this).val().trim() === '';
+            }).first();
+
+            if ($empty.length) {
+                $empty.val(kw);
+            } else {
+                const $row = $('<div class="input-group input-group-sm mb-1 keyword-row">' +
+                    '<input type="text" name="filters[keywords][]" class="form-control" value="' + kw + '">' +
+                    '<button type="button" class="btn btn-outline-danger btn-remove-kw" title="Remove"><i class="fas fa-times"></i></button>' +
+                    '</div>');
+                $list.append($row);
+            }
+
+            existing.push(kw.trim().toLowerCase());
+            added++;
+        });
+
+        // Update badge
+        const count = $list.find('input[name="filters[keywords][]"]').filter(function () {
+            return $(this).val().trim() !== '';
+        }).length;
+        $('.' + badgeClass).text(count);
+
+        if (added > 0) {
+            // Ensure keywords section is expanded
+            const collapseId = listId.replace('keywords-list-', 'collapse-keywords-');
+            const $collapse  = $('#' + collapseId);
+            if ($collapse.length && !$collapse.hasClass('show')) {
+                new bootstrap.Collapse($collapse[0], { show: true });
+            }
+        }
+    });
+})();
+</script>

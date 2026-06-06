@@ -1091,7 +1091,28 @@ PROMPT;
         $posts   = $this->buildPlatformPosts($job);
         $message = $posts['whatsapp'] ?? $this->buildJobMessage($job);
 
-        // Attempt image send first if enabled
+        // 1. Use the job's stored whatsapp_image if available (highest priority)
+        $storedImage = trim((string) ($job->whatsapp_image ?? ''));
+        if ($storedImage !== '') {
+            try {
+                $imageUrl = RvMedia::getImageUrl($storedImage);
+                $response = Http::timeout(30)
+                    ->withToken($token)
+                    ->post("{$gatewayUrl}/messages/image", [
+                        'to'      => $channelId,
+                        'media'   => $imageUrl,
+                        'caption' => $message,
+                    ]);
+
+                if ($response->successful()) {
+                    return true;
+                }
+            } catch (Throwable) {
+                // Fall through
+            }
+        }
+
+        // 2. Generate AI image if the automation has send_image enabled
         if ($sendImage) {
             $imagePath = null;
             try {
@@ -1124,7 +1145,7 @@ PROMPT;
             }
         }
 
-        // Text-only fallback (or primary if image disabled)
+        // 3. Text-only fallback
         $response = Http::timeout(20)
             ->withToken($token)
             ->post("{$gatewayUrl}/messages/text", [

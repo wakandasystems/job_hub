@@ -77,9 +77,10 @@ class SendVipCandidateAlertsListener implements ShouldQueue
         if ($keywords) {
             $matched = false;
             foreach ($keywords as $kw) {
-                if (stripos($job->name, $kw) !== false
-                    || stripos((string) ($job->description ?? ''), $kw) !== false
-                    || stripos((string) ($job->address ?? ''), $kw) !== false) {
+                $kwPat = '/\b' . preg_quote($kw, '/') . '\b/iu';
+                if (preg_match($kwPat, $job->name)
+                    || preg_match($kwPat, (string) ($job->description ?? ''))
+                    || preg_match($kwPat, (string) ($job->address ?? ''))) {
                     $matched = true;
                     break;
                 }

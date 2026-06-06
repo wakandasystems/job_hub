@@ -26,9 +26,14 @@
                         Candidates receive a <strong>welcome message</strong> immediately on activation and
                         <strong>renewal reminders</strong> before expiry. Uses the active <em>Whapi automation</em> token.
                     </div>
-                    <button type="button" class="btn btn-primary btn-sm flex-shrink-0" data-bs-toggle="modal" data-bs-target="#modal-add-alert">
-                        <i class="ti ti-plus me-1"></i> Add Alert
-                    </button>
+                    <div class="d-flex gap-2 flex-shrink-0">
+                        <button type="button" class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#modal-discount-newsletter">
+                            <i class="ti ti-discount me-1"></i> Discount Campaign
+                        </button>
+                        <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modal-add-alert">
+                            <i class="ti ti-plus me-1"></i> Add Alert
+                        </button>
+                    </div>
                 </div>
             </x-core::card.body>
         </x-core::card>
@@ -95,7 +100,7 @@
                                     <th style="width:100px">Status</th>
                                     <th style="width:90px">Days Left</th>
                                     <th style="width:80px">Sent</th>
-                                    <th style="width:190px">Actions</th>
+                                    <th style="width:230px">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -189,43 +194,43 @@
                                             <span class="badge bg-info-subtle text-info fw-semibold">{{ $alert->logs->count() }}</span>
                                         </td>
                                         <td>
-                                            <div class="d-flex gap-1 flex-wrap">
+                                            <div class="d-flex gap-2 flex-wrap">
                                                 <button type="button"
-                                                    class="btn btn-sm btn-outline-secondary"
+                                                    class="btn btn-outline-secondary"
                                                     title="Edit"
                                                     data-bs-toggle="modal"
                                                     data-bs-target="#modal-edit-{{ $alert->id }}">
                                                     <i class="fas fa-edit"></i>
                                                 </button>
                                                 <button type="button"
-                                                    class="btn btn-sm btn-outline-primary btn-view-logs"
+                                                    class="btn btn-outline-primary btn-view-logs"
                                                     title="View send logs"
                                                     data-url="{{ route('job-board.candidate-alerts.logs', $alert->id) }}"
                                                     data-name="{{ $alert->candidate_name }}">
                                                     <i class="fas fa-history"></i>
                                                 </button>
                                                 <button type="button"
-                                                    class="btn btn-sm btn-outline-success btn-preview-jobs"
-                                                    title="Preview &amp; send matching jobs"
+                                                    class="btn btn-outline-success btn-preview-jobs"
+                                                    title="View matching jobs &amp; send"
                                                     data-url="{{ route('job-board.candidate-alerts.preview', $alert->id) }}"
                                                     data-send-url="{{ route('job-board.candidate-alerts.send-now', $alert->id) }}"
                                                     data-name="{{ $alert->candidate_name }}">
-                                                    <i class="fas fa-paper-plane"></i>
+                                                    <i class="fas fa-eye"></i>
                                                 </button>
                                                 <button type="button"
-                                                    class="btn btn-sm btn-outline-warning btn-send-welcome"
+                                                    class="btn btn-outline-warning btn-send-welcome"
                                                     title="Resend VIP welcome message via WhatsApp"
                                                     data-url="{{ route('job-board.candidate-alerts.send-welcome', $alert->id) }}"
                                                     data-name="{{ $alert->candidate_name }}">
                                                     <i class="fab fa-whatsapp"></i>
                                                 </button>
                                                 @if($alert->cv_path)
-                                                <span class="btn btn-sm btn-outline-info disabled" title="CV on file — re-upload in Edit to re-analyse">
+                                                <span class="btn btn-outline-info disabled" title="CV on file — re-upload in Edit to re-analyse">
                                                     <i class="fas fa-file-alt"></i>
                                                 </span>
                                                 @endif
                                                 <button type="button"
-                                                    class="btn btn-sm btn-outline-danger btn-delete-alert"
+                                                    class="btn btn-outline-danger btn-delete-alert"
                                                     title="Delete"
                                                     data-url="{{ route('job-board.candidate-alerts.destroy', $alert->id) }}"
                                                     data-name="{{ $alert->label }}">
@@ -361,7 +366,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title d-flex align-items-center gap-2">
-                    <i class="ti ti-search text-success"></i>
+                    <i class="fas fa-eye text-success"></i>
                     <span id="previewModalTitle">Matching Jobs</span>
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -369,17 +374,17 @@
             <div class="modal-body p-0">
                 <div id="pv-send-progress" style="display:none;border-bottom:1px solid #dee2e6"></div>
                 <div id="previewContent" class="p-3 text-center text-muted">
-                    <i class="ti ti-loader-2 fa-spin fs-3 d-block mb-2"></i> Loading...
+                    <i class="ti ti-loader-2 fa-spin fs-3 d-block mb-2"></i> Loading matching jobs…
                 </div>
             </div>
-            <div class="modal-footer d-flex justify-content-between">
-                <div class="form-check">
+            <div class="modal-footer d-flex justify-content-between flex-wrap gap-2">
+                <div class="form-check mb-0">
                     <input class="form-check-input" type="checkbox" id="forceResendCheck">
                     <label class="form-check-label small" for="forceResendCheck">
-                        Force resend (include already-sent jobs)
+                        Include already-sent jobs
                     </label>
                 </div>
-                <div class="d-flex gap-2">
+                <div class="d-flex gap-2 flex-wrap">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
                     <button type="button" class="btn btn-outline-secondary" id="btnExportCsv" title="Download as CSV spreadsheet">
                         <i class="fas fa-file-csv me-1"></i> CSV
@@ -388,9 +393,76 @@
                         <i class="fas fa-file-pdf me-1"></i> PDF
                     </button>
                     <button type="button" class="btn btn-success" id="btnSendNow" data-send-url="">
-                        <i class="fab fa-whatsapp me-1"></i> Send All Matching
+                        <i class="fab fa-whatsapp me-1"></i> Send All New
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- ====================== DISCOUNT NEWSLETTER MODAL ====================== --}}
+@php
+$defaultDiscountSubject = 'Special Promotion — Get Job Alerts Directly to Your WhatsApp!';
+$defaultDiscountBody = 'Hello, how are you?
+
+We are currently running a special promotion that helps job seekers receive personalized job opportunities directly in their inbox.
+
+Instead of checking multiple websites, social media pages, and job groups every day, our system does the work for you. Simply tell us the types of jobs you\'re interested in.
+
+For example, if you\'re looking for opportunities in Nursing and Accounting, our system continuously scans the Zambian job market and immediately sends you relevant vacancies, application details, and direct application links as soon as they become available.
+
+Benefits include:
+• Instant job notifications as soon as vacancies are posted.
+• Personalized alerts tailored to your preferred profession.
+• No unnecessary messages about jobs that don\'t match your interests.
+• Saves you time and ensures you never miss an opportunity.
+
+Our promotional rates are:
+• K20 per week
+• K50 per month
+
+Would this be something you\'d be interested in?
+
+Reply to this email or WhatsApp us to sign up today!
+
+— Wakanda Jobs Team
+wakandajobs.com';
+@endphp
+<div class="modal fade" id="modal-discount-newsletter" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-warning bg-opacity-10">
+                <h5 class="modal-title d-flex align-items-center gap-2">
+                    <i class="ti ti-discount text-warning"></i>
+                    Send Discount Campaign to Newsletter Subscribers
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning py-2 px-3 mb-3 small">
+                    <i class="fas fa-info-circle me-1"></i>
+                    This will email <strong>all subscribed newsletter contacts</strong> with your promotional offer.
+                    Edit the subject and body below before sending.
+                </div>
+                <div id="discount-send-error" class="alert alert-danger d-none py-2 px-3 small mb-3"></div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Email Subject <span class="text-danger">*</span></label>
+                    <input type="text" id="discount-subject" class="form-control"
+                        value="{{ $defaultDiscountSubject }}">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Email Body <span class="text-danger">*</span></label>
+                    <textarea id="discount-body" class="form-control" rows="18" style="font-family:monospace;font-size:.85rem">{{ $defaultDiscountBody }}</textarea>
+                    <div class="form-text">Plain text. Newlines become line breaks in the email.</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" id="btnSendDiscountNewsletter"
+                    data-url="{{ route('job-board.candidate-alerts.send-discount-newsletter') }}">
+                    <i class="ti ti-send me-1"></i> Send to All Subscribers
+                </button>
             </div>
         </div>
     </div>
@@ -418,6 +490,22 @@
 </div>
 
 @endsection
+
+@push('header')
+<style>
+@media (max-width: 767.98px) {
+    .alert-action-btns .btn {
+        padding: .45rem .6rem;
+        font-size: 1rem;
+        min-width: 38px;
+        min-height: 38px;
+    }
+    .alert-action-btns {
+        gap: .35rem !important;
+    }
+}
+</style>
+@endpush
 
 @push('footer')
 <script>
@@ -671,17 +759,17 @@ $(function () {
 
         let html = '<table class="table table-sm table-hover align-middle mb-0">'
             + '<thead class="table-light"><tr>'
-            + '<th style="width:36px">#</th><th>Job Title</th><th>Company</th><th>Address</th><th>Country</th><th>Posted</th><th>Closes</th><th class="text-center">Sent?</th>'
+            + '<th style="width:36px">#</th><th>Job Title</th><th>Company</th><th>Location</th><th>Country</th><th>Posted</th><th>Closes</th><th class="text-center" style="width:70px">Status</th><th class="text-center" style="width:80px">Send</th>'
             + '</tr></thead><tbody>';
 
         if (!slice.length) {
-            html += '<tr><td colspan="8" class="text-center text-muted py-4">No jobs match your filters.</td></tr>';
+            html += '<tr><td colspan="9" class="text-center text-muted py-4">No jobs match your filters.</td></tr>';
         } else {
             slice.forEach((job, idx) => {
                 const rowNum    = start + idx + 1;
                 const sentBadge = job.already_sent
-                    ? '<span class="badge bg-success text-white">✓ Sent</span>'
-                    : '<span class="badge bg-secondary text-white">New</span>';
+                    ? '<span class="badge bg-success-subtle text-success border border-success-subtle">✓ Sent</span>'
+                    : '<span class="badge bg-secondary-subtle text-secondary border">New</span>';
 
                 let deadlineBadge = '<span class="text-muted small">—</span>';
                 if (job.deadline_days !== null && job.deadline_days !== undefined) {
@@ -693,15 +781,24 @@ $(function () {
                         :                     `<span class="text-muted small text-nowrap" title="${escHtml(job.deadline)}">${d}d</span>`;
                 }
 
+                const sendBtn = job.already_sent
+                    ? `<button type="button" class="btn btn-sm btn-outline-secondary pv-send-one-btn" data-job-id="${job.id}" title="Resend this job">
+                           <i class="fab fa-whatsapp"></i>
+                       </button>`
+                    : `<button type="button" class="btn btn-sm btn-success pv-send-one-btn" data-job-id="${job.id}" title="Send this job now">
+                           <i class="fab fa-whatsapp"></i>
+                       </button>`;
+
                 html += `<tr data-job-id="${job.id}">
                     <td class="text-muted small text-center">${rowNum}</td>
-                    <td class="fw-semibold" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(job.name)}">${escHtml(job.name)}</td>
-                    <td class="text-muted small"><div class="d-flex align-items-center gap-2">${job.company_logo ? `<img src="${escHtml(job.company_logo)}" alt="" style="width:28px;height:28px;object-fit:contain;border-radius:4px;border:1px solid #eee;background:#fff;padding:2px">` : ''}<span>${escHtml(job.company)}</span></div></td>
+                    <td class="fw-semibold" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(job.name)}">${escHtml(job.name)}</td>
+                    <td class="text-muted small"><div class="d-flex align-items-center gap-2">${job.company_logo ? `<img src="${escHtml(job.company_logo)}" alt="" style="width:26px;height:26px;object-fit:contain;border-radius:4px;border:1px solid #eee;background:#fff;padding:2px">` : ''}<span>${escHtml(job.company)}</span></div></td>
                     <td class="text-muted small">${escHtml(job.location || '')}</td>
                     <td class="text-muted small">${escHtml(job.country || '')}</td>
                     <td class="text-muted small text-nowrap">${escHtml(job.created)}</td>
                     <td class="text-nowrap">${deadlineBadge}</td>
-                    <td>${sentBadge}</td>
+                    <td class="text-center">${sentBadge}</td>
+                    <td class="text-center">${sendBtn}</td>
                 </tr>`;
             });
         }
@@ -723,6 +820,36 @@ $(function () {
             $('#pv-pagination').html(pager);
         }
     }
+
+    // ── Per-row single job send ───────────────────────────────────────────────
+    $(document).on('click', '.pv-send-one-btn', function () {
+        const $btn   = $(this);
+        const jobId  = parseInt($btn.data('job-id'));
+        const sendUrl = $('#btnSendNow').data('send-url');
+        const job    = previewAllJobs.find(j => j.id === jobId);
+
+        if (!sendUrl || !job) return;
+
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+
+        $httpClient.make().post(sendUrl, { force_resend: 1, job_ids: [jobId] }, { timeout: 30000 })
+            .then(() => {
+                job.already_sent = true;
+                // Update status badge in same row
+                const $row = $(`tr[data-job-id="${jobId}"]`);
+                $row.find('td:nth-child(8)').html('<span class="badge bg-success-subtle text-success border border-success-subtle">✓ Sent</span>');
+                // Change button to outline (resend)
+                $btn.prop('disabled', false)
+                    .removeClass('btn-success').addClass('btn-outline-secondary')
+                    .html('<i class="fab fa-whatsapp"></i>')
+                    .attr('title', 'Resend this job');
+                Botble.showSuccess(`Sent: ${escHtml(job.name)}`);
+            })
+            .catch(() => {
+                $btn.prop('disabled', false).html('<i class="fab fa-whatsapp"></i>');
+                Botble.showError('Failed to send. Check Whapi configuration.');
+            });
+    });
 
     // Send Now button — batched parallel sends (3 concurrent) with per-row animation
     $('#btnSendNow').on('click', async function () {
@@ -807,7 +934,7 @@ $(function () {
 
         failed ? Botble.showError(`${sent} sent, ${failed} failed.`) : Botble.showSuccess(`${sent} job(s) sent successfully.`);
 
-        $btn.prop('disabled', false).html('<i class="fab fa-whatsapp me-1"></i> Send All Matching');
+        $btn.prop('disabled', false).html('<i class="fab fa-whatsapp me-1"></i> Send All New');
         $('#btnExportCsv, #btnExportPdf, #forceResendCheck, #pv-country, #pv-company, #pv-period, #pv-clear-filters').prop('disabled', false);
 
         setTimeout(() => location.reload(), 1500);
@@ -969,6 +1096,37 @@ $(function () {
     function escHtml(str) {
         return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
+
+    // ── Discount Newsletter Send ──────────────────────────────────────────────
+    $('#btnSendDiscountNewsletter').on('click', function () {
+        const $btn  = $(this);
+        const url   = $btn.data('url');
+        const subject = $('#discount-subject').val().trim();
+        const body    = $('#discount-body').val().trim();
+
+        $('#discount-send-error').addClass('d-none').text('');
+
+        if (!subject || !body) {
+            $('#discount-send-error').removeClass('d-none').text('Subject and body are required.');
+            return;
+        }
+
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin me-1"></i> Sending…');
+
+        $httpClient.make().post(url, { subject, body })
+            .then(({ data: resp }) => {
+                Botble.showSuccess(resp.message || 'Discount campaign queued successfully.');
+                bootstrap.Modal.getInstance(document.getElementById('modal-discount-newsletter'))?.hide();
+            })
+            .catch(({ response }) => {
+                const err = response?.data?.error || 'Failed to queue discount campaign.';
+                $('#discount-send-error').removeClass('d-none').text(err);
+                Botble.showError(err);
+            })
+            .finally(() => {
+                $btn.prop('disabled', false).html('<i class="ti ti-send me-1"></i> Send to All Subscribers');
+            });
+    });
 
     // ── Cascading location: Country → State → City ────────────────────────────
 

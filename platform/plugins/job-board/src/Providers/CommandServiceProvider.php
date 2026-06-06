@@ -12,7 +12,9 @@ use Botble\JobBoard\Console\Commands\SendMonthlyHiringSnapshotCommand;
 use Botble\JobBoard\Console\Commands\SendProfileRefreshReminderCommand;
 use Botble\JobBoard\Console\Commands\SendPushNotificationsCommand;
 use Botble\JobBoard\Console\Commands\SendSubscriptionRenewalReminderCommand;
+use Botble\JobBoard\Console\Commands\BackfillJobSearchZmLogosCommand;
 use Botble\JobBoard\Console\Commands\FixCrawledApplyEmailsCommand;
+use Botble\JobBoard\Console\Commands\SplitMultiPositionJobCommand;
 use Botble\JobBoard\Console\Commands\RefreshFreeCreditsCommand;
 use Botble\JobBoard\Console\Commands\SendCandidateAlertsCommand;
 use Botble\JobBoard\Console\Commands\CheckCandidateAlertExpiryCommand;
@@ -40,7 +42,9 @@ class CommandServiceProvider extends ServiceProvider
             SendMonthlyHiringSnapshotCommand::class,
             SendProfileRefreshReminderCommand::class,
             SocialPublishJobCommand::class,
+            BackfillJobSearchZmLogosCommand::class,
             FixCrawledApplyEmailsCommand::class,
+            SplitMultiPositionJobCommand::class,
             RefreshFreeCreditsCommand::class,
             SendCandidateAlertsCommand::class,
             CheckCandidateAlertExpiryCommand::class,

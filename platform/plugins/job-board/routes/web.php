@@ -87,6 +87,8 @@ AdminHelper::registerRoutes(function (): void {
         Route::post('{candidateAlert}/send-now', [CandidateAlertController::class, 'sendNow'])->name('send-now')->wherePrimaryKey('candidateAlert');
         Route::post('{candidateAlert}/send-welcome', [CandidateAlertController::class, 'sendWelcome'])->name('send-welcome')->wherePrimaryKey('candidateAlert');
         Route::post('analyze-cv', [CandidateAlertController::class, 'analyzeCv'])->name('analyze-cv');
+        Route::post('preview-filters', [CandidateAlertController::class, 'previewFilters'])->name('preview-filters');
+        Route::post('send-discount-newsletter', [CandidateAlertController::class, 'sendDiscountNewsletter'])->name('send-discount-newsletter');
         Route::get('check-phone', [CandidateAlertController::class, 'checkPhone'])->name('check-phone');
         Route::get('location/states', [CandidateAlertController::class, 'locationStates'])->name('location.states');
         Route::get('location/cities', [CandidateAlertController::class, 'locationCities'])->name('location.cities');
@@ -247,6 +249,18 @@ AdminHelper::registerRoutes(function (): void {
                 'permission' => 'job-board.automations.index',
             ])->wherePrimaryKey();
 
+            Route::post('{automation}/send-jobs', [
+                'as'         => 'send-jobs',
+                'uses'       => 'SocialAutomationController@sendJobs',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::post('{automation}/duplicate', [
+                'as'         => 'duplicate',
+                'uses'       => 'SocialAutomationController@duplicate',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
             Route::post('actions/clear-all-chats', [
                 'as'         => 'clear-all-chats',
                 'uses'       => 'SocialAutomationController@clearAllChats',
@@ -262,6 +276,12 @@ AdminHelper::registerRoutes(function (): void {
             Route::post('actions/whapi-send-yesterday', [
                 'as'         => 'whapi-send-yesterday',
                 'uses'       => 'SocialAutomationController@whapiSendYesterdayJobs',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('actions/whapi-fetch-channels', [
+                'as'         => 'whapi-fetch-channels',
+                'uses'       => 'SocialAutomationController@fetchWhapiChannels',
                 'permission' => 'job-board.automations.index',
             ]);
 

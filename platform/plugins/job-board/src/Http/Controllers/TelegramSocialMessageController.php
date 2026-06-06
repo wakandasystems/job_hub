@@ -91,6 +91,12 @@ class TelegramSocialMessageController extends BaseController
 
         $adminEditUrl = route('jobs.edit', $job->getKey());
 
+        $whapiAutomation  = \Botble\JobBoard\Models\SocialAutomation::query()
+            ->where('platform', 'whapi')->where('is_active', true)->get()
+            ->first(fn ($a) => !($a->settings['country_id'] ?? null) || (int) ($a->settings['country_id']) === (int) $job->country_id);
+        $whapiSendUrl     = $whapiAutomation ? route('job-board.automations.whapi-send-job', $job->getKey()) : null;
+        $whapiChannelName = $whapiAutomation?->name ?? '';
+
         return response($this->renderPostKitHtml(
             aiPrompt: $aiPrompt,
             storyboardPrompt: $storyboardPrompt,
@@ -110,6 +116,8 @@ class TelegramSocialMessageController extends BaseController
             step2Url: null,
             heroBadge: '🔧 Admin Post Kit',
             adminEditUrl: $adminEditUrl,
+            whapiSendUrl: $whapiSendUrl,
+            whapiChannelName: $whapiChannelName,
         ));
     }
 
@@ -207,7 +215,7 @@ class TelegramSocialMessageController extends BaseController
 
         if ($jobId) {
             try {
-                $liveJob = Job::with(['company', 'slugable'])->find($jobId);
+                $liveJob = Job::with(['company', 'slugable', 'country', 'currency', 'jobTypes'])->find($jobId);
                 if ($liveJob) {
                     foreach (array_keys($jobImages) as $col) {
                         if (! empty($liveJob->{$col})) {
@@ -218,6 +226,12 @@ class TelegramSocialMessageController extends BaseController
                         $companyId = $liveJob->company->id;
                         if (! $companyLogoUrl && ! empty($liveJob->company->logo)) {
                             $companyLogoUrl = \Botble\Media\Facades\RvMedia::getImageUrl($liveJob->company->logo);
+                            // Cached prompts were built without a logo — regenerate them now so they embed the real logo
+                            $livePublisher = app(SocialPublisherService::class);
+                            try { $aiPrompt         = $livePublisher->buildAiImagePrompt($liveJob); } catch (\Throwable) {}
+                            try { $tiktokImagePrompt = $livePublisher->buildTikTokImagePrompt($liveJob); } catch (\Throwable) {}
+                            try { $storyboardPrompt  = $livePublisher->buildStoryboardPrompt($liveJob); } catch (\Throwable) {}
+                            try { $geminiPrompt       = $livePublisher->buildGeminiVideoPrompt($liveJob); } catch (\Throwable) {}
                         }
                         if (! $companyName) {
                             $companyName = $liveJob->company->name;
@@ -282,6 +296,18 @@ class TelegramSocialMessageController extends BaseController
 
 
 
+        // Whapi send-to-channel URL for this job
+        $whapiSendUrl = null; $whapiChannelName = '';
+        if ($jobId && isset($liveJob)) {
+            $wa = \Botble\JobBoard\Models\SocialAutomation::query()
+                ->where('platform', 'whapi')->where('is_active', true)->get()
+                ->first(fn ($a) => !($a->settings['country_id'] ?? null) || (int) ($a->settings['country_id']) === (int) $liveJob->country_id);
+            if ($wa) {
+                $whapiSendUrl     = route('job-board.automations.whapi-send-job', $jobId);
+                $whapiChannelName = $wa->name;
+            }
+        }
+
         $storyboardSafe    = mb_convert_encoding((string) $storyboardPrompt, 'UTF-8', 'UTF-8');
         $geminiSafe        = mb_convert_encoding((string) $geminiPrompt, 'UTF-8', 'UTF-8');
         $tiktokImageSafe   = mb_convert_encoding((string) $tiktokImagePrompt, 'UTF-8', 'UTF-8');
@@ -299,6 +325,8 @@ class TelegramSocialMessageController extends BaseController
         $jobImagesJson     = json_encode($jobImages, JSON_UNESCAPED_UNICODE);
         $companyLogoJson   = json_encode($companyLogoUrl, JSON_UNESCAPED_UNICODE);
         $csrfToken         = csrf_token();
+        $whapiSendUrlJson  = json_encode($whapiSendUrl ?? null, JSON_UNESCAPED_UNICODE);
+        $whapiChannelJson  = json_encode($whapiChannelName ?? '', JSON_UNESCAPED_UNICODE);
 
         // Per-slot copy prompts (whatsapp reuses the general 9:16 portrait prompt)
         $slotPromptsJson = json_encode([
@@ -310,13 +338,14 @@ class TelegramSocialMessageController extends BaseController
             'twitter_image'  => $twitterImageSafe,
         ], JSON_UNESCAPED_UNICODE);
 
-        // Platform post text per social slot
+        // Platform post text per social slot (image URL appended so user knows what to attach)
+        $imgRef = fn(?string $url): string => $url ? "\n\n📎 Image: {$url}" : '';
         $slotPostsJson = json_encode([
-            'tiktok_image'   => $platformPosts['tiktok']   ?? '',
-            'whatsapp_image' => $platformPosts['whatsapp']  ?? '',
-            'facebook_image' => $platformPosts['facebook']  ?? '',
-            'linkedin_image' => $platformPosts['linkedin']  ?? '',
-            'twitter_image'  => $platformPosts['twitter']   ?? '',
+            'tiktok_image'   => ($platformPosts['tiktok']   ?? '') . $imgRef($jobImages['tiktok_image']   ?: $companyLogoUrl),
+            'whatsapp_image' => ($platformPosts['whatsapp']  ?? '') . $imgRef($jobImages['whatsapp_image'] ?: $companyLogoUrl),
+            'facebook_image' => ($platformPosts['facebook']  ?? '') . $imgRef($jobImages['facebook_image'] ?: $companyLogoUrl),
+            'linkedin_image' => ($platformPosts['linkedin']  ?? '') . $imgRef($jobImages['linkedin_image'] ?: $companyLogoUrl),
+            'twitter_image'  => ($platformPosts['twitter']   ?? '') . $imgRef($jobImages['twitter_image']  ?: $companyLogoUrl),
         ], JSON_UNESCAPED_UNICODE);
 
         $escapedPrompt      = htmlspecialchars($aiPrompt, ENT_QUOTES, 'UTF-8');
@@ -916,7 +945,9 @@ class TelegramSocialMessageController extends BaseController
             const companyLogoUrl  = {$companyLogoJson};
             const slotPrompts     = {$slotPromptsJson};
             const slotPosts       = {$slotPostsJson};
-            const csrfToken       = document.querySelector('meta[name="csrf-token"]').content;
+            const csrfToken       = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
+            const whapiSendUrl    = {$whapiSendUrlJson};
+            const whapiChannel    = {$whapiChannelJson};
 
             // ── Init image previews on page load ──
             (function initImages() {
@@ -1023,7 +1054,13 @@ class TelegramSocialMessageController extends BaseController
                     if (xhr.status >= 200 && xhr.status < 300 && data.ok !== false) {
                         if (data.url) showPreview(key, data.url);
                         setProgress(key, 100, 'done', '✅ Saved!');
-                        setTimeout(() => location.reload(), 1200);
+                        setTimeout(() => {
+                            if (key === 'whatsapp_image' && whapiSendUrl) {
+                                pkAskSendToChannel();
+                            } else {
+                                location.reload();
+                            }
+                        }, 1200);
                     } else {
                         const msg = data.message || ('Upload failed (' + xhr.status + ')');
                         setProgress(key, 100, 'fail', '❌ ' + msg);
@@ -1046,6 +1083,39 @@ class TelegramSocialMessageController extends BaseController
                 document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
                 document.getElementById('tab-' + name).classList.add('active');
                 btn.classList.add('active');
+            }
+
+
+            function pkLoadSwal() {
+                return new Promise(resolve => {
+                    if (window.Swal) { resolve(); return; }
+                    const link = document.createElement('link'); link.rel = 'stylesheet';
+                    link.href = '/vendor/core/core/base/libraries/sweetalert2/sweetalert2.min.css';
+                    document.head.appendChild(link);
+                    const s = document.createElement('script');
+                    s.src = '/vendor/core/core/base/libraries/sweetalert2/sweetalert2.min.js';
+                    s.onload = resolve; document.head.appendChild(s);
+                });
+            }
+            function pkAskSendToChannel() {
+                pkLoadSwal().then(() => {
+                    Swal.fire({
+                        title: 'Send to WhatsApp Channel?',
+                        html: 'Image uploaded. Send this job to <strong>' + whapiChannel + '</strong> now?',
+                        icon: 'question', showCancelButton: true,
+                        confirmButtonColor: '#25D366', cancelButtonColor: '#6b7280',
+                        confirmButtonText: '💬 Yes, Send Now', cancelButtonText: 'No, just save', reverseButtons: true,
+                    }).then(result => {
+                        if (result.isConfirmed) {
+                            Swal.fire({ title: 'Sending…', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                            const fd = new FormData(); fd.append('_token', csrfToken);
+                            fetch(whapiSendUrl, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                                .then(r => r.json())
+                                .then(d => { const ok = d.error !== true; Swal.fire({ icon: ok ? 'success' : 'error', title: ok ? 'Sent!' : 'Failed', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload()); })
+                                .catch(() => Swal.fire({ icon: 'error', title: 'Network error' }).then(() => location.reload()));
+                        } else { location.reload(); }
+                    });
+                });
             }
 
             function copySlotPrompt(key, btn) {
@@ -1355,6 +1425,8 @@ class TelegramSocialMessageController extends BaseController
         ?string $step2Url,
         string $heroBadge,
         ?string $adminEditUrl,
+        ?string $whapiSendUrl = null,
+        ?string $whapiChannelName = null,
     ): string {
         $storyboardSafe    = mb_convert_encoding((string) $storyboardPrompt, 'UTF-8', 'UTF-8');
         $geminiSafe        = mb_convert_encoding((string) $geminiPrompt, 'UTF-8', 'UTF-8');
@@ -1364,14 +1436,16 @@ class TelegramSocialMessageController extends BaseController
         $linkedinImageSafe = mb_convert_encoding((string) $linkedinImagePrompt, 'UTF-8', 'UTF-8');
         $twitterImageSafe  = mb_convert_encoding((string) $twitterImagePrompt, 'UTF-8', 'UTF-8');
 
-        $aiPromptJson    = json_encode($aiPrompt, JSON_UNESCAPED_UNICODE);
-        $storyboardJson  = json_encode($storyboardSafe, JSON_UNESCAPED_UNICODE);
-        $geminiJson      = json_encode($geminiSafe, JSON_UNESCAPED_UNICODE);
-        $tiktokImageJson = json_encode($tiktokImageSafe, JSON_UNESCAPED_UNICODE);
-        $step2UrlJson    = json_encode($step2Url ?? '', JSON_UNESCAPED_UNICODE);
-        $uploadUrlsJson  = json_encode($uploadUrls, JSON_UNESCAPED_UNICODE);
-        $jobImagesJson   = json_encode($jobImages, JSON_UNESCAPED_UNICODE);
-        $companyLogoJson = json_encode($companyLogoUrl, JSON_UNESCAPED_UNICODE);
+        $aiPromptJson      = json_encode($aiPrompt, JSON_UNESCAPED_UNICODE);
+        $storyboardJson    = json_encode($storyboardSafe, JSON_UNESCAPED_UNICODE);
+        $geminiJson        = json_encode($geminiSafe, JSON_UNESCAPED_UNICODE);
+        $tiktokImageJson   = json_encode($tiktokImageSafe, JSON_UNESCAPED_UNICODE);
+        $step2UrlJson      = json_encode($step2Url ?? '', JSON_UNESCAPED_UNICODE);
+        $uploadUrlsJson    = json_encode($uploadUrls, JSON_UNESCAPED_UNICODE);
+        $jobImagesJson     = json_encode($jobImages, JSON_UNESCAPED_UNICODE);
+        $companyLogoJson   = json_encode($companyLogoUrl, JSON_UNESCAPED_UNICODE);
+        $whapiSendUrlJson  = json_encode($whapiSendUrl, JSON_UNESCAPED_UNICODE);
+        $whapiChannelJson  = json_encode($whapiChannelName ?? '', JSON_UNESCAPED_UNICODE);
         $csrfToken       = csrf_token();
 
         $slotPromptsJson = json_encode([
@@ -1383,12 +1457,13 @@ class TelegramSocialMessageController extends BaseController
             'twitter_image'  => $twitterImageSafe,
         ], JSON_UNESCAPED_UNICODE);
 
+        $imgRefFn = fn(?string $url): string => $url ? "\n\n📎 Image: {$url}" : '';
         $slotPostsJson = json_encode([
-            'tiktok_image'   => $platformPosts['tiktok']   ?? '',
-            'whatsapp_image' => $platformPosts['whatsapp']  ?? '',
-            'facebook_image' => $platformPosts['facebook']  ?? '',
-            'linkedin_image' => $platformPosts['linkedin']  ?? '',
-            'twitter_image'  => $platformPosts['twitter']   ?? '',
+            'tiktok_image'   => ($platformPosts['tiktok']   ?? '') . $imgRefFn($jobImages['tiktok_image']   ?: $companyLogoUrl),
+            'whatsapp_image' => ($platformPosts['whatsapp']  ?? '') . $imgRefFn($jobImages['whatsapp_image'] ?: $companyLogoUrl),
+            'facebook_image' => ($platformPosts['facebook']  ?? '') . $imgRefFn($jobImages['facebook_image'] ?: $companyLogoUrl),
+            'linkedin_image' => ($platformPosts['linkedin']  ?? '') . $imgRefFn($jobImages['linkedin_image'] ?: $companyLogoUrl),
+            'twitter_image'  => ($platformPosts['twitter']   ?? '') . $imgRefFn($jobImages['twitter_image']  ?: $companyLogoUrl),
         ], JSON_UNESCAPED_UNICODE);
 
         $escapedStoryboard  = htmlspecialchars($storyboardSafe, ENT_QUOTES, 'UTF-8');
@@ -2059,7 +2134,9 @@ JSFN;
             const companyLogoUrl  = {$companyLogoJson};
             const slotPrompts     = {$slotPromptsJson};
             const slotPosts       = {$slotPostsJson};
-            const csrfToken       = document.querySelector('meta[name="csrf-token"]').content;
+            const csrfToken       = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
+            const whapiSendUrl    = {$whapiSendUrlJson};
+            const whapiChannel    = {$whapiChannelJson};
 
             // ── Init image previews on page load ──
             (function initImages() {
@@ -2165,7 +2242,10 @@ JSFN;
                     if (xhr.status >= 200 && xhr.status < 300 && data.ok !== false) {
                         if (data.url) showPreview(key, data.url);
                         setProgress(key, 100, 'done', '✅ Saved!');
-                        setTimeout(() => hideProgress(key), 3000);
+                        setTimeout(() => {
+                            hideProgress(key);
+                            if (key === 'whatsapp_image' && whapiSendUrl) pkAskSendToChannel();
+                        }, 1200);
                     } else {
                         const msg = data.message || ('Upload failed (' + xhr.status + ')');
                         setProgress(key, 100, 'fail', '❌ ' + msg);
@@ -2189,6 +2269,37 @@ JSFN;
                 btn.classList.add('active');
             }
 
+            function pkLoadSwal() {
+                return new Promise(resolve => {
+                    if (window.Swal) { resolve(); return; }
+                    const link = document.createElement('link'); link.rel = 'stylesheet';
+                    link.href = '/vendor/core/core/base/libraries/sweetalert2/sweetalert2.min.css';
+                    document.head.appendChild(link);
+                    const s = document.createElement('script');
+                    s.src = '/vendor/core/core/base/libraries/sweetalert2/sweetalert2.min.js';
+                    s.onload = resolve; document.head.appendChild(s);
+                });
+            }
+            function pkAskSendToChannel() {
+                pkLoadSwal().then(() => {
+                    Swal.fire({
+                        title: 'Send to WhatsApp Channel?',
+                        html: 'Image uploaded. Send this job to <strong>' + whapiChannel + '</strong> now?',
+                        icon: 'question', showCancelButton: true,
+                        confirmButtonColor: '#25D366', cancelButtonColor: '#6b7280',
+                        confirmButtonText: '💬 Yes, Send Now', cancelButtonText: 'No, just save', reverseButtons: true,
+                    }).then(result => {
+                        if (result.isConfirmed) {
+                            Swal.fire({ title: 'Sending…', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                            const fd = new FormData(); fd.append('_token', csrfToken);
+                            fetch(whapiSendUrl, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                                .then(r => r.json())
+                                .then(d => { const ok = d.error !== true; Swal.fire({ icon: ok ? 'success' : 'error', title: ok ? 'Sent!' : 'Failed', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload()); })
+                                .catch(() => Swal.fire({ icon: 'error', title: 'Network error' }).then(() => location.reload()));
+                        } else { location.reload(); }
+                    });
+                });
+            }
             function copySlotPrompt(key, btn) {
                 const text = slotPrompts[key];
                 if (!text) return;

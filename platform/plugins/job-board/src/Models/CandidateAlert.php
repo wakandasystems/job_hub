@@ -22,6 +22,7 @@ class CandidateAlert extends BaseModel
         'activated_at',
         'expires_at',
         'expiry_warning_sent',
+        'expiry_sameday_sent',
         'expiry_notice_sent',
         'notes',
         'cv_path',
@@ -31,8 +32,9 @@ class CandidateAlert extends BaseModel
     protected $casts = [
         'filters'             => 'array',
         'is_active'           => 'bool',
-        'expiry_warning_sent' => 'bool',
-        'expiry_notice_sent'  => 'bool',
+        'expiry_warning_sent'  => 'bool',
+        'expiry_sameday_sent'  => 'bool',
+        'expiry_notice_sent'   => 'bool',
         'activated_at'        => 'datetime',
         'expires_at'          => 'datetime',
         'price'               => 'decimal:2',
@@ -40,9 +42,9 @@ class CandidateAlert extends BaseModel
     ];
 
     public static array $durations = [
-        7  => ['label' => '7 Days',  'price' => 20.00, 'badge' => 'bg-info text-white'],
-        14 => ['label' => '14 Days', 'price' => 30.00, 'badge' => 'bg-primary text-white'],
-        30 => ['label' => '30 Days', 'price' => 50.00, 'badge' => 'bg-success text-white'],
+        7  => ['label' => '1 Week',   'price' => 40.00,  'badge' => 'bg-info text-white'],
+        30 => ['label' => '1 Month',  'price' => 100.00, 'badge' => 'bg-primary text-white'],
+        60 => ['label' => '2 Months', 'price' => 150.00, 'badge' => 'bg-success text-white'],
     ];
 
     public function logs(): HasMany

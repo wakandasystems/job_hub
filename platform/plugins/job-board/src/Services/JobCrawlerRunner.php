@@ -3797,6 +3797,7 @@ class JobCrawlerRunner
 
         $title = trim(html_entity_decode((string) data_get($data, 'title'), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
         $company = trim(html_entity_decode((string) data_get($data, 'hiringOrganization.name'), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $logo = (string) data_get($data, 'hiringOrganization.logo', '');
         $location = trim(html_entity_decode((string) data_get($data, 'jobLocation.address', 'Zambia'), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
         $description = (string) data_get($data, 'description', '');
         $applyUrl = $this->extractJobSearchZmApplyUrl($html) ?: $url;
@@ -3804,6 +3805,7 @@ class JobCrawlerRunner
         return [
             'title' => $title ?: $this->titleFromJobSearchZmUrl($url),
             'company' => $company ?: 'JobSearchZM',
+            'logo' => $logo,
             'location' => $location ?: 'Zambia',
             'apply_url' => $applyUrl,
             'content' => $description ?: $this->extractJobSearchZmArticleHtml($html),
@@ -3920,6 +3922,28 @@ class JobCrawlerRunner
                 continue;
             }
 
+            // Detect "Multiple Positions" posts and expand them into individual jobs.
+            $splitItems = $this->splitMultiPositionJob($item);
+
+            if ($splitItems !== null) {
+                foreach ($splitItems as $splitItem) {
+                    $splitCompany = $this->firstOrCreateJobSearchZmCompany($splitItem);
+                    if (! $splitCompany) {
+                        $stats['jobs_skipped']++;
+                        continue;
+                    }
+                    $newJob = new Job();
+                    $newJob->forceFill($this->buildJobSearchZmAttributes($crawler, $splitItem, $splitCompany));
+                    $this->resolveApplyContact($newJob);
+                    $this->persistNewJob($newJob, $crawler, $stats, function (Job $j): void {
+                        $j->jobTypes()->syncWithoutDetaching([3]);
+                        $this->dispatchNewJobEvents($j);
+                    });
+                }
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
             $company = $this->firstOrCreateJobSearchZmCompany($item);
             if (! $company) {
                 $stats['jobs_skipped']++;
@@ -3940,6 +3964,7 @@ class JobCrawlerRunner
             } else {
                 $newJob = new Job();
                 $newJob->forceFill($attributes);
+                $this->resolveApplyContact($newJob);
                 $this->persistNewJob($newJob, $crawler, $stats, function (Job $j): void {
                     $j->jobTypes()->syncWithoutDetaching([3]);
                     $this->dispatchNewJobEvents($j);
@@ -3999,6 +4024,15 @@ class JobCrawlerRunner
             SlugHelper::createSlug($company);
         }
 
+        $logoUrl = (string) ($item['logo'] ?? '');
+        if (! $company->logo && $logoUrl !== '' && ! str_contains($logoUrl, 'cropped-Job-Search-Zambia')) {
+            $logoPath = $this->uploadCompanyLogo($logoUrl);
+            if ($logoPath) {
+                $company->logo = $logoPath;
+                $company->save();
+            }
+        }
+
         return $company;
     }
 
@@ -4013,7 +4047,10 @@ class JobCrawlerRunner
             : $postedDate->copy()->addDays(45);
 
         $rawContent  = (string) ($item['content'] ?? '');
-        $description = Str::limit(trim(strip_tags($rawContent)), 400, '');
+        // When the item was produced by splitMultiPositionJob, 'excerpt' holds only the
+        // position-specific HTML so the 400-char description is focused on that role.
+        $excerptHtml = (string) ($item['excerpt'] ?? $rawContent);
+        $description = Str::limit(trim(strip_tags($excerptHtml)), 400, '');
 
         return [
             'crawler_id'               => $crawler->getKey(),
@@ -4037,6 +4074,154 @@ class JobCrawlerRunner
             'created_at'               => $postedDate,
             'updated_at'               => $postedDate,
         ];
+    }
+
+    /**
+     * Detect and split a "Multiple Positions" job item into individual position items.
+     *
+     * Looks for a "POSITION-SPECIFIC REQUIREMENTS" section in the HTML content.
+     * Each <p> containing <u><b>HEADING</b></u> after that marker is treated as one
+     * position. Returns null when the content doesn't match the pattern or has < 2 positions.
+     *
+     * Each returned item inherits all parent fields but with:
+     *   - title        = normalised position name
+     *   - content      = preamble + this position's block + application procedure
+     *   - excerpt      = position-specific text only (used for the 400-char description)
+     *   - id           = "{original_id}|{position-slug}"
+     *
+     * @param  array $item  Raw item as returned by the fetch/parse methods.
+     * @return array<int,array>|null
+     */
+    public function splitMultiPositionJob(array $item): ?array
+    {
+        $html = (string) ($item['content'] ?? '');
+
+        if (stripos($html, 'POSITION-SPECIFIC REQUIREMENTS') === false) {
+            return null;
+        }
+
+        // Parse the HTML with DOMDocument.
+        libxml_use_internal_errors(true);
+        $dom = new \DOMDocument('1.0', 'UTF-8');
+        $dom->loadHTML('<meta charset="utf-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+
+        $xpath = new \DOMXPath($dom);
+
+        // Find the <body> element (loadHTML always wraps content in one).
+        $bodyList = $dom->getElementsByTagName('body');
+        $body     = $bodyList->length ? $bodyList->item(0) : $dom->documentElement;
+
+        if (! $body) {
+            return null;
+        }
+
+        // Collect top-level child nodes into an array for indexed access.
+        $children = [];
+        foreach ($body->childNodes as $node) {
+            $children[] = $node;
+        }
+
+        $psrIndex     = -1; // "POSITION-SPECIFIC REQUIREMENTS"
+        $appProcIndex = -1; // "APPLICATION PROCEDURE"
+
+        foreach ($children as $i => $node) {
+            $text = strtoupper(trim((string) ($node->textContent ?? '')));
+
+            if ($psrIndex === -1 && str_contains($text, 'POSITION-SPECIFIC REQUIREMENTS')) {
+                $psrIndex = $i;
+                continue;
+            }
+
+            if ($psrIndex !== -1 && $appProcIndex === -1 && str_contains($text, 'APPLICATION PROCEDURE')) {
+                // Back-track to include the opening <p> tag of the APPLICATION PROCEDURE section.
+                $appProcIndex = $i;
+            }
+        }
+
+        if ($psrIndex === -1) {
+            return null;
+        }
+
+        // Build preamble HTML (everything up to and including the PSR heading paragraph).
+        $preambleHtml = '';
+        for ($i = 0; $i <= $psrIndex; $i++) {
+            $preambleHtml .= $dom->saveHTML($children[$i]);
+        }
+
+        // Build application procedure HTML (from APP PROC onwards).
+        $appProcHtml = '';
+        if ($appProcIndex !== -1) {
+            for ($i = $appProcIndex; $i < count($children); $i++) {
+                $appProcHtml .= $dom->saveHTML($children[$i]);
+            }
+        }
+
+        // Walk nodes between PSR and APP PROC to extract individual positions.
+        $end          = $appProcIndex !== -1 ? $appProcIndex : count($children);
+        $positionRange = array_slice($children, $psrIndex + 1, $end - $psrIndex - 1);
+
+        $positions = []; // ['name' => str, 'html' => str (heading + requirements)]
+        $current   = null;
+
+        foreach ($positionRange as $node) {
+            if ($node->nodeType !== XML_ELEMENT_NODE) {
+                if ($current !== null) {
+                    $current['html'] .= $dom->saveHTML($node);
+                }
+                continue;
+            }
+
+            // Position heading: a <p> whose inner content is wrapped in <u><b> (or <b><u>).
+            if ($node->nodeName === 'p') {
+                $hasUB = $xpath->query('.//u//b | .//b//u', $node)->length > 0;
+
+                if ($hasUB) {
+                    if ($current) {
+                        $positions[] = $current;
+                    }
+
+                    // Normalise "ADMIN/SITE CLERKS" → "Admin/Site Clerks" (capitalise after / - ( ) too).
+                    $rawName = preg_replace('/\s+/', ' ', trim((string) ($node->textContent ?? '')));
+                    $posName = ucwords(strtolower($rawName), " \t\r\n\f\v/-()'\"");
+
+                    $current = [
+                        'name' => $posName,
+                        'html' => $dom->saveHTML($node),
+                    ];
+                    continue;
+                }
+            }
+
+            if ($current !== null) {
+                $current['html'] .= $dom->saveHTML($node);
+            }
+        }
+
+        if ($current) {
+            $positions[] = $current;
+        }
+
+        if (count($positions) < 2) {
+            return null;
+        }
+
+        $sourceId = (string) ($item['id'] ?? '');
+
+        $results = [];
+        foreach ($positions as $pos) {
+            $posSlug    = Str::slug($pos['name']);
+            $posContent = $preambleHtml . $pos['html'] . $appProcHtml;
+
+            $results[] = array_merge($item, [
+                'title'   => $pos['name'],
+                'content' => $posContent,
+                'excerpt' => $pos['html'], // position-specific section only → drives 400-char description
+                'id'      => $sourceId !== '' ? $sourceId . '|' . $posSlug : '',
+            ]);
+        }
+
+        return $results;
     }
 
     // -------------------------------------------------------------------------

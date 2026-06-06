@@ -64,9 +64,10 @@ class SendCandidateAlertsCommand extends Command
         if ($keywords) {
             $query->where(function ($q) use ($keywords) {
                 foreach ($keywords as $kw) {
-                    $q->orWhere('jb_jobs.name', 'like', "%{$kw}%")
-                      ->orWhere('jb_jobs.description', 'like', "%{$kw}%")
-                      ->orWhere('jb_jobs.address', 'like', "%{$kw}%");
+                    $pat = '\\b' . preg_quote(strtolower($kw), '/') . '\\b';
+                    $q->orWhereRaw('LOWER(jb_jobs.name) REGEXP ?', [$pat])
+                      ->orWhereRaw('LOWER(jb_jobs.description) REGEXP ?', [$pat])
+                      ->orWhereRaw('LOWER(jb_jobs.address) REGEXP ?', [$pat]);
                 }
             });
         }
