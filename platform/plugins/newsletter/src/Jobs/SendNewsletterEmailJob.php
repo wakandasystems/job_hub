@@ -36,20 +36,26 @@ class SendNewsletterEmailJob implements ShouldQueue
             return;
         }
 
-        Mail::to($this->email, $this->name ?? '')->send(new NewsletterMail(
-            subject: $this->subject,
-            body: $this->body,
-            imageUrl: $this->imageUrl,
-            subscriberId: $this->subscriberId,
-            pdfPath: $this->pdfPath,
-        ));
+        try {
+            Mail::to($this->email, $this->name ?? '')->send(new NewsletterMail(
+                subject: $this->subject,
+                body: $this->body,
+                imageUrl: $this->imageUrl,
+                subscriberId: $this->subscriberId,
+                pdfPath: $this->pdfPath,
+            ));
 
-        DB::table('newsletter_send_recipients')->insert([
-            'newsletter_send_id' => $this->sendId,
-            'email'              => strtolower($this->email),
-            'name'               => $this->name,
-            'status'             => 'sent',
-            'created_at'         => now(),
-        ]);
+            DB::table('newsletter_send_recipients')->updateOrInsert(
+                ['newsletter_send_id' => $this->sendId, 'email' => strtolower($this->email)],
+                ['name' => $this->name, 'status' => 'sent', 'error_message' => null, 'created_at' => now()],
+            );
+        } catch (\Throwable $e) {
+            DB::table('newsletter_send_recipients')->updateOrInsert(
+                ['newsletter_send_id' => $this->sendId, 'email' => strtolower($this->email)],
+                ['name' => $this->name, 'status' => 'failed', 'error_message' => substr($e->getMessage(), 0, 500), 'created_at' => now()],
+            );
+
+            throw $e;
+        }
     }
 }

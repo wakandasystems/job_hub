@@ -122,6 +122,45 @@
         </x-core::card>
 
         {{-- ══════════════════════════════════════════════
+             DUPLICATE PANEL (shown when newsletter was already sent)
+        ══════════════════════════════════════════════ --}}
+        <div id="duplicate-panel" style="display:none" class="mt-4">
+            <x-core::card>
+                <x-core::card.header>
+                    <x-core::card.title>Already Sent</x-core::card.title>
+                </x-core::card.header>
+                <x-core::card.body>
+                    <div class="alert alert-warning mb-4">
+                        <i class="ti ti-alert-triangle me-1"></i>
+                        A newsletter with the same subject and message was already sent on
+                        <strong id="dup-sent-at"></strong> —
+                        <strong id="dup-sent-count"></strong> delivered out of <strong id="dup-recipient-count"></strong> recipients.
+                    </div>
+                    <div id="dup-new-subscribers-info" style="display:none" class="alert alert-info mb-4">
+                        <i class="ti ti-users me-1"></i>
+                        <strong id="dup-new-count"></strong> new subscriber(s) have joined since then and haven't received this newsletter yet.
+                    </div>
+                    <div id="dup-no-new-subscribers" style="display:none" class="text-muted small mb-4">
+                        No new subscribers have joined since the last send.
+                    </div>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <a id="dup-report-link" href="#" class="btn btn-outline-secondary">
+                            <i class="ti ti-list me-1"></i>View Delivery Report
+                        </a>
+                        <button id="dup-resend-new-btn" style="display:none" class="btn btn-primary"
+                                onclick="doResendNewOnly()">
+                            <i class="ti ti-send me-1"></i>
+                            Send to <span id="dup-btn-count"></span> new subscriber(s)
+                        </button>
+                        <a href="{{ route('newsletter.send') }}" class="btn btn-outline-secondary ms-auto">
+                            <i class="ti ti-arrow-left me-1"></i>Edit newsletter
+                        </a>
+                    </div>
+                </x-core::card.body>
+            </x-core::card>
+        </div>
+
+        {{-- ══════════════════════════════════════════════
              PROGRESS PANEL (hidden until send starts)
         ══════════════════════════════════════════════ --}}
         <div id="progress-panel" style="display:none" class="mt-4">
@@ -236,6 +275,13 @@ document.getElementById('nl-send-form').addEventListener('submit', async functio
         return;
     }
 
+    if (resp.status === 409 && data.duplicate) {
+        btn.disabled = false;
+        document.getElementById('send-btn-label').textContent = '🚀 Send Newsletter';
+        showDuplicatePanel(data);
+        return;
+    }
+
     if (!resp.ok || data.error) {
         btn.disabled = false;
         document.getElementById('send-btn-label').textContent = '🚀 Send Newsletter';
@@ -329,6 +375,73 @@ function finishProgress(data, sendId) {
     document.getElementById('progress-label').textContent = hasFailed
         ? `Done — ${sent} delivered, ${failed} failed.`
         : `Done — ${sent} delivered successfully! 🎉`;
+}
+
+let _dupSendId = null;
+
+function showDuplicatePanel(data) {
+    _dupSendId = data.send_id;
+
+    const sentAt = new Date(data.sent_at).toLocaleString(undefined, {
+        day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+    document.getElementById('dup-sent-at').textContent        = sentAt;
+    document.getElementById('dup-sent-count').textContent     = data.sent_count.toLocaleString();
+    document.getElementById('dup-recipient-count').textContent = data.recipient_count.toLocaleString();
+    document.getElementById('dup-report-link').href           = '{{ url("/admin/newsletters") }}/' + data.send_id + '/recipients';
+
+    if (data.new_subscriber_count > 0) {
+        document.getElementById('dup-new-count').textContent   = data.new_subscriber_count.toLocaleString();
+        document.getElementById('dup-btn-count').textContent   = data.new_subscriber_count.toLocaleString();
+        document.getElementById('dup-new-subscribers-info').style.display = 'block';
+        document.getElementById('dup-resend-new-btn').style.display       = 'inline-flex';
+        document.getElementById('dup-no-new-subscribers').style.display   = 'none';
+    } else {
+        document.getElementById('dup-new-subscribers-info').style.display = 'none';
+        document.getElementById('dup-resend-new-btn').style.display       = 'none';
+        document.getElementById('dup-no-new-subscribers').style.display   = 'block';
+    }
+
+    document.getElementById('send-form-card').style.display = 'none';
+    document.getElementById('duplicate-panel').style.display = 'block';
+}
+
+async function doResendNewOnly() {
+    if (! _dupSendId) return;
+
+    const btn = document.getElementById('dup-resend-new-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Sending…';
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
+        ?? document.querySelector('input[name="_token"]')?.value ?? '';
+
+    try {
+        const r = await fetch('{{ url("/admin/newsletters") }}/' + _dupSendId + '/resend?new_only=1', {
+            method: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': csrfToken,
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        });
+        const text = await r.text();
+        let data;
+        try { data = JSON.parse(text); } catch {
+            throw new Error('Server error — check browser console for details.');
+        }
+        if (!r.ok || data.error) throw new Error(data.error || data.message || 'Request failed');
+
+        // Hide duplicate panel, show progress for the new send
+        document.getElementById('duplicate-panel').style.display = 'none';
+        document.getElementById('progress-panel').style.display  = 'block';
+        document.getElementById('stat-remaining').textContent    = data.total;
+        startPolling(data.send_id, data.total);
+    } catch (err) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ti ti-send me-1"></i> Send to <span id="dup-btn-count">' + document.getElementById('dup-btn-count').textContent + '</span> new subscriber(s)';
+        Botble.showError(err.message);
+    }
 }
 
 async function doResendFailed(sendId, failedCount, btn) {

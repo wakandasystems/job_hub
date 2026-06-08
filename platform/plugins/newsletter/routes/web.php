@@ -26,6 +26,12 @@ Route::group(['namespace' => 'Botble\Newsletter\Http\Controllers'], function ():
                 'permission' => 'newsletter.index',
             ]);
 
+            Route::get('{sendId}/recipients', [
+                'as'         => 'send.recipients',
+                'uses'       => 'NewsletterController@recipients',
+                'permission' => 'newsletter.index',
+            ]);
+
             Route::post('{sendId}/resend', [
                 'as'         => 'resend',
                 'uses'       => 'NewsletterController@resend',

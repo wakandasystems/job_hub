@@ -168,7 +168,14 @@
                                 </td>
                                 <td class="text-muted small">{{ \Carbon\Carbon::parse($send->sent_at)->format('d M Y, H:i') }}</td>
                                 <td>
-                                    <div class="d-flex gap-1">
+                                    <div class="d-flex gap-1 flex-wrap">
+                                        @if(in_array($send->status ?? 'completed', ['completed', 'failed']) && empty($send->test_to))
+                                            <a href="{{ route('newsletter.send.recipients', $send->id) }}"
+                                               class="btn btn-outline-secondary btn-sm"
+                                               title="View delivery report">
+                                                <i class="ti ti-list me-1"></i>Report
+                                            </a>
+                                        @endif
                                         @if($canResend)
                                             <button class="btn btn-outline-warning btn-sm"
                                                     onclick="promptResend({{ $send->id }}, this)"
