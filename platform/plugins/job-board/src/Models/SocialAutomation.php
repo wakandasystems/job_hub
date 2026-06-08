@@ -26,6 +26,7 @@ class SocialAutomation extends BaseModel
         'whatsapp'  => 'WhatsApp',
         'telegram'  => 'Telegram',
         'whapi'     => 'WhatsApp Channel (Whapi)',
+        'publer'    => 'Publer',
     ];
 
     public function getPlatformLabelAttribute(): string

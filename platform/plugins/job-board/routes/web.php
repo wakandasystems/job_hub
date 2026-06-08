@@ -290,6 +290,124 @@ AdminHelper::registerRoutes(function (): void {
                 'uses'       => 'SocialAutomationController@whapiSendJob',
                 'permission' => 'job-board.automations.index',
             ])->wherePrimaryKey();
+
+            Route::post('actions/publer-fetch-accounts', [
+                'as'         => 'publer-fetch-accounts',
+                'uses'       => 'SocialAutomationController@fetchPublerAccounts',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::get('actions/search-jobs', [
+                'as'         => 'search-jobs',
+                'uses'       => 'SocialAutomationController@searchJobs',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('actions/publer-send-job/{job}', [
+                'as'         => 'publer-send-job',
+                'uses'       => 'SocialAutomationController@publerSendJob',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::post('{automation}/publer-send-jobs', [
+                'as'         => 'publer-send-jobs',
+                'uses'       => 'SocialAutomationController@publerSendPeriodJobs',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::post('{automation}/publer-test-job', [
+                'as'         => 'publer-test-job',
+                'uses'       => 'SocialAutomationController@publerTestJob',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+        });
+
+        Route::group(['prefix' => 'publer', 'as' => 'job-board.publer.'], function (): void {
+            Route::get('/', [
+                'as'         => 'index',
+                'uses'       => 'PublerController@index',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('fetch-accounts', [
+                'as'         => 'fetch-accounts',
+                'uses'       => 'PublerController@fetchAccounts',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('upsert', [
+                'as'         => 'upsert',
+                'uses'       => 'PublerController@upsert',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('{mapping}/toggle', [
+                'as'         => 'toggle',
+                'uses'       => 'PublerController@toggle',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::post('{mapping}/test', [
+                'as'         => 'test',
+                'uses'       => 'PublerController@testPost',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::delete('{mapping}', [
+                'as'         => 'destroy',
+                'uses'       => 'PublerController@destroy',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::post('{mapping}/image-settings', [
+                'as'         => 'image-settings',
+                'uses'       => 'PublerController@saveImageSettings',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::get('{mapping}/preview-image', [
+                'as'         => 'preview-image',
+                'uses'       => 'PublerController@previewImage',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::group(['prefix' => 'category-templates', 'as' => 'category-templates.'], function (): void {
+                Route::get('/', [
+                    'as'         => 'index',
+                    'uses'       => 'PublerCategoryTemplateController@index',
+                    'permission' => 'job-board.automations.index',
+                ]);
+
+                Route::post('save', [
+                    'as'         => 'save',
+                    'uses'       => 'PublerCategoryTemplateController@save',
+                    'permission' => 'job-board.automations.index',
+                ]);
+
+                Route::post('{template}/save', [
+                    'as'         => 'update',
+                    'uses'       => 'PublerCategoryTemplateController@save',
+                    'permission' => 'job-board.automations.index',
+                ])->wherePrimaryKey();
+
+                Route::post('{template}/toggle', [
+                    'as'         => 'toggle',
+                    'uses'       => 'PublerCategoryTemplateController@toggle',
+                    'permission' => 'job-board.automations.index',
+                ])->wherePrimaryKey();
+
+                Route::delete('{template}', [
+                    'as'         => 'destroy',
+                    'uses'       => 'PublerCategoryTemplateController@destroy',
+                    'permission' => 'job-board.automations.index',
+                ])->wherePrimaryKey();
+
+                Route::get('{template}/preview-image', [
+                    'as'         => 'preview-image',
+                    'uses'       => 'PublerCategoryTemplateController@previewImage',
+                    'permission' => 'job-board.automations.index',
+                ])->wherePrimaryKey();
+            });
         });
 
         Route::group(['prefix' => 'agents', 'as' => 'job-board.crawlers.'], function (): void {

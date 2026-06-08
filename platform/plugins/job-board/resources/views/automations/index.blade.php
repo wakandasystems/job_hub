@@ -54,6 +54,17 @@
                     'send_image'  => ['label' => 'Attach job image with each post', 'type' => 'checkbox', 'required' => false, 'help' => 'Sends the job image (company logo or generated banner) alongside the message.'],
                 ],
             ],
+            'publer' => [
+                'label' => 'Publer',
+                'icon'  => 'ti ti-share',
+                'color' => '#5B4FE9',
+                'fields' => [
+                    'api_key'      => ['label' => 'API Key', 'placeholder' => 'Leave blank to use the global PUBLER_API_KEY', 'type' => 'password', 'required' => false, 'help' => 'Your Publer API key. Found at <a href="https://publer.com/settings/api" target="_blank" rel="noopener">publer.com → Settings → Access & Login → API Keys</a>. Leave blank to use the site-wide key from <code>.env</code>.'],
+                    'workspace_id' => ['label' => 'Workspace ID', 'placeholder' => 'Auto-filled when you Fetch accounts', 'required' => false, 'help' => 'Leave blank — it is filled automatically when you click Fetch.'],
+                    'account_ids'  => ['label' => 'Connected Accounts (Facebook, LinkedIn, TikTok…)', 'type' => 'publer_account_select', 'help' => 'Click <strong>Fetch</strong> to load your Publer-connected social accounts. Hold Ctrl / Cmd to select multiple.'],
+                    'country_id'   => ['label' => 'Country Filter (optional)', 'type' => 'country_select', 'required' => false, 'help' => 'Only jobs for this country will be posted. Leave blank to post jobs from all countries.'],
+                ],
+            ],
         ];
     @endphp
 
@@ -170,6 +181,23 @@
                                         <i class="fas fa-copy"></i>
                                     </button>
                                     @endif
+                                    @if($platformKey === 'publer')
+                                    <button type="button"
+                                        class="btn btn-ghost-info btn-icon btn-sm publer-test-job"
+                                        title="Test: send one job to Publer"
+                                        data-url="{{ route('job-board.automations.publer-test-job', $automation->id) }}"
+                                        data-name="{{ $automation->name }}"
+                                        data-country-id="{{ $automation->settings['country_id'] ?? '' }}">
+                                        <i class="fas fa-flask"></i>
+                                    </button>
+                                    <button type="button"
+                                        class="btn btn-ghost-success btn-icon btn-sm publer-send-jobs"
+                                        title="Publish jobs via Publer"
+                                        data-url="{{ route('job-board.automations.publer-send-jobs', $automation->id) }}"
+                                        data-name="{{ $automation->name }}">
+                                        <i class="fas fa-paper-plane"></i>
+                                    </button>
+                                    @endif
                                     <button type="button"
                                         class="btn btn-ghost-danger btn-icon btn-sm automation-delete"
                                         title="Delete"
@@ -241,6 +269,46 @@
                                                 <button type="button" class="btn btn-outline-secondary whapi-fetch-btn" title="Load newsletters from Whapi using the token above">
                                                     <i class="fas fa-sync me-1"></i> Fetch
                                                 </button>
+                                            </div>
+                                        @elseif(($field['type'] ?? 'text') === 'publer_account_select')
+                                            @php $pCtxNew = 'pacc-new'; @endphp
+                                            <button type="button"
+                                                    class="btn btn-link text-decoration-none text-dark p-0 d-flex align-items-center gap-2 w-100 mb-1"
+                                                    data-bs-toggle="collapse" data-bs-target="#{{ $pCtxNew }}-collapse" aria-expanded="true">
+                                                <i class="ti ti-share text-muted" style="width:14px"></i>
+                                                <span class="fw-semibold small">{{ $field['label'] }}</span>
+                                                <span class="badge bg-secondary ms-1" id="{{ $pCtxNew }}-badge">0</span>
+                                                <i class="fas fa-chevron-down ms-auto text-muted small"></i>
+                                            </button>
+                                            <div class="collapse show" id="{{ $pCtxNew }}-collapse">
+                                                <div class="pt-1 ps-3">
+                                                    <div class="text-muted small mb-2">Jobs are published to all selected accounts. Click <strong>Fetch Accounts</strong> first to load your Publer connections.</div>
+                                                    <div class="publer-accounts-list mb-2" id="{{ $pCtxNew }}-list"
+                                                         data-context="{{ $pCtxNew }}" data-field-key="{{ $fieldKey }}">
+                                                    </div>
+                                                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                                                        <button type="button" class="btn btn-outline-secondary btn-sm publer-fetch-btn"
+                                                                data-context="{{ $pCtxNew }}"
+                                                                data-automation-id=""
+                                                                data-fetch-url="{{ route('job-board.automations.publer-fetch-accounts') }}">
+                                                            <i class="fas fa-sync me-1"></i> Fetch Accounts
+                                                        </button>
+                                                        <div class="dropdown publer-add-dropdown d-none" data-context="{{ $pCtxNew }}">
+                                                            <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                                                                <i class="fas fa-plus me-1"></i> Add Account
+                                                            </button>
+                                                            <ul class="dropdown-menu shadow-sm publer-add-menu" style="min-width:280px;max-height:300px;overflow-y:auto"></ul>
+                                                        </div>
+                                                        <div class="dropdown publer-quick-dropdown d-none" data-context="{{ $pCtxNew }}">
+                                                            <button type="button" class="btn btn-outline-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                                                                <i class="fas fa-magic me-1"></i> Quick Add
+                                                            </button>
+                                                            <ul class="dropdown-menu shadow-sm publer-quick-menu" style="min-width:290px;max-height:300px;overflow-y:auto">
+                                                                <li><h6 class="dropdown-header small">Accounts matching selected country</h6></li>
+                                                            </ul>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         @else
                                             <label class="form-label fw-semibold">{{ $field['label'] }} @if(($field['required'] ?? true) !== false)<span class="text-danger">*</span>@endif</label>
@@ -330,6 +398,60 @@
                                                 @if($savedJid)
                                                     <div class="form-text text-success small"><i class="fas fa-check me-1"></i>Saved: <code>{{ $savedJid }}</code>. Click Fetch to pick a different channel.</div>
                                                 @endif
+                                            @elseif(($field['type'] ?? 'text') === 'publer_account_select')
+                                                @php
+                                                    $savedAccountIds = array_values(array_filter((array) ($automation->settings[$fieldKey] ?? [])));
+                                                    $pCtxEdit = 'pacc-' . $automation->id;
+                                                @endphp
+                                                <button type="button"
+                                                        class="btn btn-link text-decoration-none text-dark p-0 d-flex align-items-center gap-2 w-100 mb-1"
+                                                        data-bs-toggle="collapse" data-bs-target="#{{ $pCtxEdit }}-collapse" aria-expanded="true">
+                                                    <i class="ti ti-share text-muted" style="width:14px"></i>
+                                                    <span class="fw-semibold small">{{ $field['label'] }}</span>
+                                                    <span class="badge {{ count($savedAccountIds) ? 'bg-success' : 'bg-secondary' }} ms-1" id="{{ $pCtxEdit }}-badge">{{ count($savedAccountIds) }}</span>
+                                                    <i class="fas fa-chevron-down ms-auto text-muted small"></i>
+                                                </button>
+                                                <div class="collapse show" id="{{ $pCtxEdit }}-collapse">
+                                                    <div class="pt-1 ps-3">
+                                                        <div class="text-muted small mb-2">Jobs are published to all selected accounts. Click <strong>Fetch Accounts</strong> to refresh names or add more.</div>
+                                                        <div class="publer-accounts-list mb-2" id="{{ $pCtxEdit }}-list"
+                                                             data-context="{{ $pCtxEdit }}" data-field-key="{{ $fieldKey }}"
+                                                             data-saved-ids="{{ json_encode($savedAccountIds) }}">
+                                                            @foreach($savedAccountIds as $accId)
+                                                                <div class="input-group input-group-sm mb-1 publer-account-row" data-acc-id="{{ $accId }}">
+                                                                    <span class="input-group-text publer-acc-icon"><i class="ti ti-share text-muted"></i></span>
+                                                                    <span class="form-control form-control-sm publer-acc-label text-truncate text-muted fst-italic">{{ $accId }}</span>
+                                                                    <input type="hidden" name="settings[{{ $fieldKey }}][]" value="{{ $accId }}">
+                                                                    <button type="button" class="btn btn-outline-danger btn-sm publer-remove-acc" title="Remove">
+                                                                        <i class="fas fa-times"></i>
+                                                                    </button>
+                                                                </div>
+                                                            @endforeach
+                                                        </div>
+                                                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                                                            <button type="button" class="btn btn-outline-secondary btn-sm publer-fetch-btn"
+                                                                    data-context="{{ $pCtxEdit }}"
+                                                                    data-automation-id="{{ $automation->id }}"
+                                                                    data-fetch-url="{{ route('job-board.automations.publer-fetch-accounts') }}">
+                                                                <i class="fas fa-sync me-1"></i> Fetch Accounts
+                                                            </button>
+                                                            <div class="dropdown publer-add-dropdown d-none" data-context="{{ $pCtxEdit }}">
+                                                                <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                                                                    <i class="fas fa-plus me-1"></i> Add Account
+                                                                </button>
+                                                                <ul class="dropdown-menu shadow-sm publer-add-menu" style="min-width:280px;max-height:300px;overflow-y:auto"></ul>
+                                                            </div>
+                                                            <div class="dropdown publer-quick-dropdown d-none" data-context="{{ $pCtxEdit }}">
+                                                                <button type="button" class="btn btn-outline-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                                                                    <i class="fas fa-magic me-1"></i> Quick Add
+                                                                </button>
+                                                                <ul class="dropdown-menu shadow-sm publer-quick-menu" style="min-width:290px;max-height:300px;overflow-y:auto">
+                                                                    <li><h6 class="dropdown-header small">Accounts matching selected country</h6></li>
+                                                                </ul>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             @else
                                                 <label class="form-label fw-semibold">{{ $field['label'] }}</label>
                                                 <input
@@ -520,7 +642,11 @@ $(function () {
         body.append('_token', $('meta[name="csrf-token"]').attr('content'));
         body.append('period', period);
 
-        fetch(pendingSend.url, { method: 'POST', body })
+        fetch(pendingSend.url, {
+            method: 'POST',
+            body,
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        })
             .then(r => r.json())
             .then(resp => {
                 if (resp.error) {
@@ -614,7 +740,11 @@ $(function () {
         if (automationId) body.append('automation_id', automationId);
         if (gatewayUrl)   body.append('gateway_url', gatewayUrl);
 
-        fetch(fetchUrl, { method: 'POST', body })
+        fetch(fetchUrl, {
+            method: 'POST',
+            body,
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        })
             .then(r => r.json())
             .then(resp => {
                 if (resp.error) {
@@ -725,11 +855,439 @@ $(function () {
         const cb = $(this).data('callback');
         if (typeof cb === 'function') cb();
     });
+
+    // ── Publer: account picker helpers ───────────────────────────────────────
+    const publerFetchedAccounts = {};
+
+    function publerPlatformIcon(typeLabel) {
+        const t = (typeLabel || '').toLowerCase();
+        if (t.includes('facebook'))  return '<i class="fab fa-facebook" style="color:#1877f2;width:14px"></i>';
+        if (t.includes('linkedin'))  return '<i class="fab fa-linkedin" style="color:#0a66c2;width:14px"></i>';
+        if (t.includes('tiktok'))    return '<i class="fab fa-tiktok" style="width:14px"></i>';
+        if (t.includes('twitter') || t.includes(' x ') || t.includes('x:')) return '<i class="fab fa-twitter" style="color:#1da1f2;width:14px"></i>';
+        if (t.includes('instagram')) return '<i class="fab fa-instagram" style="color:#e1306c;width:14px"></i>';
+        return '<i class="ti ti-share text-muted" style="width:14px"></i>';
+    }
+
+    function publerAddAccountRow($list, acc) {
+        const ctx = $list.data('context');
+        const fk  = $list.data('field-key');
+        if ($list.find(`.publer-account-row[data-acc-id="${acc.id}"]`).length) return;
+        const label = (acc.type_label ? acc.type_label + ': ' : '') + acc.name;
+        $list.append(`
+            <div class="input-group input-group-sm mb-1 publer-account-row" data-acc-id="${acc.id}">
+                <span class="input-group-text publer-acc-icon">${publerPlatformIcon(acc.type_label)}</span>
+                <span class="form-control form-control-sm publer-acc-label text-truncate">${label}</span>
+                <input type="hidden" name="settings[${fk}][]" value="${acc.id}">
+                <button type="button" class="btn btn-outline-danger btn-sm publer-remove-acc" title="Remove">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>`);
+        publerUpdateBadge(ctx);
+    }
+
+    function publerUpdateBadge(ctx) {
+        const count = $(`#${ctx}-list .publer-account-row`).length;
+        $(`#${ctx}-badge`)
+            .text(count)
+            .removeClass('bg-secondary bg-success')
+            .addClass(count > 0 ? 'bg-success' : 'bg-secondary');
+    }
+
+    function publerRebuildMenus(ctx, accounts) {
+        const $addMenu = $(`.publer-add-dropdown[data-context="${ctx}"] .publer-add-menu`);
+        $addMenu.empty();
+        accounts.forEach(acc => {
+            const locked = acc.locked ? ' 🔒' : '';
+            $addMenu.append(`<li>
+                <button type="button" class="dropdown-item small py-2 publer-add-acc-btn"
+                        data-context="${ctx}" data-acc-id="${acc.id}">
+                    ${publerPlatformIcon(acc.type_label)}
+                    <span class="ms-2">${(acc.type_label ? acc.type_label + ': ' : '') + acc.name + locked}</span>
+                </button></li>`);
+        });
+        $(`.publer-add-dropdown[data-context="${ctx}"]`).removeClass('d-none');
+        publerRefreshQuickMenu(ctx, accounts);
+        $(`.publer-quick-dropdown[data-context="${ctx}"]`).removeClass('d-none');
+    }
+
+    function publerRefreshQuickMenu(ctx, accounts) {
+        if (!accounts) accounts = publerFetchedAccounts[ctx] || [];
+        const $quickMenu = $(`.publer-quick-dropdown[data-context="${ctx}"] .publer-quick-menu`);
+        const $form      = $(`#${ctx}-list`).closest('.modal-content, form');
+        const $cSel      = $form.find('select[name="settings[country_id]"]');
+        const countryName = $cSel.find('option:selected').text().trim();
+
+        $quickMenu.empty().append('<li><h6 class="dropdown-header small">Accounts matching selected country</h6></li>');
+
+        if (!countryName || countryName === '— All countries —') {
+            $quickMenu.append('<li><span class="dropdown-item-text small text-muted">Select a country above to auto-match accounts.</span></li>');
+            return;
+        }
+
+        const matched = accounts.filter(a => a.name.toLowerCase().includes(countryName.toLowerCase()));
+        if (!matched.length) {
+            $quickMenu.append(`<li><span class="dropdown-item-text small text-muted">No accounts found matching "${countryName}".</span></li>`);
+            return;
+        }
+
+        $quickMenu.append(`<li>
+            <button type="button" class="dropdown-item small py-2 fw-semibold publer-quick-all-btn"
+                    data-context="${ctx}" data-country="${countryName}">
+                <i class="fas fa-check-double me-1 text-success"></i>
+                Add all ${matched.length} "${countryName}" account(s)
+            </button></li><li><hr class="dropdown-divider"></li>`);
+
+        matched.forEach(acc => {
+            $quickMenu.append(`<li>
+                <button type="button" class="dropdown-item small py-2 publer-add-acc-btn"
+                        data-context="${ctx}" data-acc-id="${acc.id}">
+                    ${publerPlatformIcon(acc.type_label)}
+                    <span class="ms-2">${(acc.type_label ? acc.type_label + ': ' : '') + acc.name}</span>
+                </button></li>`);
+        });
+    }
+
+    // ── Publer: fetch connected accounts ─────────────────────────────────────
+    $(document).on('click', '.publer-fetch-btn', function () {
+        const $btn         = $(this);
+        const ctx          = $btn.data('context');
+        const $form        = $btn.closest('.modal-content, form');
+        const fetchUrl     = $btn.data('fetch-url');
+        const automationId = $btn.data('automation-id') || '';
+        const apiKey       = $form.find('input[name="settings[api_key]"]').val() || '';
+
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin me-1"></i> Fetching…');
+
+        const body = new FormData();
+        body.append('_token', $('meta[name="csrf-token"]').attr('content'));
+        if (apiKey)        body.append('api_key', apiKey);
+        if (automationId)  body.append('automation_id', automationId);
+
+        fetch(fetchUrl, {
+            method: 'POST',
+            body,
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        })
+            .then(r => r.json())
+            .then(resp => {
+                if (resp.error) { Botble.showError(resp.error); return; }
+                const accounts = resp.accounts || [];
+                if (!accounts.length) {
+                    Botble.showError('No accounts found in Publer. Connect social accounts at publer.com first.');
+                    return;
+                }
+                if (resp.workspace_id) $form.find('input[name="settings[workspace_id]"]').val(resp.workspace_id);
+
+                publerFetchedAccounts[ctx] = accounts;
+
+                // Update labels on existing saved-ID rows that show raw IDs
+                const $list = $(`#${ctx}-list`);
+                $list.find('.publer-account-row').each(function () {
+                    const accId = $(this).data('acc-id');
+                    const acc   = accounts.find(a => a.id === String(accId));
+                    if (acc) {
+                        $(this).find('.publer-acc-icon').html(publerPlatformIcon(acc.type_label));
+                        $(this).find('.publer-acc-label')
+                            .text((acc.type_label ? acc.type_label + ': ' : '') + acc.name)
+                            .removeClass('text-muted fst-italic');
+                    }
+                });
+
+                publerRebuildMenus(ctx, accounts);
+                Botble.showSuccess(accounts.length + ' account(s) loaded from Publer.');
+            })
+            .catch(() => Botble.showError('Failed to reach Publer. Check your API key and network.'))
+            .finally(() => $btn.prop('disabled', false).html('<i class="fas fa-sync me-1"></i> Fetch Accounts'));
+    });
+
+    // Add single account
+    $(document).on('click', '.publer-add-acc-btn', function () {
+        const ctx     = $(this).data('context');
+        const accId   = $(this).data('acc-id');
+        const accounts = publerFetchedAccounts[ctx] || [];
+        const acc = accounts.find(a => a.id === accId);
+        if (acc) publerAddAccountRow($(`#${ctx}-list`), acc);
+        $(this).closest('.dropdown').find('[data-bs-toggle="dropdown"]').dropdown('hide');
+    });
+
+    // Quick add: all country-matching accounts
+    $(document).on('click', '.publer-quick-all-btn', function () {
+        const ctx         = $(this).data('context');
+        const countryName = $(this).data('country');
+        const accounts    = publerFetchedAccounts[ctx] || [];
+        const $list       = $(`#${ctx}-list`);
+        const matched     = accounts.filter(a => a.name.toLowerCase().includes(countryName.toLowerCase()));
+        matched.forEach(acc => publerAddAccountRow($list, acc));
+        $(this).closest('.dropdown').find('[data-bs-toggle="dropdown"]').dropdown('hide');
+        if (matched.length) Botble.showSuccess(matched.length + ' account(s) added for ' + countryName + '.');
+    });
+
+    // Remove account row
+    $(document).on('click', '.publer-remove-acc', function () {
+        const $list = $(this).closest('.publer-accounts-list');
+        const ctx   = $list.data('context');
+        $(this).closest('.publer-account-row').remove();
+        publerUpdateBadge(ctx);
+    });
+
+    // Refresh Quick Add when country selection changes
+    $(document).on('change', 'select[name="settings[country_id]"]', function () {
+        $(this).closest('.modal-content, form').find('.publer-accounts-list').each(function () {
+            publerRefreshQuickMenu($(this).data('context'));
+        });
+    });
+
+    // ── Publer: test single job (search UI) ──────────────────────────────────
+    const publerTestModal = new bootstrap.Modal(document.getElementById('publerTestJobModal'));
+    const SEARCH_URL = '{{ route('job-board.automations.search-jobs') }}';
+    let pendingTestUrl  = null;
+    let pendingCountry  = null;
+    let selectedJobId   = null;
+    let searchTimer     = null;
+
+    $(document).on('click', '.publer-test-job', function () {
+        pendingTestUrl = $(this).data('url');
+        pendingCountry = $(this).data('country-id') || null;
+
+        $('#publerTestJobModalName').text($(this).data('name'));
+        $('#publerTestJobSearch').val('');
+        $('#publerTestJobList').empty();
+        $('#publerTestJobPlaceholder').show();
+        $('#publerTestJobError').addClass('d-none').text('');
+        $('#publerTestJobSelected').addClass('d-none');
+        $('#publerTestJobConfirmBtn').prop('disabled', true).html('<i class="fas fa-flask me-1"></i> Send Test');
+        selectedJobId = null;
+
+        publerTestModal.show();
+        setTimeout(() => document.getElementById('publerTestJobSearch').focus(), 400);
+
+        // Load recent jobs immediately so the list isn't empty
+        publerJobSearch('');
+    });
+
+    function publerJobSearch(q) {
+        const params = new URLSearchParams({ q });
+        if (pendingCountry) params.append('country_id', pendingCountry);
+
+        fetch(SEARCH_URL + '?' + params.toString(), {
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        })
+            .then(r => r.json())
+            .then(resp => {
+                const jobs = resp.jobs || [];
+                const $list = $('#publerTestJobList');
+                $('#publerTestJobPlaceholder').hide();
+                $list.empty();
+
+                if (!jobs.length) {
+                    $list.html('<div class="text-muted small text-center py-3">No jobs found.</div>');
+                    return;
+                }
+
+                jobs.forEach(function (job) {
+                    const meta = [job.company, job.country].filter(Boolean).join(' · ');
+                    const isSelected = job.id === selectedJobId;
+                    $list.append(`
+                        <div class="publer-job-result d-flex align-items-start gap-2 px-3 py-2 border-bottom
+                                    ${isSelected ? 'bg-info-subtle' : ''}"
+                             style="cursor:pointer" data-job-id="${job.id}"
+                             data-title="${job.title}" data-meta="${meta}">
+                            <span class="badge bg-secondary mt-1" style="font-size:.65rem;min-width:38px">#${job.id}</span>
+                            <div class="min-w-0">
+                                <div class="small fw-semibold text-truncate">${job.title}</div>
+                                <div class="text-muted" style="font-size:.7rem">${meta}</div>
+                            </div>
+                            ${isSelected ? '<i class="fas fa-check-circle text-info ms-auto mt-1"></i>' : ''}
+                        </div>`);
+                });
+            })
+            .catch(() => {});
+    }
+
+    $('#publerTestJobSearch').on('input', function () {
+        clearTimeout(searchTimer);
+        const q = this.value.trim();
+        searchTimer = setTimeout(() => publerJobSearch(q), 280);
+    });
+
+    $('#publerTestJobClear').on('click', function () {
+        $('#publerTestJobSearch').val('').trigger('input').focus();
+    });
+
+    $(document).on('click', '.publer-job-result', function () {
+        selectedJobId = $(this).data('job-id');
+        const title   = $(this).data('title');
+        const meta    = $(this).data('meta');
+
+        // Highlight in list
+        $('.publer-job-result').removeClass('bg-info-subtle').find('.fa-check-circle').remove();
+        $(this).addClass('bg-info-subtle').append('<i class="fas fa-check-circle text-info ms-auto mt-1"></i>');
+
+        // Show selected pill
+        $('#publerTestSelectedTitle').text(title);
+        $('#publerTestSelectedMeta').text('#' + selectedJobId + (meta ? '  ·  ' + meta : ''));
+        $('#publerTestJobSelected').removeClass('d-none');
+
+        $('#publerTestJobConfirmBtn').prop('disabled', false);
+        $('#publerTestJobError').addClass('d-none');
+    });
+
+    $('#publerTestDeselectBtn').on('click', function () {
+        selectedJobId = null;
+        $('.publer-job-result').removeClass('bg-info-subtle').find('.fa-check-circle').remove();
+        $('#publerTestJobSelected').addClass('d-none');
+        $('#publerTestJobConfirmBtn').prop('disabled', true);
+    });
+
+    $('#publerTestJobConfirmBtn').on('click', function () {
+        if (!selectedJobId) return;
+        const $btn = $(this);
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin me-1"></i> Sending…');
+        $('#publerTestJobError').addClass('d-none');
+
+        const body = new FormData();
+        body.append('_token', $('meta[name="csrf-token"]').attr('content'));
+        body.append('job_id', selectedJobId);
+
+        fetch(pendingTestUrl, {
+            method: 'POST',
+            body,
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        })
+            .then(r => r.json())
+            .then(resp => {
+                if (resp.error_code || resp.error) {
+                    $('#publerTestJobError').removeClass('d-none').text(resp.message || 'Test failed.');
+                    $btn.prop('disabled', false).html('<i class="fas fa-flask me-1"></i> Send Test');
+                } else {
+                    publerTestModal.hide();
+                    Botble.showSuccess(resp.message || 'Test post sent via Publer!');
+                }
+            })
+            .catch(() => {
+                $('#publerTestJobError').removeClass('d-none').text('Request failed. Check server logs.');
+                $btn.prop('disabled', false).html('<i class="fas fa-flask me-1"></i> Send Test');
+            });
+    });
+
+    // ── Publer: send jobs modal ───────────────────────────────────────────────
+    const publerSendModal = new bootstrap.Modal(document.getElementById('publerSendModal'));
+    let pendingPublerSend = null;
+
+    $(document).on('click', '.publer-send-jobs', function () {
+        pendingPublerSend = {
+            url:  $(this).data('url'),
+            name: $(this).data('name'),
+        };
+        $('#publerSendModalName').text(pendingPublerSend.name);
+        $('input[name="publerPeriod"][value="yesterday"]').prop('checked', true).trigger('change');
+        $('#publerSendProgress').hide();
+        $('#publerSendConfirmBtn').prop('disabled', false).html('<i class="fas fa-paper-plane me-1"></i> Publish Jobs');
+        publerSendModal.show();
+    });
+
+    $(document).on('change', 'input[name="publerPeriod"]', function () {
+        $('.publer-period-option').removeClass('border-primary bg-primary-subtle');
+        $(this).closest('.publer-period-option').addClass('border-primary bg-primary-subtle');
+    });
+
+    $('#publerSendConfirmBtn').on('click', function () {
+        if (!pendingPublerSend) return;
+        const $btn   = $(this);
+        const period = $('input[name="publerPeriod"]:checked').val();
+
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin me-1"></i> Publishing…');
+        $('#publerSendProgress').show();
+
+        const body = new FormData();
+        body.append('_token', $('meta[name="csrf-token"]').attr('content'));
+        body.append('period', period);
+
+        fetch(pendingPublerSend.url, {
+            method: 'POST',
+            body,
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        })
+            .then(r => r.json())
+            .then(resp => {
+                if (resp.error) {
+                    Botble.showError(resp.message || 'Publish failed.');
+                } else {
+                    Botble.showSuccess(resp.message || 'Jobs published via Publer.');
+                    publerSendModal.hide();
+                    pendingPublerSend = null;
+                }
+            })
+            .catch(() => Botble.showError('Request failed. Check server logs.'))
+            .finally(() => {
+                $btn.prop('disabled', false).html('<i class="fas fa-paper-plane me-1"></i> Publish Jobs');
+                $('#publerSendProgress').hide();
+            });
+    });
 });
 </script>
 @endpush
 
 @push('footer')
+<div class="modal fade" id="publerTestJobModal" tabindex="-1" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title d-flex align-items-center gap-2">
+                    <i class="fas fa-flask text-info"></i>
+                    Test: <span id="publerTestJobModalName" class="text-truncate"></span>
+                </h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body pb-2">
+                <div class="input-group input-group-sm mb-2">
+                    <span class="input-group-text"><i class="fas fa-search text-muted"></i></span>
+                    <input type="text" id="publerTestJobSearch"
+                           class="form-control"
+                           placeholder="Search by job title, company, or ID…"
+                           autocomplete="off">
+                    <button type="button" class="btn btn-outline-secondary" id="publerTestJobClear" title="Clear">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                {{-- Results list --}}
+                <div id="publerTestJobResults"
+                     style="max-height:280px;overflow-y:auto;border:1px solid #dee2e6;border-radius:.375rem">
+                    <div class="text-muted small text-center py-4" id="publerTestJobPlaceholder">
+                        <i class="fas fa-search d-block mb-1 opacity-25 fs-4"></i>
+                        Type to search jobs
+                    </div>
+                    <div id="publerTestJobList"></div>
+                </div>
+
+                {{-- Selected job pill --}}
+                <div id="publerTestJobSelected" class="d-none mt-2">
+                    <div class="d-flex align-items-center gap-2 p-2 rounded border border-info bg-info-subtle">
+                        <i class="fas fa-check-circle text-info"></i>
+                        <div class="flex-grow-1 min-w-0">
+                            <div class="fw-semibold small text-truncate" id="publerTestSelectedTitle"></div>
+                            <div class="text-muted" style="font-size:.7rem" id="publerTestSelectedMeta"></div>
+                        </div>
+                        <button type="button" class="btn btn-link btn-sm p-0 text-muted" id="publerTestDeselectBtn" title="Deselect">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="publerTestJobError" class="alert alert-danger mt-2 mb-0 py-2 small d-none" role="alert"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-info btn-sm text-white" id="publerTestJobConfirmBtn" disabled>
+                    <i class="fas fa-flask me-1"></i> Send Test
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="automationConfirmModal" tabindex="-1" aria-modal="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -784,6 +1342,54 @@ $(function () {
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-success" id="whapiSendConfirmBtn">
                     <i class="fab fa-whatsapp me-1"></i> Send Jobs
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- Publer: send jobs period modal --}}
+<div class="modal fade" id="publerSendModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title d-flex align-items-center gap-2">
+                    <i class="ti ti-share text-primary"></i>
+                    <span>Publish via Publer — <span id="publerSendModalName"></span></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">Choose which jobs to publish through Publer to your connected social accounts.</p>
+                <div class="d-flex flex-column gap-2">
+                    @foreach([
+                        'today'     => ['Today',                   'Jobs posted today',                          'ti ti-calendar-event text-primary'],
+                        'yesterday' => ['Yesterday',               'Jobs posted yesterday',                      'ti ti-calendar-minus text-info'],
+                        '7days'     => ['Last 7 days',             'Jobs posted in the past week',               'ti ti-calendar-week text-warning'],
+                        '30days'    => ['Last 30 days',            'Jobs posted in the past month',              'ti ti-calendar-month text-orange'],
+                        'active'    => ['All active (not expired)','All published jobs that haven\'t closed yet','ti ti-briefcase text-success'],
+                    ] as $val => [$label, $desc, $icon])
+                    <label class="d-flex align-items-center gap-3 p-3 border rounded cursor-pointer publer-period-option {{ $val === 'yesterday' ? 'border-primary bg-primary-subtle' : '' }}" style="cursor:pointer">
+                        <input type="radio" name="publerPeriod" value="{{ $val }}" class="form-check-input mt-0 flex-shrink-0" {{ $val === 'yesterday' ? 'checked' : '' }}>
+                        <i class="{{ $icon }} fs-4 flex-shrink-0"></i>
+                        <div>
+                            <div class="fw-semibold small">{{ $label }}</div>
+                            <div class="text-muted" style="font-size:.78rem">{{ $desc }}</div>
+                        </div>
+                    </label>
+                    @endforeach
+                </div>
+                <div id="publerSendProgress" class="mt-3" style="display:none">
+                    <div class="progress" style="height:6px">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" style="width:100%;background:#5B4FE9"></div>
+                    </div>
+                    <p class="text-muted small mt-2 mb-0 text-center">Publishing to Publer…</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="publerSendConfirmBtn">
+                    <i class="fas fa-paper-plane me-1"></i> Publish Jobs
                 </button>
             </div>
         </div>

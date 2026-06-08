@@ -97,6 +97,11 @@ class TelegramSocialMessageController extends BaseController
         $whapiSendUrl     = $whapiAutomation ? route('job-board.automations.whapi-send-job', $job->getKey()) : null;
         $whapiChannelName = $whapiAutomation?->name ?? '';
 
+        $publerAutomation = \Botble\JobBoard\Models\SocialAutomation::query()
+            ->where('platform', 'publer')->where('is_active', true)->get()
+            ->first(fn ($a) => !($a->settings['country_id'] ?? null) || (int) ($a->settings['country_id']) === (int) $job->country_id);
+        $publerSendUrl    = $publerAutomation ? route('job-board.automations.publer-send-job', $job->getKey()) : null;
+
         return response($this->renderPostKitHtml(
             aiPrompt: $aiPrompt,
             storyboardPrompt: $storyboardPrompt,
@@ -118,6 +123,7 @@ class TelegramSocialMessageController extends BaseController
             adminEditUrl: $adminEditUrl,
             whapiSendUrl: $whapiSendUrl,
             whapiChannelName: $whapiChannelName,
+            publerSendUrl: $publerSendUrl,
         ));
     }
 
@@ -308,6 +314,17 @@ class TelegramSocialMessageController extends BaseController
             }
         }
 
+        // Publer send URL for this job (used for WhatsApp→FB/LinkedIn and TikTok posting)
+        $publerSendUrl = null;
+        if ($jobId && isset($liveJob)) {
+            $pa = \Botble\JobBoard\Models\SocialAutomation::query()
+                ->where('platform', 'publer')->where('is_active', true)->get()
+                ->first(fn ($a) => !($a->settings['country_id'] ?? null) || (int) ($a->settings['country_id']) === (int) $liveJob->country_id);
+            if ($pa) {
+                $publerSendUrl = route('job-board.automations.publer-send-job', $jobId);
+            }
+        }
+
         $storyboardSafe    = mb_convert_encoding((string) $storyboardPrompt, 'UTF-8', 'UTF-8');
         $geminiSafe        = mb_convert_encoding((string) $geminiPrompt, 'UTF-8', 'UTF-8');
         $tiktokImageSafe   = mb_convert_encoding((string) $tiktokImagePrompt, 'UTF-8', 'UTF-8');
@@ -327,6 +344,7 @@ class TelegramSocialMessageController extends BaseController
         $csrfToken         = csrf_token();
         $whapiSendUrlJson  = json_encode($whapiSendUrl ?? null, JSON_UNESCAPED_UNICODE);
         $whapiChannelJson  = json_encode($whapiChannelName ?? '', JSON_UNESCAPED_UNICODE);
+        $publerSendUrlJson = json_encode($publerSendUrl ?? null, JSON_UNESCAPED_UNICODE);
 
         // Per-slot copy prompts (whatsapp reuses the general 9:16 portrait prompt)
         $slotPromptsJson = json_encode([
@@ -948,6 +966,7 @@ class TelegramSocialMessageController extends BaseController
             const csrfToken       = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
             const whapiSendUrl    = {$whapiSendUrlJson};
             const whapiChannel    = {$whapiChannelJson};
+            const publerSendUrl   = {$publerSendUrlJson};
 
             // ── Init image previews on page load ──
             (function initImages() {
@@ -1055,11 +1074,9 @@ class TelegramSocialMessageController extends BaseController
                         if (data.url) showPreview(key, data.url);
                         setProgress(key, 100, 'done', '✅ Saved!');
                         setTimeout(() => {
-                            if (key === 'whatsapp_image' && whapiSendUrl) {
-                                pkAskSendToChannel();
-                            } else {
-                                location.reload();
-                            }
+                            if (key === 'whatsapp_image' && whapiSendUrl) pkAskSendToChannel();
+                            else if (key === 'tiktok_image' && publerSendUrl) pkAskSendToPubler();
+                            else location.reload();
                         }, 1200);
                     } else {
                         const msg = data.message || ('Upload failed (' + xhr.status + ')');
@@ -1099,9 +1116,10 @@ class TelegramSocialMessageController extends BaseController
             }
             function pkAskSendToChannel() {
                 pkLoadSwal().then(() => {
+                    const publerNote = publerSendUrl ? '<br><small style="color:#555;font-size:11px">Also sends to Facebook &amp; LinkedIn via Publer.</small>' : '';
                     Swal.fire({
                         title: 'Send to WhatsApp Channel?',
-                        html: 'Image uploaded. Send this job to <strong>' + whapiChannel + '</strong> now?',
+                        html: 'Image uploaded. Send this job to <strong>' + whapiChannel + '</strong> now?' + publerNote,
                         icon: 'question', showCancelButton: true,
                         confirmButtonColor: '#25D366', cancelButtonColor: '#6b7280',
                         confirmButtonText: '💬 Yes, Send Now', cancelButtonText: 'No, just save', reverseButtons: true,
@@ -1111,13 +1129,47 @@ class TelegramSocialMessageController extends BaseController
                             const fd = new FormData(); fd.append('_token', csrfToken);
                             fetch(whapiSendUrl, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
                                 .then(r => r.json())
-                                .then(d => { const ok = d.error !== true; Swal.fire({ icon: ok ? 'success' : 'error', title: ok ? 'Sent!' : 'Failed', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload()); })
+                                .then(d => {
+                                    const ok = d.error !== true;
+                                    if (publerSendUrl) {
+                                        const pfd = new FormData();
+                                        pfd.append('_token', csrfToken);
+                                        pfd.append('image_field', 'whatsapp_image');
+                                        pfd.append('exclude_networks', 'tiktok');
+                                        fetch(publerSendUrl, { method: 'POST', body: pfd, headers: { 'X-Requested-With': 'XMLHttpRequest' } }).catch(() => {});
+                                    }
+                                    Swal.fire({ icon: ok ? 'success' : 'error', title: ok ? 'Sent!' : 'Failed', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload());
+                                })
                                 .catch(() => Swal.fire({ icon: 'error', title: 'Network error' }).then(() => location.reload()));
                         } else { location.reload(); }
                     });
                 });
             }
-
+            function pkAskSendToPubler() {
+                pkLoadSwal().then(() => {
+                    Swal.fire({
+                        title: 'Post to Publer (TikTok)?',
+                        text: 'Image uploaded. Post this job to your connected TikTok account via Publer?',
+                        icon: 'question', showCancelButton: true,
+                        confirmButtonColor: '#7c3aed', cancelButtonColor: '#6b7280',
+                        confirmButtonText: '🎵 Yes, Post Now', cancelButtonText: 'No, just save', reverseButtons: true,
+                    }).then(result => {
+                        if (result.isConfirmed) {
+                            Swal.fire({ title: 'Posting to Publer…', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                            const fd = new FormData();
+                            fd.append('_token', csrfToken);
+                            fd.append('image_field', 'tiktok_image');
+                            fetch(publerSendUrl, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                                .then(r => r.json())
+                                .then(d => {
+                                    const ok = d.error !== true;
+                                    Swal.fire({ icon: ok ? 'success' : 'error', title: ok ? 'Posted!' : 'Failed', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload());
+                                })
+                                .catch(() => Swal.fire({ icon: 'error', title: 'Network error' }).then(() => location.reload()));
+                        } else { location.reload(); }
+                    });
+                });
+            }
             function copySlotPrompt(key, btn) {
                 const text = slotPrompts[key];
                 if (!text) return;
@@ -1427,6 +1479,7 @@ class TelegramSocialMessageController extends BaseController
         ?string $adminEditUrl,
         ?string $whapiSendUrl = null,
         ?string $whapiChannelName = null,
+        ?string $publerSendUrl = null,
     ): string {
         $storyboardSafe    = mb_convert_encoding((string) $storyboardPrompt, 'UTF-8', 'UTF-8');
         $geminiSafe        = mb_convert_encoding((string) $geminiPrompt, 'UTF-8', 'UTF-8');
@@ -1446,6 +1499,7 @@ class TelegramSocialMessageController extends BaseController
         $companyLogoJson   = json_encode($companyLogoUrl, JSON_UNESCAPED_UNICODE);
         $whapiSendUrlJson  = json_encode($whapiSendUrl, JSON_UNESCAPED_UNICODE);
         $whapiChannelJson  = json_encode($whapiChannelName ?? '', JSON_UNESCAPED_UNICODE);
+        $publerSendUrlJson = json_encode($publerSendUrl, JSON_UNESCAPED_UNICODE);
         $csrfToken       = csrf_token();
 
         $slotPromptsJson = json_encode([
@@ -2137,6 +2191,7 @@ JSFN;
             const csrfToken       = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
             const whapiSendUrl    = {$whapiSendUrlJson};
             const whapiChannel    = {$whapiChannelJson};
+            const publerSendUrl   = {$publerSendUrlJson};
 
             // ── Init image previews on page load ──
             (function initImages() {
@@ -2245,6 +2300,8 @@ JSFN;
                         setTimeout(() => {
                             hideProgress(key);
                             if (key === 'whatsapp_image' && whapiSendUrl) pkAskSendToChannel();
+                            else if (key === 'tiktok_image' && publerSendUrl) pkAskSendToPubler();
+                            else location.reload();
                         }, 1200);
                     } else {
                         const msg = data.message || ('Upload failed (' + xhr.status + ')');
@@ -2282,9 +2339,10 @@ JSFN;
             }
             function pkAskSendToChannel() {
                 pkLoadSwal().then(() => {
+                    const publerNote = publerSendUrl ? '<br><small style="color:#555;font-size:11px">Also sends to Facebook &amp; LinkedIn via Publer.</small>' : '';
                     Swal.fire({
                         title: 'Send to WhatsApp Channel?',
-                        html: 'Image uploaded. Send this job to <strong>' + whapiChannel + '</strong> now?',
+                        html: 'Image uploaded. Send this job to <strong>' + whapiChannel + '</strong> now?' + publerNote,
                         icon: 'question', showCancelButton: true,
                         confirmButtonColor: '#25D366', cancelButtonColor: '#6b7280',
                         confirmButtonText: '💬 Yes, Send Now', cancelButtonText: 'No, just save', reverseButtons: true,
@@ -2294,7 +2352,42 @@ JSFN;
                             const fd = new FormData(); fd.append('_token', csrfToken);
                             fetch(whapiSendUrl, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
                                 .then(r => r.json())
-                                .then(d => { const ok = d.error !== true; Swal.fire({ icon: ok ? 'success' : 'error', title: ok ? 'Sent!' : 'Failed', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload()); })
+                                .then(d => {
+                                    const ok = d.error !== true;
+                                    if (publerSendUrl) {
+                                        const pfd = new FormData();
+                                        pfd.append('_token', csrfToken);
+                                        pfd.append('image_field', 'whatsapp_image');
+                                        pfd.append('exclude_networks', 'tiktok');
+                                        fetch(publerSendUrl, { method: 'POST', body: pfd, headers: { 'X-Requested-With': 'XMLHttpRequest' } }).catch(() => {});
+                                    }
+                                    Swal.fire({ icon: ok ? 'success' : 'error', title: ok ? 'Sent!' : 'Failed', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload());
+                                })
+                                .catch(() => Swal.fire({ icon: 'error', title: 'Network error' }).then(() => location.reload()));
+                        } else { location.reload(); }
+                    });
+                });
+            }
+            function pkAskSendToPubler() {
+                pkLoadSwal().then(() => {
+                    Swal.fire({
+                        title: 'Post to Publer (TikTok)?',
+                        text: 'Image uploaded. Post this job to your connected TikTok account via Publer?',
+                        icon: 'question', showCancelButton: true,
+                        confirmButtonColor: '#7c3aed', cancelButtonColor: '#6b7280',
+                        confirmButtonText: '🎵 Yes, Post Now', cancelButtonText: 'No, just save', reverseButtons: true,
+                    }).then(result => {
+                        if (result.isConfirmed) {
+                            Swal.fire({ title: 'Posting to Publer…', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                            const fd = new FormData();
+                            fd.append('_token', csrfToken);
+                            fd.append('image_field', 'tiktok_image');
+                            fetch(publerSendUrl, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                                .then(r => r.json())
+                                .then(d => {
+                                    const ok = d.error !== true;
+                                    Swal.fire({ icon: ok ? 'success' : 'error', title: ok ? 'Posted!' : 'Failed', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload());
+                                })
                                 .catch(() => Swal.fire({ icon: 'error', title: 'Network error' }).then(() => location.reload()));
                         } else { location.reload(); }
                     });

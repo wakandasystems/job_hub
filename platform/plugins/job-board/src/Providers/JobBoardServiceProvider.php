@@ -443,6 +443,22 @@ class JobBoardServiceProvider extends ServiceProvider
                     'permissions' => ['job-board.automations.index'],
                 ])
                 ->registerItem([
+                    'id' => 'cms-plugins-job-board-automations-all',
+                    'priority' => 1,
+                    'parent_id' => 'cms-plugins-job-board-automations',
+                    'name' => 'Config',
+                    'url' => route('job-board.automations.index'),
+                    'permissions' => ['job-board.automations.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-publer',
+                    'priority' => 2,
+                    'parent_id' => 'cms-plugins-job-board-automations',
+                    'name' => 'Publer',
+                    'url' => route('job-board.publer.index'),
+                    'permissions' => ['job-board.automations.index'],
+                ])
+                ->registerItem([
                     'id' => 'cms-plugins-job-board-agents',
                     'priority' => 7,
                     'parent_id' => 'cms-plugins-job-board-main',

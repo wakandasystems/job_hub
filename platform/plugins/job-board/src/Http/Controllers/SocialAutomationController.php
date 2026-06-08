@@ -40,7 +40,7 @@ class SocialAutomationController extends BaseController
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'platform' => ['required', Rule::in(['facebook', 'linkedin', 'whatsapp', 'telegram', 'whapi'])],
+            'platform' => ['required', Rule::in(['facebook', 'linkedin', 'whatsapp', 'telegram', 'whapi', 'publer'])],
             'name'     => ['required', 'string', 'max:150'],
             'settings' => ['nullable', 'array'],
         ]);
@@ -69,6 +69,7 @@ class SocialAutomationController extends BaseController
         // Select keys (like country_id) must always override so clearing the selection works.
         $checkboxKeys = ['generate_image', 'send_image'];
         $selectKeys   = ['country_id'];
+        $arrayKeys    = ['account_ids'];
         $existing = $automation->settings ?? [];
         $incoming = $validated['settings'] ?? [];
         foreach ($checkboxKeys as $key) {
@@ -79,10 +80,16 @@ class SocialAutomationController extends BaseController
         foreach ($checkboxKeys as $key) {
             $merged[$key] = $incoming[$key];
         }
-        // Allow empty string to clear select fields (e.g. country_id → all countries)
+        // Allow empty string to clear scalar select fields (e.g. country_id → all countries)
         foreach ($selectKeys as $key) {
             if (array_key_exists($key, $incoming)) {
                 $merged[$key] = $incoming[$key] === '' ? null : $incoming[$key];
+            }
+        }
+        // Always override array fields so removing all selections works
+        foreach ($arrayKeys as $key) {
+            if (array_key_exists($key, $incoming)) {
+                $merged[$key] = array_values(array_filter((array) $incoming[$key]));
             }
         }
 
@@ -553,5 +560,255 @@ class SocialAutomationController extends BaseController
         }
 
         return $this->httpResponse()->setError()->setMessage('Failed to send to WhatsApp Channel. Check token and limits.');
+    }
+
+    // -------------------------------------------------------------------------
+    // Publer helpers
+    // -------------------------------------------------------------------------
+
+    public function fetchPublerAccounts(Request $request)
+    {
+        $automationId = (int) $request->input('automation_id', 0);
+        $apiKey       = trim((string) $request->input('api_key', ''));
+
+        // Fall back to saved key when the password field was left blank
+        if ($apiKey === '' && $automationId) {
+            $saved  = SocialAutomation::find($automationId);
+            $apiKey = trim((string) ($saved?->settings['api_key'] ?? ''));
+        }
+
+        // Final fallback to global config
+        if ($apiKey === '') {
+            $apiKey = trim((string) (setting('publer_api_key') ?: env('PUBLER_API_KEY', '')));
+        }
+
+        if ($apiKey === '') {
+            return response()->json(['error' => 'Enter (or save) the Publer API key first.'], 422);
+        }
+
+        $workspaceId = trim((string) $request->input('workspace_id', ''));
+        if ($workspaceId === '' && $automationId) {
+            $saved       = SocialAutomation::find($automationId);
+            $workspaceId = trim((string) ($saved?->settings['workspace_id'] ?? ''));
+        }
+
+        try {
+            $publisher = app(SocialPublisherService::class);
+
+            // Fetch workspaces first if no workspace ID provided
+            if ($workspaceId === '') {
+                $workspaces  = $publisher->fetchPublerWorkspaces($apiKey);
+                $workspaceId = $workspaces[0]['id'] ?? '';
+            }
+
+            $accounts = $publisher->fetchPublerAccounts($apiKey, $workspaceId);
+
+            if (empty($accounts)) {
+                return response()->json(['error' => 'No connected accounts found in Publer. Connect your social accounts at publer.io first.'], 422);
+            }
+
+            return response()->json([
+                'accounts'     => $accounts,
+                'workspace_id' => $workspaceId,
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json(['error' => 'Could not reach Publer: ' . $e->getMessage()], 422);
+        }
+    }
+
+    public function publerSendJob(Job $job, Request $request, SocialPublisherService $publisher)
+    {
+        $job->loadMissing(['company', 'slugable', 'country', 'currency', 'jobTypes']);
+
+        $preferredImageField = $request->input('image_field') ?: null;
+        $excludeNetworks     = array_filter(array_map('trim', explode(',', (string) $request->input('exclude_networks', ''))));
+
+        $automations = SocialAutomation::query()
+            ->where('platform', 'publer')
+            ->where('is_active', true)
+            ->get()
+            ->filter(function (SocialAutomation $a) use ($job) {
+                $cid = $a->settings['country_id'] ?? null;
+                return ! $cid || (int) $cid === (int) $job->country_id;
+            });
+
+        if ($automations->isEmpty()) {
+            return $this->httpResponse()->setError()->setMessage('No active Publer automation matches this job\'s country.');
+        }
+
+        $sent = 0;
+
+        foreach ($automations as $automation) {
+            $settings    = $automation->settings ?? [];
+            $apiKey      = trim((string) ($settings['api_key'] ?? ''));
+            if ($apiKey === '') {
+                $apiKey = trim((string) (setting('publer_api_key') ?: env('PUBLER_API_KEY', '')));
+            }
+            $accountIds  = array_values(array_filter((array) ($settings['account_ids'] ?? [])));
+            $workspaceId = trim((string) ($settings['workspace_id'] ?? ''));
+
+            if ($apiKey === '' || empty($accountIds)) {
+                continue;
+            }
+
+            try {
+                if ($publisher->publerPost($job, $apiKey, $accountIds, $workspaceId, $preferredImageField, $excludeNetworks)) {
+                    $sent++;
+                }
+            } catch (\Throwable) {
+                // continue to next automation
+            }
+        }
+
+        if ($sent > 0) {
+            return $this->httpResponse()->setMessage("Job published to Publer via {$sent} automation(s).");
+        }
+
+        return $this->httpResponse()->setError()->setMessage('Failed to publish to Publer. Check your API key and account IDs.');
+    }
+
+    public function publerSendPeriodJobs(SocialAutomation $automation, Request $request, SocialPublisherService $publisher)
+    {
+        $request->validate(['period' => ['required', 'in:today,yesterday,7days,30days,active']]);
+
+        set_time_limit(300);
+
+        $settings    = $automation->settings ?? [];
+        $apiKey      = trim((string) ($settings['api_key'] ?? ''));
+        if ($apiKey === '') {
+            $apiKey = trim((string) (setting('publer_api_key') ?: env('PUBLER_API_KEY', '')));
+        }
+        $accountIds  = array_values(array_filter((array) ($settings['account_ids'] ?? [])));
+        $workspaceId = trim((string) ($settings['workspace_id'] ?? ''));
+        $countryId   = isset($settings['country_id']) && $settings['country_id'] !== ''
+            ? (int) $settings['country_id']
+            : null;
+
+        if ($apiKey === '' || empty($accountIds)) {
+            return $this->httpResponse()->setError()->setMessage('Automation is missing API key or account IDs.');
+        }
+
+        $period = $request->input('period');
+
+        $query = Job::query()
+            ->with(['company', 'slugable', 'country', 'currency', 'jobTypes'])
+            ->where('status', JobStatusEnum::PUBLISHED)
+            ->orderByDesc('created_at');
+
+        match ($period) {
+            'today'     => $query->whereDate('created_at', today()),
+            'yesterday' => $query->whereDate('created_at', today()->subDay()),
+            '7days'     => $query->where('created_at', '>=', now()->subDays(7)->startOfDay()),
+            '30days'    => $query->where('created_at', '>=', now()->subDays(30)->startOfDay()),
+            'active'    => $query->where(fn ($q) =>
+                               $q->whereNull('expire_date')->orWhere('expire_date', '>=', today())
+                           ),
+        };
+
+        if ($countryId) {
+            $query->where('country_id', $countryId);
+        }
+
+        $jobs = $query->get();
+
+        if ($jobs->isEmpty()) {
+            return $this->httpResponse()->setError()->setMessage('No jobs found for the selected period.');
+        }
+
+        $sent = $failed = 0;
+
+        foreach ($jobs as $job) {
+            try {
+                $publisher->publerPost($job, $apiKey, $accountIds, $workspaceId) ? $sent++ : $failed++;
+            } catch (\Throwable) {
+                $failed++;
+            }
+            usleep(500000); // 0.5s between posts to respect rate limits
+        }
+
+        $msg = "Published {$sent} of {$jobs->count()} job(s) to Publer via {$automation->name}" . ($failed ? " ({$failed} failed)" : '') . '.';
+
+        return $sent > 0
+            ? $this->httpResponse()->setMessage($msg)
+            : $this->httpResponse()->setError()->setMessage($msg);
+    }
+
+    public function publerTestJob(SocialAutomation $automation, Request $request, SocialPublisherService $publisher)
+    {
+        $request->validate(['job_id' => ['required']]);
+
+        // Accept a raw ID or a full URL — extract the numeric ID from the end
+        $raw   = trim((string) $request->input('job_id'));
+        $jobId = preg_replace('/\D/', '', basename(rtrim($raw, '/')));
+
+        if (! $jobId) {
+            return $this->httpResponse()->setError()->setMessage('Could not parse a job ID from the input.');
+        }
+
+        $job = Job::with(['company', 'slugable', 'country', 'currency', 'jobTypes'])->find((int) $jobId);
+        if (! $job) {
+            return $this->httpResponse()->setError()->setMessage("Job #{$jobId} not found.");
+        }
+
+        $settings    = $automation->settings ?? [];
+        $apiKey      = trim((string) ($settings['api_key'] ?? ''));
+        if ($apiKey === '') {
+            $apiKey = trim((string) (setting('publer_api_key') ?: env('PUBLER_API_KEY', '')));
+        }
+        $accountIds  = array_values(array_filter((array) ($settings['account_ids'] ?? [])));
+        $workspaceId = trim((string) ($settings['workspace_id'] ?? ''));
+
+        if ($apiKey === '') {
+            return $this->httpResponse()->setError()->setMessage('No Publer API key configured for this automation.');
+        }
+
+        if (empty($accountIds)) {
+            return $this->httpResponse()->setError()->setMessage('No Publer accounts selected. Edit the automation and add accounts first.');
+        }
+
+        try {
+            $ok = $publisher->publerPost($job, $apiKey, $accountIds, $workspaceId);
+            return $ok
+                ? $this->httpResponse()->setMessage("Test post sent for \"{$job->name}\" via {$automation->name}.")
+                : $this->httpResponse()->setError()->setMessage('Publer returned an error. Check the API key and account IDs in server logs.');
+        } catch (\Throwable $e) {
+            return $this->httpResponse()->setError()->setMessage('Error: ' . $e->getMessage());
+        }
+    }
+
+    public function searchJobs(Request $request)
+    {
+        $q         = trim((string) $request->input('q', ''));
+        $countryId = $request->input('country_id');
+
+        $query = Job::query()
+            ->with(['company', 'country'])
+            ->where('status', JobStatusEnum::PUBLISHED)
+            ->orderByDesc('created_at')
+            ->limit(12);
+
+        if ($countryId) {
+            $query->where('country_id', (int) $countryId);
+        }
+
+        if ($q !== '') {
+            if (is_numeric($q)) {
+                $query->where('id', (int) $q);
+            } else {
+                $query->where(function ($sub) use ($q) {
+                    $sub->where('name', 'like', "%{$q}%")
+                        ->orWhereHas('company', fn ($c) => $c->where('name', 'like', "%{$q}%"));
+                });
+            }
+        }
+
+        $jobs = $query->get()->map(fn (Job $j) => [
+            'id'      => $j->id,
+            'title'   => $j->name,
+            'company' => $j->company?->name ?? '',
+            'country' => $j->country?->name ?? '',
+        ]);
+
+        return response()->json(['jobs' => $jobs]);
     }
 }

@@ -9,6 +9,7 @@ use Botble\Media\Facades\RvMedia;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Throwable;
@@ -36,6 +37,7 @@ class SocialPublisherService
                     'whatsapp' => $this->postToWhatsApp($automation, $job),
                     'telegram' => $this->postToTelegram($automation, $job),
                     'whapi'    => $this->postToWhapiChannel($automation, $job),
+                    'publer'   => $this->postToPubler($automation, $job),
                     default    => false,
                 };
 
@@ -54,6 +56,9 @@ class SocialPublisherService
                 ];
             }
         }
+
+        // Country-mapped Publer posts (one automation per country)
+        $this->postToPublerCountryMapping($job, $results);
 
         return $results;
     }
@@ -179,6 +184,20 @@ class SocialPublisherService
         $prompt .= " IMPORTANT — IMAGE DIMENSIONS: Generate this image at exactly 1080 × 1920 pixels, 9:16 portrait aspect ratio, optimised for TikTok, Instagram Stories, Facebook Stories, and WhatsApp Status. Do NOT generate a landscape or square image.";
 
         return $prompt;
+    }
+
+    /**
+     * TikTok photo posts require a 'title' (max 90 chars) — Publer rejects
+     * the post without it. Build one from the job title + company.
+     */
+    protected function buildTikTokPostTitle(Job $job): string
+    {
+        $title   = trim((string) $job->name);
+        $company = trim((string) ($job->company?->name ?? ''));
+
+        $full = $company ? "{$title} @ {$company}" : $title;
+
+        return Str::limit($full, 90, '');
     }
 
     public function buildTikTokImagePrompt(Job $job): string
@@ -852,7 +871,7 @@ PROMPT;
         if ($deadlineStr) $tiktok .= "\n📅 Deadline: {$deadlineStr}";
         $tiktok .= "\n\nDon't miss this! 👆 Link in bio to apply!";
         $tiktok .= "\n\n#JobsIn{$countrySlug} #{$countrySlug}Jobs #JobTok #Hiring #{$countrySlug}Hiring";
-        $tiktok .= " #TikTokJobs #JobAlert #NewJob ##{$titleSlug}";
+        $tiktok .= " #TikTokJobs #JobAlert #NewJob #{$titleSlug}";
         if ($companySlug) $tiktok .= " #{$companySlug}";
         $tiktok .= " #WakandaJobs #AfricaJobs #GetHired #CareerGoals #JobOpportunity #NowHiring";
 
@@ -878,7 +897,7 @@ PROMPT;
         $twitter = $twitterBody;
 
         // ── LinkedIn ────────────────────────────────────────────────────────
-        $linkedin  = "🌟 Exciting Career Opportunity: {$title}\n\n";
+        $linkedin  = "🏷️ Position: {$title}\n";
         if ($company) $linkedin .= "📢 Hiring Company: {$company}\n";
         $linkedin .= "📍 Location: {$location}\n";
         if ($salaryLine) $linkedin .= "💰 Salary: {$salaryLine}\n";
@@ -893,8 +912,7 @@ PROMPT;
         $linkedin .= " #ProfessionalDevelopment #AfricaCareers";
 
         // ── Facebook ────────────────────────────────────────────────────────
-        $facebook  = "👋 Hey {$countryName}! We've got an opportunity you don't want to miss! 🎯\n\n";
-        $facebook .= "🏷️ Position: {$title}\n";
+        $facebook  = "🏷️ Position: {$title}\n";
         if ($company) $facebook .= "🏢 Company: {$company}\n";
         $facebook .= "📍 Location: {$location}\n";
         if ($salaryLine) $facebook .= "💰 Salary: {$salaryLine}\n";
@@ -948,6 +966,495 @@ PROMPT;
         $lines[] = '#Jobs #ZambiaJobs #Hiring #WakandaJobs';
 
         return trim(implode("\n", array_filter($lines, fn ($line) => $line !== null)));
+    }
+
+    // -------------------------------------------------------------------------
+    // Publer  (base: https://app.publer.com/api/v1)
+    // Auth:   Authorization: Bearer-API {key}  +  Publer-Workspace-Id: {id}
+    // -------------------------------------------------------------------------
+
+    private const PUBLER_BASE = 'https://app.publer.com/api/v1';
+
+    private function publerHeaders(string $apiKey, string $workspaceId = ''): array
+    {
+        $headers = [
+            'Authorization' => 'Bearer-API ' . $apiKey,
+            'Accept'        => 'application/json',
+            'Content-Type'  => 'application/json',
+        ];
+        if ($workspaceId !== '') {
+            $headers['Publer-Workspace-Id'] = $workspaceId;
+        }
+        return $headers;
+    }
+
+    private function publerResolveWorkspace(string $apiKey, string $hint = ''): string
+    {
+        if ($hint !== '') {
+            return $hint;
+        }
+        $r = Http::timeout(10)->withHeaders($this->publerHeaders($apiKey))->get(self::PUBLER_BASE . '/workspaces');
+        $list = $r->json();
+        if (! is_array($list) || empty($list)) {
+            throw new \RuntimeException('No Publer workspaces found for this API key.');
+        }
+        return (string) ($list[0]['id'] ?? '');
+    }
+
+    protected function postToPubler(SocialAutomation $automation, Job $job): bool
+    {
+        $settings   = $automation->settings ?? [];
+        $apiKey     = trim((string) ($settings['api_key'] ?? ''));
+        if ($apiKey === '') {
+            $apiKey = trim((string) (setting('publer_api_key') ?: env('PUBLER_API_KEY', '')));
+        }
+        $accountIds  = array_values(array_filter((array) ($settings['account_ids'] ?? [])));
+        $workspaceId = trim((string) ($settings['workspace_id'] ?? ''));
+        $countryId   = isset($settings['country_id']) && $settings['country_id'] !== ''
+            ? (int) $settings['country_id']
+            : null;
+
+        if ($apiKey === '' || empty($accountIds)) {
+            return false;
+        }
+
+        if ($countryId !== null && (int) $job->country_id !== $countryId) {
+            return false;
+        }
+
+        return $this->publerPost($job, $apiKey, $accountIds, $workspaceId);
+    }
+
+    public function fetchPublerWorkspaces(string $apiKey): array
+    {
+        $r = Http::timeout(15)->withHeaders($this->publerHeaders($apiKey))->get(self::PUBLER_BASE . '/workspaces');
+
+        if (! $r->successful()) {
+            throw new \RuntimeException('Publer API returned HTTP ' . $r->status() . ': ' . $r->body());
+        }
+
+        $list = $r->json();
+        if (! is_array($list)) {
+            $list = [];
+        }
+
+        return collect($list)
+            ->map(fn ($w) => [
+                'id'   => (string) ($w['id'] ?? ''),
+                'name' => $w['name'] ?? 'Workspace',
+            ])
+            ->filter(fn ($w) => $w['id'] !== '')
+            ->values()
+            ->all();
+    }
+
+    public function fetchPublerAccounts(string $apiKey, string $workspaceId = ''): array
+    {
+        if ($workspaceId === '') {
+            $workspaceId = $this->publerResolveWorkspace($apiKey);
+        }
+
+        $r = Http::timeout(15)
+            ->withHeaders($this->publerHeaders($apiKey, $workspaceId))
+            ->get(self::PUBLER_BASE . '/accounts');
+
+        if (! $r->successful()) {
+            throw new \RuntimeException('Publer API returned HTTP ' . $r->status() . ': ' . $r->body());
+        }
+
+        $list = $r->json();
+        if (! is_array($list)) {
+            $list = [];
+        }
+
+        // Map account type to a readable platform label
+        $typeLabels = [
+            'fb_page'          => 'Facebook Page',
+            'fb_group'         => 'Facebook Group',
+            'fb_profile'       => 'Facebook Profile',
+            'in_page'          => 'LinkedIn Page',
+            'in_profile'       => 'LinkedIn Profile',
+            'tiktok'           => 'TikTok',
+            'instagram'        => 'Instagram',
+            'twitter'          => 'X (Twitter)',
+            'pinterest'        => 'Pinterest',
+            'youtube'          => 'YouTube',
+            'google'           => 'Google Business',
+            'telegram'         => 'Telegram',
+            'mastodon'         => 'Mastodon',
+            'threads'          => 'Threads',
+            'bluesky'          => 'Bluesky',
+            'wordpress_basic'  => 'WordPress',
+            'wordpress_oauth'  => 'WordPress (OAuth)',
+        ];
+
+        return collect($list)
+            ->map(fn ($acc) => [
+                'id'          => (string) ($acc['id'] ?? ''),
+                'name'        => $acc['name'] ?? 'Unknown',
+                'platform'    => $acc['provider'] ?? '',
+                'type'        => $acc['type'] ?? '',
+                'type_label'  => $typeLabels[$acc['type'] ?? ''] ?? ucfirst($acc['provider'] ?? $acc['type'] ?? 'Unknown'),
+                'picture'     => $acc['picture'] ?? null,
+                'locked'      => ! empty($acc['locked']),
+            ])
+            ->filter(fn ($acc) => $acc['id'] !== '')
+            ->values()
+            ->all();
+    }
+
+    public function publerPost(Job $job, string $apiKey, array $accountIds, string $workspaceId = '', ?string $preferredImageField = null, array $excludeNetworks = []): bool
+    {
+        if (empty($accountIds)) {
+            return false;
+        }
+
+        if ($workspaceId === '') {
+            $workspaceId = $this->publerResolveWorkspace($apiKey);
+        }
+
+        $posts = $this->buildPlatformPosts($job);
+
+        $networkTextMap = [
+            'facebook'  => $posts['facebook']  ?? null,
+            'linkedin'  => $posts['linkedin']  ?? null,
+            'tiktok'    => $posts['tiktok']    ?? null,
+            'twitter'   => $posts['twitter']   ?? null,
+            'instagram' => $posts['facebook']  ?? null,
+        ];
+        $defaultText = $posts['facebook'] ?? $this->buildJobMessage($job);
+
+        // Resolve image URL — preferred field first, then fallbacks
+        $imageUrl = null;
+        $imageFields = ['facebook_image', 'whatsapp_image', 'linkedin_image', 'tiktok_image'];
+        if ($preferredImageField) {
+            $imageFields = array_merge(
+                [$preferredImageField],
+                array_values(array_filter($imageFields, fn ($f) => $f !== $preferredImageField))
+            );
+        }
+        foreach ($imageFields as $field) {
+            $stored = trim((string) ($job->{$field} ?? ''));
+            if ($stored !== '') {
+                try {
+                    $resolved = RvMedia::getImageUrl($stored);
+                    if ($resolved) {
+                        $imageUrl = $resolved;
+                    }
+                } catch (Throwable) {}
+                break;
+            }
+        }
+
+        // Upload image to Publer and get a media ID for use in post payload
+        $mediaId = null;
+        if ($imageUrl) {
+            $mediaId = $this->publerUploadMedia($apiKey, $workspaceId, $imageUrl);
+        }
+
+        $accountPayloads = [];
+        foreach ($accountIds as $accountId) {
+            $accountPayloads[] = ['id' => (string) $accountId];
+        }
+
+        $postObj = [
+            'accounts' => $accountPayloads,
+            'networks' => [],
+        ];
+
+        // TikTok requires type='photo' with media — skip if no image.
+        // Other platforms use type='status'; image is optional.
+        foreach (['facebook', 'linkedin', 'tiktok', 'twitter', 'instagram'] as $net) {
+            if (in_array($net, $excludeNetworks, true)) {
+                continue;
+            }
+
+            $text = $networkTextMap[$net] ?? $defaultText;
+            if ($net === 'tiktok') {
+                if (! $mediaId) {
+                    continue; // TikTok does not support text-only posts
+                }
+                $postObj['networks'][$net] = [
+                    'type'    => 'photo',
+                    'title'   => $this->buildTikTokPostTitle($job),
+                    'text'    => $text,
+                    'media'   => [['id' => $mediaId, 'type' => 'image']],
+                    'details' => ['auto_add_music' => true, 'privacy' => 'PUBLIC_TO_EVERYONE'],
+                ];
+                continue;
+            }
+            $entry = ['type' => $mediaId ? 'photo' : 'status', 'text' => $text];
+            if ($mediaId) {
+                $entry['media'] = [['id' => $mediaId, 'type' => 'image']];
+            }
+            $postObj['networks'][$net] = $entry;
+        }
+
+        if (empty($postObj['networks'])) {
+            unset($postObj['networks']);
+            $postObj['text'] = $defaultText;
+        }
+
+        $payload = [
+            'bulk' => [
+                'state' => 'published',
+                'posts' => [$postObj],
+            ],
+        ];
+
+        $r = Http::timeout(30)
+            ->withHeaders($this->publerHeaders($apiKey, $workspaceId))
+            ->post(self::PUBLER_BASE . '/posts/schedule/publish', $payload);
+
+        if (! $r->successful()) {
+            Log::warning('Publer post failed', [
+                'job_id' => $job->getKey(),
+                'status' => $r->status(),
+                'body'   => $r->body(),
+            ]);
+        }
+
+        return $r->successful();
+    }
+
+    /**
+     * Upload an image to Publer via POST /media (multipart/form-data).
+     * Returns the Publer media ID on success, null on failure.
+     * The direct upload endpoint is synchronous — ID is returned immediately.
+     */
+    private function publerUploadMedia(string $apiKey, string $workspaceId, string $imageUrl): ?string
+    {
+        // Download the image from our server so we can re-upload it to Publer
+        try {
+            $download = Http::timeout(30)->get($imageUrl);
+            if (! $download->successful()) {
+                return null;
+            }
+            $content     = $download->body();
+            $contentType = $download->header('Content-Type') ?: 'image/jpeg';
+        } catch (Throwable) {
+            return null;
+        }
+
+        $filename = basename(parse_url($imageUrl, PHP_URL_PATH)) ?: 'image.jpg';
+
+        // Build headers without Content-Type — multipart sets it automatically
+        $headers = ['Authorization' => 'Bearer-API ' . $apiKey, 'Accept' => 'application/json'];
+        if ($workspaceId !== '') {
+            $headers['Publer-Workspace-Id'] = $workspaceId;
+        }
+
+        try {
+            $r = Http::timeout(60)
+                ->withHeaders($headers)
+                ->attach('file', $content, $filename, ['Content-Type' => $contentType])
+                ->post(self::PUBLER_BASE . '/media');
+
+            if (! $r->successful()) {
+                return null;
+            }
+
+            $id = (string) ($r->json('id') ?? '');
+            return $id !== '' ? $id : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    protected function postToPublerCountryMapping(Job $job, array &$results): void
+    {
+        if (! $job->country_id) {
+            return;
+        }
+
+        $mapping = \Botble\JobBoard\Models\PublerCountryMapping::where('country_id', $job->country_id)
+            ->where('is_active', true)
+            ->first();
+
+        if (! $mapping) {
+            return;
+        }
+
+        $apiKey = trim((string) (setting('publer_api_key') ?: env('PUBLER_API_KEY', '')));
+        if ($apiKey === '') {
+            return;
+        }
+
+        $networkMap = $mapping->networkToAccountMap();
+        if (empty($networkMap)) {
+            return;
+        }
+
+        $workspaceId = $mapping->workspace_id ?: trim((string) setting('publer_workspace_id', ''));
+        if ($workspaceId === '') {
+            $workspaceId = $this->publerResolveWorkspace($apiKey);
+        }
+
+        $posts       = $this->buildPlatformPosts($job);
+        $defaultText = $posts['facebook'] ?? $this->buildJobMessage($job);
+
+        $networkTextMap = [
+            'facebook'  => $posts['facebook']  ?? $defaultText,
+            'linkedin'  => $posts['linkedin']  ?? $defaultText,
+            'tiktok'    => $posts['tiktok']    ?? $defaultText,
+            'twitter'   => $posts['twitter']   ?? $defaultText,
+            'instagram' => $posts['facebook']  ?? $defaultText,
+        ];
+
+        // ── Image resolution & upload ─────────────────────────────────────────
+        // Priority: 1) generated template image, 2) job's stored image
+        // Images are uploaded to Publer's /media endpoint to get a media ID.
+        $tiktokMediaId  = null; // vertical (9:16) uploaded for TikTok
+        $squareMediaId  = null; // square / landscape uploaded for FB/LinkedIn/Twitter/Instagram
+        $generatedPaths = [];   // track local temp files to clean up after posting
+
+        if ($mapping->hasImageGeneration()) {
+            try {
+                $imageService = app(\Botble\JobBoard\Services\SocialImageService::class);
+                $hasTikTok    = isset($networkMap['tiktok']);
+
+                // Generate vertical for TikTok (or square if no TikTok)
+                $primaryFormat = $hasTikTok ? 'vertical' : 'square';
+                $result        = $imageService->generateForJob($job, $mapping, $primaryFormat);
+
+                if ($result) {
+                    [$localPath, $generatedUrl] = $result;
+                    $generatedPaths[] = $localPath;
+                    $uploaded         = $this->publerUploadMedia($apiKey, $workspaceId, $generatedUrl);
+                    if ($uploaded) {
+                        $tiktokMediaId = $uploaded;
+                        $squareMediaId = $uploaded; // fallback for non-TikTok until we generate a square
+                    }
+                }
+
+                // If we have TikTok AND non-TikTok accounts, also generate + upload a square
+                if ($hasTikTok && count($networkMap) > 1) {
+                    $squareResult = $imageService->generateForJob($job, $mapping, 'square');
+                    if ($squareResult) {
+                        [$squarePath, $squareUrl] = $squareResult;
+                        $generatedPaths[] = $squarePath;
+                        $squareUploaded   = $this->publerUploadMedia($apiKey, $workspaceId, $squareUrl);
+                        if ($squareUploaded) {
+                            $squareMediaId = $squareUploaded;
+                        }
+                    }
+                }
+            } catch (Throwable) {}
+        }
+
+        // Fallback: upload from the job's stored image fields
+        if (! $squareMediaId) {
+            foreach (['facebook_image', 'whatsapp_image', 'linkedin_image', 'tiktok_image'] as $field) {
+                $stored = trim((string) ($job->{$field} ?? ''));
+                if ($stored !== '') {
+                    try {
+                        $resolved = RvMedia::getImageUrl($stored);
+                        if ($resolved) {
+                            $uploaded = $this->publerUploadMedia($apiKey, $workspaceId, $resolved);
+                            if ($uploaded) {
+                                $squareMediaId = $uploaded;
+                                if (! $tiktokMediaId) {
+                                    $tiktokMediaId = $uploaded;
+                                }
+                            }
+                        }
+                    } catch (Throwable) {}
+                    break;
+                }
+            }
+        }
+
+        // Build accounts list (one entry per mapped account ID)
+        $accountPayloads = array_map(fn ($id) => ['id' => (string) $id], array_values($networkMap));
+
+        // TikTok requires type='photo' with a media ID — skip if no image was uploaded.
+        // All other platforms use type='status' with an optional media attachment.
+        $networksObj = [];
+        foreach (array_keys($networkMap) as $net) {
+            if ($net === 'tiktok') {
+                if (! $tiktokMediaId) {
+                    continue; // TikTok does not support text-only posts
+                }
+                $networksObj[$net] = [
+                    'type'    => 'photo',
+                    'title'   => $this->buildTikTokPostTitle($job),
+                    'text'    => $networkTextMap[$net] ?? $defaultText,
+                    'media'   => [['id' => $tiktokMediaId, 'type' => 'image']],
+                    'details' => ['auto_add_music' => true, 'privacy' => 'PUBLIC_TO_EVERYONE'],
+                ];
+                continue;
+            }
+            $entry = ['type' => $squareMediaId ? 'photo' : 'status', 'text' => $networkTextMap[$net] ?? $defaultText];
+            if ($squareMediaId) {
+                $entry['media'] = [['id' => $squareMediaId, 'type' => 'image']];
+            }
+            $networksObj[$net] = $entry;
+        }
+
+        $payload = [
+            'bulk' => [
+                'state' => 'published',
+                'posts' => [['accounts' => $accountPayloads, 'networks' => $networksObj]],
+            ],
+        ];
+
+        try {
+            $r = Http::timeout(30)
+                ->withHeaders($this->publerHeaders($apiKey, $workspaceId))
+                ->post(self::PUBLER_BASE . '/posts/schedule/publish', $payload);
+
+            $results[] = [
+                'platform' => 'publer_country_' . $job->country_id,
+                'success'  => $r->successful(),
+                'message'  => $r->successful() ? 'Posted via country mapping' : $r->body(),
+            ];
+        } catch (Throwable $e) {
+            $results[] = [
+                'platform' => 'publer_country_' . $job->country_id,
+                'success'  => false,
+                'message'  => $e->getMessage(),
+            ];
+        } finally {
+            // Clean up any generated image files
+            if ($generatedPaths) {
+                try {
+                    $imageService = app(\Botble\JobBoard\Services\SocialImageService::class);
+                    foreach ($generatedPaths as $p) {
+                        $imageService->cleanup($p);
+                    }
+                } catch (Throwable) {}
+            }
+        }
+    }
+
+    public function publerPostText(string $text, string $apiKey, string $workspaceId, array $networkToAccountId): bool
+    {
+        if (empty($networkToAccountId)) {
+            return false;
+        }
+
+        if ($workspaceId === '') {
+            $workspaceId = $this->publerResolveWorkspace($apiKey);
+        }
+
+        $accountPayloads = array_map(fn ($id) => ['id' => (string) $id], array_values($networkToAccountId));
+        $networksObj     = [];
+        foreach (array_keys($networkToAccountId) as $net) {
+            $networksObj[$net] = ['type' => 'status', 'text' => $text];
+        }
+
+        $payload = [
+            'bulk' => [
+                'state' => 'published',
+                'posts' => [['accounts' => $accountPayloads, 'networks' => $networksObj]],
+            ],
+        ];
+
+        $r = Http::timeout(30)
+            ->withHeaders($this->publerHeaders($apiKey, $workspaceId))
+            ->post(self::PUBLER_BASE . '/posts/schedule/publish', $payload);
+
+        return $r->successful();
     }
 
     // -------------------------------------------------------------------------
