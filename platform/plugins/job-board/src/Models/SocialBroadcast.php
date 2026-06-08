@@ -1,0 +1,26 @@
+<?php
+
+namespace Botble\JobBoard\Models;
+
+use Botble\Base\Models\BaseModel;
+
+class SocialBroadcast extends BaseModel
+{
+    protected $table = 'jb_social_broadcasts';
+
+    protected $fillable = [
+        'message',
+        'image_path',
+        'status',
+        'scheduled_at',
+        'sent_at',
+        'results',
+        'created_by',
+    ];
+
+    protected $casts = [
+        'scheduled_at' => 'datetime',
+        'sent_at'      => 'datetime',
+        'results'      => 'array',
+    ];
+}

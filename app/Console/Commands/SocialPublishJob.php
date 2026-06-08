@@ -26,10 +26,13 @@ class SocialPublishJob extends Command
         $results = app(\Botble\JobBoard\Services\SocialPublisherService::class)->publishJob($job);
 
         foreach ($results as $result) {
+            $automation = $result['automation'] ?? 'Social automation';
+            $platform = $result['platform'] ?? 'unknown';
+
             if ($result['success']) {
-                $this->components->info("{$result['automation']} ({$result['platform']}): posted successfully.");
+                $this->components->info("{$automation} ({$platform}): posted successfully.");
             } else {
-                $this->components->warn("{$result['automation']} ({$result['platform']}): failed - " . ($result['error'] ?? 'unknown'));
+                $this->components->warn("{$automation} ({$platform}): failed - " . ($result['error'] ?? 'unknown'));
             }
         }
 

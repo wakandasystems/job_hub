@@ -29,7 +29,19 @@ class SocialPublisherService
             ->where('is_active', true)
             ->get();
 
+        $hasCountryMapping = $job->country_id
+            && \Botble\JobBoard\Models\PublerCountryMapping::query()
+                ->where('country_id', $job->country_id)
+                ->where('is_active', true)
+                ->exists();
+
         foreach ($automations as $automation) {
+            // Country mappings are the authoritative Publer configuration. Running
+            // both paths submits the same job to the same accounts twice.
+            if ($automation->platform === 'publer' && $hasCountryMapping) {
+                continue;
+            }
+
             try {
                 $posted = match ($automation->platform) {
                     'facebook' => $this->postToFacebook($automation, $job),
@@ -58,7 +70,9 @@ class SocialPublisherService
         }
 
         // Country-mapped Publer posts (one automation per country)
-        $this->postToPublerCountryMapping($job, $results);
+        if ($hasCountryMapping) {
+            $this->postToPublerCountryMapping($job, $results);
+        }
 
         return $results;
     }
@@ -116,11 +130,9 @@ class SocialPublisherService
         $details[] = "Location: {$location}";
 
         try {
-            if (! $job->hide_salary && $job->salary_text) {
-                $salary = (string) $job->salary_text;
-                if (! in_array(strtolower($salary), ['attractive', 'negotiable', 'competitive'])) {
-                    $details[] = "Salary: {$salary}";
-                }
+            $salary = $this->nativeSalaryText($job);
+            if ($salary) {
+                $details[] = "Salary: {$salary}";
             }
         } catch (Throwable) {}
 
@@ -200,6 +212,71 @@ class SocialPublisherService
         return Str::limit($full, 90, '');
     }
 
+    /**
+     * Salary string in the JOB'S OWN currency — unlike the `salary_text` model
+     * accessor (which runs amounts through format_price() and converts them to
+     * the application's active display currency), social posts must always show
+     * the salary the way the employer listed it, e.g. a Uganda job in UGX rather
+     * than the platform default (ZMW).
+     */
+    protected function nativeSalaryText(Job $job): ?string
+    {
+        if ($job->hide_salary) {
+            return null;
+        }
+
+        $salaryType = $job->salary_type ?? \Botble\JobBoard\Enums\SalaryTypeEnum::FIXED;
+
+        if ((string) $salaryType !== (string) \Botble\JobBoard\Enums\SalaryTypeEnum::FIXED) {
+            return null;
+        }
+
+        $from = (float) $job->salary_from;
+        $to   = (float) $job->salary_to;
+
+        if (! $from && ! $to) {
+            return null;
+        }
+
+        $currency = $job->currency && $job->currency->getKey() ? $job->currency : get_application_currency();
+        $range    = strtolower($job->salary_range->label());
+
+        if ($from && $to) {
+            return trans('plugins/job-board::messages.salary_range_format', [
+                'from'  => $this->formatNativePrice($from, $currency),
+                'to'    => $this->formatNativePrice($to, $currency),
+                'range' => $range,
+            ]);
+        }
+
+        if ($from) {
+            return trans('plugins/job-board::messages.salary_from_format', [
+                'price' => $this->formatNativePrice($from, $currency),
+                'range' => $range,
+            ]);
+        }
+
+        return trans('plugins/job-board::messages.salary_upto_format', [
+            'price' => $this->formatNativePrice($to, $currency),
+            'range' => $range,
+        ]);
+    }
+
+    /**
+     * Mirrors format_price()'s symbol-formatting branch without its currency
+     * conversion step — formats the amount using the given currency as-is.
+     */
+    private function formatNativePrice(float $amount, $currency): string
+    {
+        $space = setting('job_board_add_space_between_price_and_currency', 0) == 1 ? ' ' : null;
+
+        if ($currency->is_prefix_symbol) {
+            return $currency->symbol . $space . human_price_text($amount, $currency);
+        }
+
+        return human_price_text($amount, $currency, $currency->symbol);
+    }
+
     public function buildTikTokImagePrompt(Job $job): string
     {
         $title    = trim((string) $job->name);
@@ -224,11 +301,9 @@ class SocialPublisherService
         $details[] = "Location: {$location}";
 
         try {
-            if (! $job->hide_salary && $job->salary_text) {
-                $salary = (string) $job->salary_text;
-                if (! in_array(strtolower($salary), ['attractive', 'negotiable', 'competitive'])) {
-                    $details[] = "Salary: {$salary}";
-                }
+            $salary = $this->nativeSalaryText($job);
+            if ($salary) {
+                $details[] = "Salary: {$salary}";
             }
         } catch (Throwable) {}
 
@@ -311,11 +386,9 @@ class SocialPublisherService
         if ($deadline) $details[] = 'Apply by ' . $deadline->format('M j, Y');
 
         try {
-            if (! $job->hide_salary && $job->salary_text) {
-                $salary = (string) $job->salary_text;
-                if (! in_array(strtolower($salary), ['attractive', 'negotiable', 'competitive'])) {
-                    $details[] = $salary;
-                }
+            $salary = $this->nativeSalaryText($job);
+            if ($salary) {
+                $details[] = $salary;
             }
         } catch (Throwable) {}
 
@@ -414,11 +487,9 @@ class SocialPublisherService
         if ($location) $details[] = $location;
         if ($deadline) $details[] = 'Apply by ' . $deadline->format('M j, Y');
         try {
-            if (! $job->hide_salary && $job->salary_text) {
-                $salary = (string) $job->salary_text;
-                if (! in_array(strtolower($salary), ['attractive', 'negotiable', 'competitive'])) {
-                    $details[] = $salary;
-                }
+            $salary = $this->nativeSalaryText($job);
+            if ($salary) {
+                $details[] = $salary;
             }
         } catch (Throwable) {}
 
@@ -482,11 +553,9 @@ class SocialPublisherService
 
         $salaryLine = '';
         try {
-            if (! $job->hide_salary && $job->salary_text) {
-                $s = (string) $job->salary_text;
-                if (! in_array(strtolower($s), ['attractive', 'negotiable', 'competitive'])) {
-                    $salaryLine = "Salary: {$s}";
-                }
+            $s = $this->nativeSalaryText($job);
+            if ($s) {
+                $salaryLine = "Salary: {$s}";
             }
         } catch (\Throwable) {}
 
@@ -848,11 +917,9 @@ PROMPT;
 
         $salaryLine = '';
         try {
-            if (! $job->hide_salary && $job->salary_text) {
-                $s = (string) $job->salary_text;
-                if (! in_array(strtolower($s), ['attractive', 'negotiable', 'competitive'])) {
-                    $salaryLine = $s;
-                }
+            $s = $this->nativeSalaryText($job);
+            if ($s) {
+                $salaryLine = $s;
             }
         } catch (Throwable) {}
 
@@ -1105,6 +1172,20 @@ PROMPT;
 
     public function publerPost(Job $job, string $apiKey, array $accountIds, string $workspaceId = '', ?string $preferredImageField = null, array $excludeNetworks = []): bool
     {
+        return $this->withPublerPublishLock(
+            fn () => $this->publerPostUnlocked(
+                $job,
+                $apiKey,
+                $accountIds,
+                $workspaceId,
+                $preferredImageField,
+                $excludeNetworks
+            )
+        );
+    }
+
+    protected function publerPostUnlocked(Job $job, string $apiKey, array $accountIds, string $workspaceId = '', ?string $preferredImageField = null, array $excludeNetworks = []): bool
+    {
         if (empty($accountIds)) {
             return false;
         }
@@ -1197,24 +1278,82 @@ PROMPT;
 
         $payload = [
             'bulk' => [
-                'state' => 'published',
+                'state' => 'scheduled',
                 'posts' => [$postObj],
             ],
         ];
 
-        $r = Http::timeout(30)
-            ->withHeaders($this->publerHeaders($apiKey, $workspaceId))
-            ->post(self::PUBLER_BASE . '/posts/schedule/publish', $payload);
+        [$success, $error] = $this->publerPublishAndWait($apiKey, $workspaceId, $payload);
 
-        if (! $r->successful()) {
+        if (! $success) {
             Log::warning('Publer post failed', [
                 'job_id' => $job->getKey(),
-                'status' => $r->status(),
-                'body'   => $r->body(),
+                'error'  => $error,
             ]);
         }
 
-        return $r->successful();
+        return $success;
+    }
+
+    private function withPublerPublishLock(callable $callback): mixed
+    {
+        return Cache::lock('job-board:publer-publish', 1200)->block(900, function () use ($callback) {
+            try {
+                return $callback();
+            } finally {
+                // LinkedIn rejects consecutive posts to one account without a one-minute gap.
+                sleep(61);
+            }
+        });
+    }
+
+    private function publerPublishAndWait(string $apiKey, string $workspaceId, array $payload): array
+    {
+        $response = Http::timeout(30)
+            ->withHeaders($this->publerHeaders($apiKey, $workspaceId))
+            ->post(self::PUBLER_BASE . '/posts/schedule/publish', $payload);
+
+        if (! $response->successful()) {
+            return [false, 'HTTP ' . $response->status() . ': ' . $response->body()];
+        }
+
+        $jobId = (string) ($response->json('job_id') ?? $response->json('data.job_id') ?? '');
+        if ($jobId === '') {
+            return [false, 'Publer accepted the request but returned no job ID.'];
+        }
+
+        for ($attempt = 0; $attempt < 40; $attempt++) {
+            usleep(500000);
+
+            $statusResponse = Http::timeout(20)
+                ->withHeaders($this->publerHeaders($apiKey, $workspaceId))
+                ->get(self::PUBLER_BASE . '/job_status/' . $jobId);
+
+            if (! $statusResponse->successful()) {
+                continue;
+            }
+
+            $status = strtolower((string) $statusResponse->json('status'));
+            if ($status === 'failed') {
+                return [false, $statusResponse->body()];
+            }
+
+            if (in_array($status, ['complete', 'completed'], true)) {
+                $failures = collect((array) $statusResponse->json('payload'))
+                    ->filter(function ($item): bool {
+                        return strtolower((string) data_get($item, 'status')) === 'failed'
+                            || filled(data_get($item, 'post.error'));
+                    })
+                    ->values()
+                    ->all();
+
+                return empty($failures)
+                    ? [true, null]
+                    : [false, json_encode($failures, JSON_UNESCAPED_SLASHES)];
+            }
+        }
+
+        return [false, "Publer job {$jobId} did not complete within 20 seconds."];
     }
 
     /**
@@ -1262,6 +1401,13 @@ PROMPT;
     }
 
     protected function postToPublerCountryMapping(Job $job, array &$results): void
+    {
+        $this->withPublerPublishLock(function () use ($job, &$results): void {
+            $this->postToPublerCountryMappingUnlocked($job, $results);
+        });
+    }
+
+    protected function postToPublerCountryMappingUnlocked(Job $job, array &$results): void
     {
         if (! $job->country_id) {
             return;
@@ -1364,56 +1510,82 @@ PROMPT;
             }
         }
 
-        // Build accounts list (one entry per mapped account ID)
-        $accountPayloads = array_map(fn ($id) => ['id' => (string) $id], array_values($networkMap));
-
         // TikTok requires type='photo' with a media ID — skip if no image was uploaded.
         // All other platforms use type='status' with an optional media attachment.
-        $networksObj = [];
-        foreach (array_keys($networkMap) as $net) {
+        $publerPosts = [];
+        foreach ($networkMap as $net => $accountId) {
             if ($net === 'tiktok') {
                 if (! $tiktokMediaId) {
                     continue; // TikTok does not support text-only posts
                 }
-                $networksObj[$net] = [
-                    'type'    => 'photo',
-                    'title'   => $this->buildTikTokPostTitle($job),
-                    'text'    => $networkTextMap[$net] ?? $defaultText,
-                    'media'   => [['id' => $tiktokMediaId, 'type' => 'image']],
-                    'details' => ['auto_add_music' => true, 'privacy' => 'PUBLIC_TO_EVERYONE'],
+                $publerPosts[] = [
+                    'accounts' => [['id' => (string) $accountId]],
+                    'networks' => [$net => [
+                        'type'    => 'photo',
+                        'title'   => $this->buildTikTokPostTitle($job),
+                        'text'    => $networkTextMap[$net] ?? $defaultText,
+                        'media'   => [['id' => $tiktokMediaId, 'type' => 'image']],
+                        'details' => ['auto_add_music' => true, 'privacy' => 'PUBLIC_TO_EVERYONE'],
+                    ]],
                 ];
                 continue;
             }
+
             $entry = ['type' => $squareMediaId ? 'photo' : 'status', 'text' => $networkTextMap[$net] ?? $defaultText];
             if ($squareMediaId) {
                 $entry['media'] = [['id' => $squareMediaId, 'type' => 'image']];
             }
-            $networksObj[$net] = $entry;
+            $publerPosts[] = [
+                'accounts' => [['id' => (string) $accountId]],
+                'networks' => [$net => $entry],
+            ];
         }
 
-        $payload = [
-            'bulk' => [
-                'state' => 'published',
-                'posts' => [['accounts' => $accountPayloads, 'networks' => $networksObj]],
-            ],
-        ];
-
         try {
-            $r = Http::timeout(30)
-                ->withHeaders($this->publerHeaders($apiKey, $workspaceId))
-                ->post(self::PUBLER_BASE . '/posts/schedule/publish', $payload);
+            $errors = [];
+            foreach ($publerPosts as $publerPost) {
+                [$postSuccess, $postError] = $this->publerPublishAndWait($apiKey, $workspaceId, [
+                    'bulk' => [
+                        'state' => 'scheduled',
+                        'posts' => [$publerPost],
+                    ],
+                ]);
+
+                if (! $postSuccess) {
+                    $errors[] = $postError;
+                }
+            }
+
+            $success = empty($errors);
+            $error = $success ? null : implode("\n", array_filter($errors));
 
             $results[] = [
-                'platform' => 'publer_country_' . $job->country_id,
-                'success'  => $r->successful(),
-                'message'  => $r->successful() ? 'Posted via country mapping' : $r->body(),
+                'automation' => 'Publer country mapping',
+                'platform'   => 'publer',
+                'success'    => $success,
+                'error'      => $error,
             ];
+
+            if (! $success) {
+                Log::warning('Publer country mapping post failed', [
+                    'job_id'    => $job->getKey(),
+                    'country_id' => $job->country_id,
+                    'error'      => $error,
+                ]);
+            }
         } catch (Throwable $e) {
             $results[] = [
-                'platform' => 'publer_country_' . $job->country_id,
-                'success'  => false,
-                'message'  => $e->getMessage(),
+                'automation' => 'Publer country mapping',
+                'platform'   => 'publer',
+                'success'    => false,
+                'error'      => $e->getMessage(),
             ];
+
+            Log::warning('Publer country mapping post failed', [
+                'job_id'     => $job->getKey(),
+                'country_id' => $job->country_id,
+                'error'      => $e->getMessage(),
+            ]);
         } finally {
             // Clean up any generated image files
             if ($generatedPaths) {
@@ -1445,8 +1617,150 @@ PROMPT;
 
         $payload = [
             'bulk' => [
-                'state' => 'published',
+                'state' => 'scheduled',
                 'posts' => [['accounts' => $accountPayloads, 'networks' => $networksObj]],
+            ],
+        ];
+
+        [$success] = $this->publerPublishAndWait($apiKey, $workspaceId, $payload);
+
+        return $success;
+    }
+
+    // -------------------------------------------------------------------------
+    // Channel broadcasts — a custom message + optional image, sent directly
+    // (no Publer) to every active Facebook / LinkedIn / WhatsApp channel.
+    // -------------------------------------------------------------------------
+
+    public function broadcastToChannels(string $message, ?string $imageUrl = null): array
+    {
+        $automations = SocialAutomation::query()
+            ->whereIn('platform', ['facebook', 'linkedin', 'whatsapp', 'whapi', 'publer'])
+            ->where('is_active', true)
+            ->get();
+
+        $results = [];
+
+        foreach ($automations as $automation) {
+            $ok = false;
+            try {
+                $ok = match ($automation->platform) {
+                    'facebook' => $this->broadcastToFacebook($automation, $message, $imageUrl),
+                    'linkedin' => $this->broadcastToLinkedIn($automation, $message, $imageUrl),
+                    'whatsapp' => $this->broadcastToWhatsApp($automation, $message, $imageUrl),
+                    'whapi'    => $this->broadcastToWhapiChannel($automation, $message, $imageUrl),
+                    'publer'   => $this->broadcastViaPubler($automation, $message, $imageUrl),
+                    default    => false,
+                };
+            } catch (Throwable $e) {
+                Log::warning('Channel broadcast failed', [
+                    'automation_id' => $automation->getKey(),
+                    'platform'      => $automation->platform,
+                    'error'         => $e->getMessage(),
+                ]);
+            }
+
+            $results[] = [
+                'automation_id' => $automation->getKey(),
+                'platform'      => $automation->platform,
+                'name'          => $automation->name,
+                'success'       => $ok,
+            ];
+        }
+
+        return $results;
+    }
+
+    protected function broadcastToFacebook(SocialAutomation $automation, string $message, ?string $imageUrl): bool
+    {
+        $settings = $automation->settings ?? [];
+        $pageId   = trim((string) ($settings['page_id'] ?? ''));
+        $token    = trim((string) ($settings['access_token'] ?? ''));
+
+        if ($pageId === '' || $token === '') {
+            return false;
+        }
+
+        if ($imageUrl) {
+            $response = Http::timeout(30)
+                ->post("https://graph.facebook.com/v19.0/{$pageId}/photos", [
+                    'url'          => $imageUrl,
+                    'caption'      => $message,
+                    'access_token' => $token,
+                ]);
+
+            return $response->successful() && isset($response->json()['id']);
+        }
+
+        $response = Http::timeout(20)
+            ->post("https://graph.facebook.com/v19.0/{$pageId}/feed", [
+                'message'      => $message,
+                'access_token' => $token,
+            ]);
+
+        return $response->successful() && isset($response->json()['id']);
+    }
+
+    /**
+     * Posts to whatever Facebook / LinkedIn / TikTok pages are connected
+     * through this Publer automation's account_ids — same bulk-publish
+     * endpoint used for job posts, but with the broadcast's own text/image.
+     * TikTok is skipped when there is no image (it rejects text-only posts).
+     */
+    protected function broadcastViaPubler(SocialAutomation $automation, string $message, ?string $imageUrl): bool
+    {
+        $settings = $automation->settings ?? [];
+        $apiKey   = trim((string) ($settings['api_key'] ?? ''));
+        if ($apiKey === '') {
+            $apiKey = trim((string) (setting('publer_api_key') ?: env('PUBLER_API_KEY', '')));
+        }
+        $accountIds  = array_values(array_filter((array) ($settings['account_ids'] ?? [])));
+        $workspaceId = trim((string) ($settings['workspace_id'] ?? ''));
+
+        if ($apiKey === '' || empty($accountIds)) {
+            return false;
+        }
+
+        if ($workspaceId === '') {
+            $workspaceId = $this->publerResolveWorkspace($apiKey);
+        }
+
+        $mediaId = $imageUrl ? $this->publerUploadMedia($apiKey, $workspaceId, $imageUrl) : null;
+
+        $networks = [];
+        foreach (['facebook', 'linkedin', 'tiktok'] as $net) {
+            if ($net === 'tiktok') {
+                if (! $mediaId) {
+                    continue;
+                }
+                $networks[$net] = [
+                    'type'    => 'photo',
+                    'title'   => Str::limit($message, 90, ''),
+                    'text'    => $message,
+                    'media'   => [['id' => $mediaId, 'type' => 'image']],
+                    'details' => ['auto_add_music' => true, 'privacy' => 'PUBLIC_TO_EVERYONE'],
+                ];
+                continue;
+            }
+
+            $entry = ['type' => $mediaId ? 'photo' : 'status', 'text' => $message];
+            if ($mediaId) {
+                $entry['media'] = [['id' => $mediaId, 'type' => 'image']];
+            }
+            $networks[$net] = $entry;
+        }
+
+        if (empty($networks)) {
+            return false;
+        }
+
+        $payload = [
+            'bulk' => [
+                'state' => 'published',
+                'posts' => [[
+                    'accounts' => array_map(fn ($id) => ['id' => (string) $id], $accountIds),
+                    'networks' => $networks,
+                ]],
             ],
         ];
 
@@ -1454,7 +1768,165 @@ PROMPT;
             ->withHeaders($this->publerHeaders($apiKey, $workspaceId))
             ->post(self::PUBLER_BASE . '/posts/schedule/publish', $payload);
 
+        if (! $r->successful()) {
+            Log::warning('Publer broadcast failed', [
+                'automation_id' => $automation->getKey(),
+                'status'        => $r->status(),
+                'body'          => $r->body(),
+            ]);
+        }
+
         return $r->successful();
+    }
+
+    protected function broadcastToLinkedIn(SocialAutomation $automation, string $message, ?string $imageUrl): bool
+    {
+        $settings = $automation->settings ?? [];
+        $orgId    = trim((string) ($settings['org_id'] ?? ''));
+        $token    = trim((string) ($settings['access_token'] ?? ''));
+
+        if ($orgId === '' || $token === '') {
+            return false;
+        }
+
+        $author       = "urn:li:organization:{$orgId}";
+        $shareContent = [
+            'shareCommentary'    => ['text' => $message],
+            'shareMediaCategory' => 'NONE',
+        ];
+
+        if ($imageUrl) {
+            $asset = $this->linkedinUploadImage($token, $author, $imageUrl);
+            if ($asset) {
+                $shareContent['shareMediaCategory'] = 'IMAGE';
+                $shareContent['media'] = [[
+                    'status' => 'READY',
+                    'media'  => $asset,
+                ]];
+            }
+        }
+
+        $response = Http::timeout(30)
+            ->withToken($token)
+            ->withHeaders(['X-Restli-Protocol-Version' => '2.0.0'])
+            ->post('https://api.linkedin.com/v2/ugcPosts', [
+                'author'          => $author,
+                'lifecycleState'  => 'PUBLISHED',
+                'specificContent' => ['com.linkedin.ugc.ShareContent' => $shareContent],
+                'visibility'      => ['com.linkedin.ugc.MemberNetworkVisibility' => 'PUBLIC'],
+            ]);
+
+        return $response->successful();
+    }
+
+    /**
+     * LinkedIn images require a 3-step upload: register the upload slot,
+     * PUT the binary to the returned URL, then reference the asset URN
+     * in the post's media array. Returns the asset URN on success.
+     */
+    private function linkedinUploadImage(string $token, string $author, string $imageUrl): ?string
+    {
+        try {
+            $register = Http::timeout(20)
+                ->withToken($token)
+                ->withHeaders(['X-Restli-Protocol-Version' => '2.0.0'])
+                ->post('https://api.linkedin.com/v2/assets?action=registerUpload', [
+                    'registerUploadRequest' => [
+                        'recipes'              => ['urn:li:digitalmediaRecipe:feedshare-image'],
+                        'owner'                => $author,
+                        'serviceRelationships' => [[
+                            'relationshipType' => 'OWNER',
+                            'identifier'       => 'urn:li:userGeneratedContent',
+                        ]],
+                    ],
+                ]);
+
+            if (! $register->successful()) {
+                return null;
+            }
+
+            $value     = $register->json('value');
+            $uploadUrl = $value['uploadMechanism']['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest']['uploadUrl'] ?? null;
+            $asset     = $value['asset'] ?? null;
+
+            if (! $uploadUrl || ! $asset) {
+                return null;
+            }
+
+            $download = Http::timeout(30)->get($imageUrl);
+            if (! $download->successful()) {
+                return null;
+            }
+
+            $upload = Http::withToken($token)
+                ->withBody($download->body(), $download->header('Content-Type') ?: 'image/jpeg')
+                ->put($uploadUrl);
+
+            return $upload->successful() ? $asset : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    protected function broadcastToWhatsApp(SocialAutomation $automation, string $message, ?string $imageUrl): bool
+    {
+        $settings  = $automation->settings ?? [];
+        $phoneId   = trim((string) ($settings['phone_number_id'] ?? ''));
+        $token     = trim((string) ($settings['access_token'] ?? ''));
+        $recipient = trim((string) ($settings['recipient'] ?? ''));
+
+        if ($phoneId === '' || $token === '' || $recipient === '') {
+            return false;
+        }
+
+        $payload = $imageUrl
+            ? ['messaging_product' => 'whatsapp', 'to' => $recipient, 'type' => 'image', 'image' => ['link' => $imageUrl, 'caption' => $message]]
+            : ['messaging_product' => 'whatsapp', 'to' => $recipient, 'type' => 'text', 'text' => ['body' => $message]];
+
+        $response = Http::timeout(30)
+            ->withToken($token)
+            ->post("https://graph.facebook.com/v19.0/{$phoneId}/messages", $payload);
+
+        return $response->successful();
+    }
+
+    protected function broadcastToWhapiChannel(SocialAutomation $automation, string $message, ?string $imageUrl): bool
+    {
+        $settings   = $automation->settings ?? [];
+        $token      = trim((string) ($settings['token'] ?? ''));
+        $channelId  = trim((string) ($settings['channel_id'] ?? ''));
+        $gatewayUrl = rtrim(trim((string) ($settings['gateway_url'] ?? '')), '/') ?: 'https://gate.whapi.cloud';
+
+        if ($token === '' || $channelId === '') {
+            return false;
+        }
+
+        if (! str_ends_with($channelId, '@newsletter')) {
+            $channelId .= '@newsletter';
+        }
+
+        if ($imageUrl) {
+            $response = Http::timeout(30)
+                ->withToken($token)
+                ->post("{$gatewayUrl}/messages/image", [
+                    'to'      => $channelId,
+                    'media'   => $imageUrl,
+                    'caption' => $message,
+                ]);
+
+            if ($response->successful()) {
+                return true;
+            }
+        }
+
+        $response = Http::timeout(20)
+            ->withToken($token)
+            ->post("{$gatewayUrl}/messages/text", [
+                'to'   => $channelId,
+                'body' => $message,
+            ]);
+
+        return $response->successful();
     }
 
     // -------------------------------------------------------------------------

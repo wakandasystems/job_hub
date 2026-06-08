@@ -320,6 +320,36 @@ AdminHelper::registerRoutes(function (): void {
                 'uses'       => 'SocialAutomationController@publerTestJob',
                 'permission' => 'job-board.automations.index',
             ])->wherePrimaryKey();
+
+            Route::get('broadcast', [
+                'as'         => 'broadcast',
+                'uses'       => 'SocialBroadcastController@index',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('broadcast/upload-image', [
+                'as'         => 'broadcast-upload-image',
+                'uses'       => 'SocialBroadcastController@uploadImage',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('broadcast/send', [
+                'as'         => 'broadcast-send',
+                'uses'       => 'SocialBroadcastController@send',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('broadcast/{broadcast}/cancel', [
+                'as'         => 'broadcast-cancel',
+                'uses'       => 'SocialBroadcastController@cancel',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::delete('broadcast/{broadcast}', [
+                'as'         => 'broadcast-destroy',
+                'uses'       => 'SocialBroadcastController@destroy',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
         });
 
         Route::group(['prefix' => 'publer', 'as' => 'job-board.publer.'], function (): void {

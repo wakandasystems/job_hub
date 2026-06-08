@@ -1594,6 +1594,22 @@ class HookServiceProvider extends ServiceProvider
             ->setPriority(7)
             ->init($widgets, $widgetSettings);
 
+        (new DashboardWidgetInstance())
+            ->setType('stats')
+            ->setPermission('job-board.automations.index')
+            ->setTitle('📢 Broadcast to Channels')
+            ->setKey('widget_social_broadcast_shortcut')
+            ->setIcon('ti ti-speakerphone')
+            ->setColor('pink')
+            ->setStatsTotal(fn () => \Botble\JobBoard\Models\SocialAutomation::query()
+                ->whereIn('platform', ['facebook', 'linkedin', 'whatsapp', 'whapi', 'publer'])
+                ->where('is_active', true)
+                ->count())
+            ->setRoute(route('job-board.automations.broadcast'))
+            ->setColumn('col-12 col-md-6 col-lg-2')
+            ->setPriority(8)
+            ->init($widgets, $widgetSettings);
+
         return $widgets;
     }
 }

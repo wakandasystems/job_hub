@@ -459,6 +459,14 @@ class JobBoardServiceProvider extends ServiceProvider
                     'permissions' => ['job-board.automations.index'],
                 ])
                 ->registerItem([
+                    'id' => 'cms-plugins-job-board-broadcast',
+                    'priority' => 3,
+                    'parent_id' => 'cms-plugins-job-board-automations',
+                    'name' => 'Broadcast',
+                    'url' => route('job-board.automations.broadcast'),
+                    'permissions' => ['job-board.automations.index'],
+                ])
+                ->registerItem([
                     'id' => 'cms-plugins-job-board-agents',
                     'priority' => 7,
                     'parent_id' => 'cms-plugins-job-board-main',
