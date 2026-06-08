@@ -19,8 +19,8 @@
     }
     $schemaEmploymentTypes = array_unique($schemaEmploymentTypes) ?: ['OTHER'];
 
-    // Clean description: prefer the short description field; fall back to stripped content
-    $schemaDesc = strip_tags((string) ($job->description ?: $job->content));
+    // Google Jobs expects the full visible job description, not the listing excerpt.
+    $schemaDesc = strip_tags((string) ($job->content ?: $job->description));
     $schemaDesc = preg_replace('/\s+/', ' ', $schemaDesc);
     $schemaDesc = trim($schemaDesc);
 
@@ -37,7 +37,7 @@
         ],
         'employmentType' => count($schemaEmploymentTypes) === 1 ? $schemaEmploymentTypes[0] : $schemaEmploymentTypes,
         'url' => $job->url,
-        'directApply' => (bool) $job->apply_url,
+        'directApply' => ! $job->apply_url,
     ];
 
     if (! $job->never_expired && $job->expire_date) {

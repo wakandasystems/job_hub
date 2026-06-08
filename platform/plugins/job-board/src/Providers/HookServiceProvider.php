@@ -910,6 +910,12 @@ class HookServiceProvider extends ServiceProvider
                         return $html;
                     }
 
+                    // Jobbox renders its own complete JobPosting schema in the job view.
+                    // Emitting this legacy schema as well creates two conflicting job items.
+                    if (Theme::getThemeName() === 'jobbox') {
+                        return $html;
+                    }
+
                     $expiredAt = Carbon::now()->toDateString();
 
                     if (! $job->is_expired) {
