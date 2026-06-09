@@ -89,22 +89,20 @@ class HookServiceProvider extends ServiceProvider
             return $data;
         }
 
-        $currentCurrency = get_application_currency();
-
-        $currencyModel = $currentCurrency->replicate();
-
         $payPalService = $this->app->make(PayPalPaymentService::class);
 
         $supportedCurrencies = $payPalService->supportedCurrencyCodes();
 
-        $currency = $currentCurrency->title;
-
-        $notSupportCurrency = false;
+        $paymentData = apply_filters(PAYMENT_FILTER_PAYMENT_DATA, [], $request);
+        $currency = strtoupper($paymentData['currency'] ?? get_application_currency()->title);
+        $paymentData['currency'] = $currency;
 
         if (! in_array($currency, $supportedCurrencies)) {
-            $notSupportCurrency = true;
+            $currencyModel = get_application_currency()->replicate();
+            $sourceCurrency = $currencyModel->query()->where('title', $currency)->first();
+            $usdCurrency = $currencyModel->query()->where('title', 'USD')->first();
 
-            if (! $currencyModel->query()->where('title', 'USD')->exists()) {
+            if (! $sourceCurrency || ! $usdCurrency || $sourceCurrency->exchange_rate <= 0) {
                 $data['error'] = true;
                 $data['message'] = trans(
                     'plugins/payment::payment.currency_not_supported',
@@ -117,23 +115,11 @@ class HookServiceProvider extends ServiceProvider
 
                 return $data;
             }
-        }
-
-        $paymentData = apply_filters(PAYMENT_FILTER_PAYMENT_DATA, [], $request);
-
-        if ($notSupportCurrency) {
-            $usdCurrency = $currencyModel->query()->where('title', 'USD')->first();
 
             $paymentData['currency'] = 'USD';
-            if ($currentCurrency->is_default) {
-                $paymentData['amount'] = $paymentData['amount'] * $usdCurrency->exchange_rate;
-            } else {
-                $paymentData['amount'] = format_price(
-                    $paymentData['amount'] / $currentCurrency->exchange_rate,
-                    $currentCurrency,
-                    true
-                );
-            }
+            $paymentData['amount'] = (float) $paymentData['amount']
+                / (float) $sourceCurrency->exchange_rate
+                * (float) $usdCurrency->exchange_rate;
         }
 
         if (! $request->input('callback_url')) {

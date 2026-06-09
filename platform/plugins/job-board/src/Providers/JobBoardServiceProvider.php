@@ -511,6 +511,24 @@ class JobBoardServiceProvider extends ServiceProvider
                     'permissions' => ['job-alert-orders.index'],
                 ])
                 ->registerItem([
+                    'id'          => 'cms-plugins-job-board-vip-alert-orders',
+                    'priority'    => 7,
+                    'parent_id'   => 'cms-plugins-job-board-main',
+                    'name'        => 'VIP Alert Orders',
+                    'icon'        => 'ti ti-star-filled',
+                    'url'         => route('vip-alert-orders.index'),
+                    'permissions' => ['vip-alert-orders.index'],
+                ])
+                ->registerItem([
+                    'id'          => 'cms-plugins-job-board-vip-alert-plans',
+                    'priority'    => 7,
+                    'parent_id'   => 'cms-plugins-job-board-main',
+                    'name'        => 'VIP Alert Plans',
+                    'icon'        => 'ti ti-settings-dollar',
+                    'url'         => route('job-board.settings.vip-alert-plans'),
+                    'permissions' => ['vip-alert-orders.index'],
+                ])
+                ->registerItem([
                     'id'          => 'cms-plugins-job-board-candidate-alerts',
                     'priority'    => 7,
                     'parent_id'   => 'cms-plugins-job-board-main',

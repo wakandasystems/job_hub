@@ -184,6 +184,9 @@ abstract class PayPalPaymentAbstract
                 'return_url' => $this->returnUrl,
                 'cancel_url' => $this->cancelUrl ?: $this->returnUrl,
                 'brand_name' => Theme::getSiteTitle(),
+                'landing_page' => 'BILLING',
+                'user_action' => 'PAY_NOW',
+                'shipping_preference' => 'NO_SHIPPING',
             ],
             'purchase_units' => [
                 0 => [

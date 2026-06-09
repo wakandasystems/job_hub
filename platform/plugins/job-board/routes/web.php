@@ -10,8 +10,10 @@ use Botble\JobBoard\Http\Controllers\EmployerSubscriptionController;
 use Botble\JobBoard\Http\Controllers\FeaturedOrderController;
 use Botble\JobBoard\Http\Controllers\FeaturedPackageController;
 use Botble\JobBoard\Http\Controllers\JobAlertOrderController;
+use Botble\JobBoard\Http\Controllers\VipAlertOrderController;
 use Botble\JobBoard\Http\Controllers\JobAlertPackageController;
 use Botble\JobBoard\Http\Controllers\Settings\CareerServiceSettingController;
+use Botble\JobBoard\Http\Controllers\Settings\VipAlertPlanSettingController;
 use Botble\JobBoard\Http\Controllers\CouponController;
 use Botble\JobBoard\Http\Controllers\CustomFieldController;
 use Botble\JobBoard\Http\Controllers\ExportAccountController;
@@ -73,6 +75,8 @@ AdminHelper::registerRoutes(function (): void {
     Route::group(['prefix' => 'job-board/settings', 'as' => 'job-board.settings.', 'middleware' => 'auth'], function (): void {
         Route::get('career-services', [CareerServiceSettingController::class, 'edit'])->name('career-services');
         Route::put('career-services', [CareerServiceSettingController::class, 'update'])->name('career-services.update');
+        Route::get('vip-alert-plans', [VipAlertPlanSettingController::class, 'edit'])->name('vip-alert-plans');
+        Route::put('vip-alert-plans', [VipAlertPlanSettingController::class, 'update'])->name('vip-alert-plans.update');
     });
 
     Route::group(['prefix' => 'job-board/candidate-alerts', 'as' => 'job-board.candidate-alerts.', 'middleware' => 'auth'], function (): void {
@@ -98,6 +102,12 @@ AdminHelper::registerRoutes(function (): void {
         Route::get('', [JobAlertOrderController::class, 'index'])->name('index');
         Route::post('{jobAlertOrder}/approve', [JobAlertOrderController::class, 'approve'])->name('approve');
         Route::post('{jobAlertOrder}/reject', [JobAlertOrderController::class, 'reject'])->name('reject');
+    });
+
+    Route::group(['prefix' => 'vip-alert-orders', 'as' => 'vip-alert-orders.', 'middleware' => 'auth'], function (): void {
+        Route::get('', [VipAlertOrderController::class, 'index'])->name('index');
+        Route::post('{vipAlertOrder}/approve', [VipAlertOrderController::class, 'approve'])->name('approve');
+        Route::post('{vipAlertOrder}/reject', [VipAlertOrderController::class, 'reject'])->name('reject');
     });
 
     Route::prefix('credit-orders')->name('credit-orders.')->middleware('auth')->group(function (): void {

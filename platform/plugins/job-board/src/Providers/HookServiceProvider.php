@@ -35,6 +35,7 @@ use Botble\JobBoard\Models\Package;
 use Botble\JobBoard\Models\SalaryReport;
 use Botble\JobBoard\Models\SalaryReportPurchase;
 use Botble\JobBoard\Models\CandidateAlert;
+use Botble\JobBoard\Models\VipAlertOrder;
 use Botble\JobBoard\Models\WakandaVerificationRequest;
 use Botble\JobBoard\Services\CouponService;
 use Botble\JobBoard\Supports\InvoiceHelper;
@@ -224,6 +225,47 @@ class HookServiceProvider extends ServiceProvider
                     return;
                 }
 
+                // Handle public VIP alert orders (no account required, admin must confirm)
+                if ($vipAlertOrderId = session('vip_alert_order_id')) {
+                    $vipOrder = VipAlertOrder::query()->find($vipAlertOrderId);
+                    if ($vipOrder && $vipOrder->payment_status === 'pending') {
+                        $vipOrder->update([
+                            'charge_id'      => $data['charge_id'],
+                            'payment_method' => $data['payment_channel'],
+                            'payment_status' => 'paid',
+                        ]);
+
+                        $adminEmails = get_admin_email();
+                        if ($adminEmails->isEmpty() && config('mail.from.address')) {
+                            $adminEmails = collect([config('mail.from.address')]);
+                        }
+
+                        if ($adminEmails->isNotEmpty()) {
+                            $planLabel = $vipOrder->planLabel();
+                            $adminUrl  = url('/admin/vip-alert-orders');
+                            try {
+                                \Illuminate\Support\Facades\Mail::raw(
+                                    "New VIP Alert Order — admin confirmation required\n\n" .
+                                    "Order #: {$vipOrder->id}\n" .
+                                    "Plan: {$planLabel}\n" .
+                                    "Amount: {$vipOrder->currency} {$vipOrder->amount}\n" .
+                                    "Customer: {$vipOrder->candidate_name} ({$vipOrder->candidate_email})\n" .
+                                    "WhatsApp: {$vipOrder->candidate_phone}\n" .
+                                    "Payment: " . ucwords(str_replace('_', ' ', $vipOrder->payment_method ?? '')) . "\n" .
+                                    "Charge ID: {$vipOrder->charge_id}\n\n" .
+                                    "Action required — approve or reject at:\n{$adminUrl}",
+                                    function ($msg) use ($adminEmails, $vipOrder): void {
+                                        $msg->to($adminEmails->all())->subject("VIP Alert Order #{$vipOrder->id} Pending Approval — {$vipOrder->candidate_name}");
+                                    }
+                                );
+                            } catch (\Throwable) {
+                            }
+                        }
+                    }
+
+                    return;
+                }
+
                 // Handle salary report purchases
                 if ($salaryReportId = session('salary_report_id')) {
                     $report = SalaryReport::query()->find($salaryReportId);
@@ -360,6 +402,11 @@ class HookServiceProvider extends ServiceProvider
                     return $jobAlertCallbackUrl;
                 }
 
+                if ($vipAlertCallbackUrl = session('vip_alert_callback_url')) {
+                    session()->forget(['vip_alert_order_id', 'vip_alert_callback_url', 'vip_alert_return_url']);
+                    return $vipAlertCallbackUrl;
+                }
+
                 if ($careerServiceCallbackUrl = session('career_service_callback_url')) {
                     return $careerServiceCallbackUrl;
                 }
@@ -398,6 +445,11 @@ class HookServiceProvider extends ServiceProvider
                 if ($jobAlertReturnUrl = session('job_alert_return_url')) {
                     session()->forget(['job_alert_order_id', 'job_alert_callback_url', 'job_alert_return_url']);
                     return $jobAlertReturnUrl;
+                }
+
+                if ($vipAlertReturnUrl = session('vip_alert_return_url')) {
+                    session()->forget(['vip_alert_order_id', 'vip_alert_callback_url', 'vip_alert_return_url']);
+                    return $vipAlertReturnUrl;
                 }
 
                 if ($careerServiceReturnUrl = session('career_service_return_url')) {
@@ -510,6 +562,61 @@ class HookServiceProvider extends ServiceProvider
                 // Always capture reference number so it's available after redirect
                 if ($ref = trim((string) $request->input('payment_reference', ''))) {
                     session(['subscribed_package_payment_reference' => $ref]);
+                }
+
+                if ($vipAlertOrderToken = $request->input('vip_alert_order_token')) {
+                    $order = VipAlertOrder::query()->where('public_token', $vipAlertOrderToken)->first();
+
+                    if (! $order || $order->payment_status !== 'pending') {
+                        return $data;
+                    }
+
+                    $plan = VipAlertOrder::plan($order->plan, includeDisabled: true);
+
+                    session([
+                        'vip_alert_order_id'       => $order->getKey(),
+                        'vip_alert_callback_url'   => $request->input('callback_url'),
+                        'vip_alert_return_url'     => $request->input('return_url'),
+                    ]);
+
+                    return [
+                        'amount'          => (float) $order->amount,
+                        'shipping_amount' => 0,
+                        'shipping_method' => null,
+                        'tax_amount'      => 0,
+                        'currency'        => strtoupper($order->currency),
+                        'order_id'        => [$order->public_token],
+                        'description'     => trans('plugins/payment::payment.payment_description', [
+                            'order_id' => $order->getKey(),
+                            'site_url' => $request->getHost(),
+                        ]),
+                        'customer_id'     => null,
+                        'customer_type'   => null,
+                        'email'           => $order->candidate_email,
+                        'return_url'      => $request->input('return_url'),
+                        'callback_url'    => $request->input('callback_url'),
+                        'products'        => [
+                            [
+                                'id'              => $order->getKey(),
+                                'name'            => 'VIP WhatsApp Job Alerts — ' . ($plan['label'] ?? $order->planLabel()),
+                                'price'           => (float) $order->amount,
+                                'price_per_order' => (float) $order->amount,
+                                'qty'             => 1,
+                            ],
+                        ],
+                        'orders'          => [$order],
+                        'address'         => [
+                            'name'    => $order->candidate_name,
+                            'email'   => $order->candidate_email,
+                            'phone'   => $order->candidate_phone,
+                            'country' => null,
+                            'state'   => null,
+                            'city'    => null,
+                            'address' => null,
+                            'zip'     => null,
+                        ],
+                        'checkout_token'  => $request->input('callback_url'),
+                    ];
                 }
 
                 if ($subscriptionOrderId = $request->input('subscription_order_id')) {

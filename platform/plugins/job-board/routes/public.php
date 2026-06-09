@@ -146,6 +146,15 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middlew
     Route::group(['prefix' => 'payments'], function (): void {
         Route::post('checkout', 'CheckoutController@postCheckout')->name('payments.checkout');
     });
+
+    Route::group(['prefix' => 'vip-alerts', 'as' => 'public.vip-alerts.'], function (): void {
+        Route::get('', 'VipAlertCheckoutController@plans')->name('plans');
+        Route::get('checkout/{plan}', 'VipAlertCheckoutController@checkout')->name('checkout');
+        Route::post('checkout/{plan}', 'VipAlertCheckoutController@prepareCheckout')->name('prepare-checkout');
+        Route::get('pay/{token}', 'VipAlertCheckoutController@pay')->name('pay');
+        Route::get('callback/{token}', 'VipAlertCheckoutController@callback')->name('callback');
+        Route::get('pending/{token}', 'VipAlertCheckoutController@pending')->name('pending');
+    });
 });
 
 Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middleware' => ['web', 'core'], 'prefix' => 'push'], function (): void {
