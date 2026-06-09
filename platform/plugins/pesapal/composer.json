@@ -1,0 +1,6 @@
+{
+    "name": "botble/pesapal",
+    "description": "Pesapal Payment Gateway",
+    "type": "package",
+    "require": {}
+}

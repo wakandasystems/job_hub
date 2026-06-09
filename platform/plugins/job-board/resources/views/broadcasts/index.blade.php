@@ -54,6 +54,42 @@
                                     Connected social channels ({{ $channels->count() }})
                                 </label>
                             </div>
+
+                            @if($channels->isNotEmpty())
+                            <div class="border rounded mb-3" id="bc-channel-list-panel">
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover align-middle mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th style="width:42px">#</th>
+                                                <th>Platform</th>
+                                                <th>Channel / Page Name</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach($channels as $i => $channel)
+                                                @php $meta = $platformMeta[$channel->platform] ?? ['label' => ucfirst($channel->platform), 'icon' => 'ti ti-share', 'badge' => 'bg-light text-dark']; @endphp
+                                                <tr>
+                                                    <td class="text-muted">{{ $i + 1 }}</td>
+                                                    <td>
+                                                        <span class="badge {{ $meta['badge'] }}">
+                                                            <i class="{{ $meta['icon'] }} me-1"></i>{{ $meta['label'] }}
+                                                        </span>
+                                                    </td>
+                                                    <td>{{ $channel->name }}</td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="px-3 py-2 border-top d-flex justify-content-end">
+                                    <a href="{{ route('job-board.automations.index') }}" class="small text-muted">
+                                        <i class="ti ti-settings me-1"></i>Manage channels
+                                    </a>
+                                </div>
+                            </div>
+                            @endif
+
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="audience" id="bc-audience-employers" value="employers"
                                        {{ !$hasWhapi || !$employerPhoneCount ? 'disabled' : '' }}>
@@ -296,6 +332,7 @@
                     ? '<i class="ti ti-brand-whatsapp me-1"></i> Send to Employers'
                     : '<i class="ti ti-send me-1"></i> Post to Channels'
             );
+            $('#bc-channel-list-panel').toggle(!employersSelected);
             $('#bc-employer-contacts-panel').toggle(employersSelected);
             if (employersSelected && !contactsLoaded) loadEmployerContacts(1);
         });

@@ -8,6 +8,7 @@ use Botble\JobBoard\Enums\JobStatusEnum;
 use Botble\JobBoard\Enums\ModerationStatusEnum;
 use Botble\JobBoard\Models\Company;
 use Botble\JobBoard\Models\Job;
+use Botble\Location\Models\Country;
 use Botble\Table\Abstracts\TableAbstract;
 use Botble\Table\Actions\Action;
 use Botble\Table\Actions\DeleteAction;
@@ -317,6 +318,11 @@ class JobTable extends TableAbstract
                 ->title(trans('plugins/job-board::forms.company'))
                 ->searchable()
                 ->choices(fn () => Company::query()->pluck('name', 'id')->all()),
+            SelectBulkChange::make()
+                ->name('country_id')
+                ->title('Country')
+                ->searchable()
+                ->choices(fn () => Country::query()->orderBy('name')->pluck('name', 'id')->all()),
         ];
     }
 
@@ -341,6 +347,10 @@ class JobTable extends TableAbstract
         string $operator,
         ?string $value
     ): EloquentRelation|EloquentBuilder|QueryBuilder {
+        if ($key == 'country_id') {
+            return $query->where('jb_jobs.country_id', $operator, $value);
+        }
+
         if ($key == 'type') {
             switch ($value) {
                 case 'expired':

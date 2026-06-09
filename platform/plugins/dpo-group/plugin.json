@@ -1,0 +1,14 @@
+{
+    "id": "botble/dpo-group",
+    "name": "DPO Group Payment Gateway",
+    "namespace": "Botble\\DpoGroup\\",
+    "provider": "Botble\\DpoGroup\\Providers\\DpoGroupServiceProvider",
+    "author": "Wakanda Jobs",
+    "url": "https://www.wakandajobs.com",
+    "version": "1.0.0",
+    "description": "DPO Group (Direct Pay Online) payment gateway integration for Africa",
+    "minimum_core_version": "7.3.0",
+    "require": [
+        "botble/payment"
+    ]
+}
