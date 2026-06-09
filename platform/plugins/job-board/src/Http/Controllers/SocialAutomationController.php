@@ -5,6 +5,7 @@ namespace Botble\JobBoard\Http\Controllers;
 use Botble\Base\Http\Controllers\BaseController;
 use Botble\Base\Supports\Breadcrumb;
 use Botble\JobBoard\Enums\JobStatusEnum;
+use Botble\JobBoard\Jobs\RetryPublerPostJob;
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\SocialAutomation;
 use Botble\JobBoard\Services\SocialPublisherService;
@@ -637,6 +638,8 @@ class SocialAutomationController extends BaseController
         }
 
         $sent = 0;
+        $errors = [];
+        $retryAutomationIds = [];
 
         foreach ($automations as $automation) {
             $settings    = $automation->settings ?? [];
@@ -654,9 +657,13 @@ class SocialAutomationController extends BaseController
             try {
                 if ($publisher->publerPost($job, $apiKey, $accountIds, $workspaceId, $preferredImageField, $excludeNetworks)) {
                     $sent++;
+                } else {
+                    $errors[] = $publisher->getLastPublerError();
+                    $retryAutomationIds[] = $automation->getKey();
                 }
-            } catch (\Throwable) {
-                // continue to next automation
+            } catch (\Throwable $e) {
+                $errors[] = $e->getMessage();
+                $retryAutomationIds[] = $automation->getKey();
             }
         }
 
@@ -664,7 +671,37 @@ class SocialAutomationController extends BaseController
             return $this->httpResponse()->setMessage("Job published to Publer via {$sent} automation(s).");
         }
 
-        return $this->httpResponse()->setError()->setMessage('Failed to publish to Publer. Check your API key and account IDs.');
+        $retryQueued = false;
+        $targetAlreadyQueued = collect($errors)->filter()->contains(
+            fn ($error) => str_contains((string) $error, '"in_queue":true')
+        );
+
+        if ($request->boolean('retry_background') && ! $targetAlreadyQueued) {
+            foreach (array_unique($retryAutomationIds) as $automationId) {
+                RetryPublerPostJob::dispatch(
+                    $job->getKey(),
+                    $automationId,
+                    $preferredImageField,
+                    $excludeNetworks,
+                )->delay(now()->addMinute());
+                $retryQueued = true;
+            }
+        }
+
+        $errorDetail = collect($errors)->filter()->unique()->implode("\n");
+        $message = match (true) {
+            $retryQueued => 'Publer failed. One background retry has been queued.',
+            $targetAlreadyQueued => 'TikTok was queued, but Publer reported errors for other accounts. No retry was queued to avoid a duplicate.',
+            default => 'Failed to publish to Publer.',
+        };
+
+        return $this->httpResponse()
+            ->setError()
+            ->setMessage($message)
+            ->setData([
+                'error_detail' => $errorDetail ?: 'Publer did not return a detailed error.',
+                'retry_queued' => $retryQueued,
+            ]);
     }
 
     public function publerSendPeriodJobs(SocialAutomation $automation, Request $request, SocialPublisherService $publisher)

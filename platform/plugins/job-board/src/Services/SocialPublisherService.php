@@ -16,6 +16,8 @@ use Throwable;
 
 class SocialPublisherService
 {
+    private ?string $lastPublerError = null;
+
     public function publishJob(Job $job): array
     {
         // Silently skip jobs that are not fully approved — no notification sent.
@@ -77,10 +79,22 @@ class SocialPublisherService
         return $results;
     }
 
-    protected function buildJobMessage(Job $job): string
+    public function trackedJobUrl(Job $job, string $source): string
+    {
+        $url = route('public.job', $job->slugable?->key ?? $job->id);
+
+        return $url . '?' . http_build_query([
+            'utm_source' => Str::lower(trim($source)),
+            'utm_medium' => 'social',
+            'utm_campaign' => 'job_alerts',
+            'utm_content' => 'job_' . $job->getKey(),
+        ], '', '&', PHP_QUERY_RFC3986);
+    }
+
+    protected function buildJobMessage(Job $job, string $source = 'social'): string
     {
         $excerpt = Str::limit(strip_tags((string) $job->description), 280);
-        $url     = route('public.job', $job->slugable?->key ?? $job->id);
+        $url     = $this->trackedJobUrl($job, $source);
         $company = $job->company?->name ?? '';
         $location = $job->address ?? 'Zambia';
 
@@ -912,8 +926,12 @@ PROMPT;
         $company  = trim((string) ($job->company?->name ?? ''));
         $location = trim((string) ($job->getLocationAttribute() ?: $job->address ?: 'Zambia'));
         $deadline = $job->application_closing_date ?: $job->expire_date;
-        $url      = route('public.job', $job->slugable?->key ?? $job->id);
         $excerpt  = trim(Str::limit(strip_tags((string) ($job->description ?: $job->content)), 220));
+        $facebookUrl = $this->trackedJobUrl($job, 'facebook');
+        $instagramUrl = $this->trackedJobUrl($job, 'instagram');
+        $linkedinUrl = $this->trackedJobUrl($job, 'linkedin');
+        $twitterUrl = $this->trackedJobUrl($job, 'x');
+        $whatsappUrl = $this->trackedJobUrl($job, 'whatsapp');
 
         $salaryLine = '';
         try {
@@ -949,17 +967,20 @@ PROMPT;
         $twitterBody .= "\n📍 {$location}";
         if ($salaryLine) $twitterBody .= " | 💰 {$salaryLine}";
         if ($deadlineStr) $twitterBody .= "\n⏰ Deadline: {$deadlineStr}";
-        $twitterBody .= "\n\nApply 👉 {$url}";
+        $twitterBody .= "\n\nApply 👉 {$twitterUrl}";
         $twitterBody .= "\n\n#{$countrySlug}Jobs #Hiring #WakandaJobs";
         // Trim if over 280
         if (mb_strlen($twitterBody) > 280) {
-            $shortTitle = Str::limit($title, 40, '…');
+            $shortTitle = Str::limit($title, 45, '…');
             $twitterBody  = "🔔 {$shortTitle}";
-            if ($company) $twitterBody .= " · " . Str::limit($company, 30, '…');
-            $twitterBody .= "\n📍 {$location}";
-            if ($deadlineStr) $twitterBody .= " | ⏰ {$deadlineStr}";
-            $twitterBody .= "\n\nApply 👉 {$url}";
-            $twitterBody .= "\n#{$countrySlug}Jobs #WakandaJobs";
+            $twitterBody .= "\n📍 " . Str::limit($location, 30, '…');
+            $twitterBody .= "\n\nApply 👉 {$twitterUrl}";
+            $twitterBody .= "\n#WakandaJobs";
+        }
+        if (mb_strlen($twitterBody) > 280) {
+            $twitterBody = "🔔 " . Str::limit($title, 30, '…')
+                . "\nApply 👉 {$twitterUrl}"
+                . "\n#WakandaJobs";
         }
         $twitter = $twitterBody;
 
@@ -971,7 +992,7 @@ PROMPT;
         if ($deadlineStr) $linkedin .= "📅 Application Deadline: {$deadlineStr}\n";
         $linkedin .= "\n";
         if ($excerpt) $linkedin .= "{$excerpt}\n\n";
-        $linkedin .= "👉 View full details and apply: {$url}\n\n";
+        $linkedin .= "👉 View full details and apply: {$linkedinUrl}\n\n";
         $linkedin .= "Found on Wakanda Jobs — Africa's growing job platform connecting top talent with leading employers.\n\n";
         $linkedin .= "#JobOpening #Hiring #CareerOpportunity #WakandaJobs #{$countrySlug}Jobs";
         if ($titleSlug) $linkedin .= " #{$titleSlug}";
@@ -985,10 +1006,11 @@ PROMPT;
         if ($salaryLine) $facebook .= "💰 Salary: {$salaryLine}\n";
         if ($deadlineStr) $facebook .= "📅 Deadline: {$deadlineStr}\n";
         if ($excerpt) $facebook .= "\n{$excerpt}\n";
-        $facebook .= "\n🔗 Apply here: {$url}\n\n";
+        $facebook .= "\n🔗 Apply here: {$facebookUrl}\n\n";
         $facebook .= "💬 Tag someone who needs a job!\n";
         $facebook .= "🔁 Share to help someone find their next opportunity!\n\n";
         $facebook .= "#WakandaJobs #{$countrySlug}Jobs #Jobs #Hiring #JobOpportunity #NowHiring";
+        $instagram = str_replace($facebookUrl, $instagramUrl, $facebook);
 
         // ── WhatsApp Channel ────────────────────────────────────────────────
         $whatsapp  = "🔔 *JOB ALERT*\n\n";
@@ -998,15 +1020,15 @@ PROMPT;
         if ($salaryLine) $whatsapp .= "*Salary:* {$salaryLine}\n";
         if ($deadlineStr) $whatsapp .= "*Deadline:* {$deadlineStr}\n";
         if ($excerpt) $whatsapp .= "\n{$excerpt}\n";
-        $whatsapp .= "\n*Apply Now 👉* {$url}\n\n";
+        $whatsapp .= "\n*Apply Now 👉* {$whatsappUrl}\n\n";
         $whatsapp .= "_Wakanda Jobs — wakandajobs.com_";
 
-        return compact('tiktok', 'twitter', 'linkedin', 'facebook', 'whatsapp');
+        return compact('tiktok', 'twitter', 'linkedin', 'facebook', 'instagram', 'whatsapp');
     }
 
     public function buildManualSocialPost(Job $job): string
     {
-        $url = route('public.job', $job->slugable?->key ?? $job->id);
+        $url = $this->trackedJobUrl($job, 'telegram');
         $company = trim((string) ($job->company?->name ?? ''));
         $location = trim((string) ($job->address ?: 'Zambia'));
         $deadline = $job->application_closing_date ?: $job->expire_date;
@@ -1172,16 +1194,25 @@ PROMPT;
 
     public function publerPost(Job $job, string $apiKey, array $accountIds, string $workspaceId = '', ?string $preferredImageField = null, array $excludeNetworks = []): bool
     {
-        return $this->withPublerPublishLock(
-            fn () => $this->publerPostUnlocked(
-                $job,
-                $apiKey,
-                $accountIds,
-                $workspaceId,
-                $preferredImageField,
-                $excludeNetworks
-            )
+        $this->lastPublerError = null;
+
+        $publish = fn () => $this->publerPostUnlocked(
+            $job,
+            $apiKey,
+            $accountIds,
+            $workspaceId,
+            $preferredImageField,
+            $excludeNetworks
         );
+
+        return in_array('linkedin', $excludeNetworks, true)
+            ? $publish()
+            : $this->withLinkedInPublishLock($publish);
+    }
+
+    public function getLastPublerError(): ?string
+    {
+        return $this->lastPublerError;
     }
 
     protected function publerPostUnlocked(Job $job, string $apiKey, array $accountIds, string $workspaceId = '', ?string $preferredImageField = null, array $excludeNetworks = []): bool
@@ -1201,9 +1232,9 @@ PROMPT;
             'linkedin'  => $posts['linkedin']  ?? null,
             'tiktok'    => $posts['tiktok']    ?? null,
             'twitter'   => $posts['twitter']   ?? null,
-            'instagram' => $posts['facebook']  ?? null,
+            'instagram' => $posts['instagram'] ?? null,
         ];
-        $defaultText = $posts['facebook'] ?? $this->buildJobMessage($job);
+        $defaultText = $posts['facebook'] ?? $this->buildJobMessage($job, 'facebook');
 
         // Resolve image URL — preferred field first, then fallbacks
         $imageUrl = null;
@@ -1271,6 +1302,21 @@ PROMPT;
             $postObj['networks'][$net] = $entry;
         }
 
+        $targetNetworks = array_keys($postObj['networks']);
+        $accountPayloads = $this->filterPublerAccountsForNetworks(
+            $apiKey,
+            $workspaceId,
+            $accountIds,
+            $targetNetworks,
+        );
+        $postObj['accounts'] = $accountPayloads;
+
+        if (empty($postObj['accounts'])) {
+            $this->lastPublerError = 'No selected Publer account matches: ' . implode(', ', $targetNetworks) . '.';
+
+            return false;
+        }
+
         if (empty($postObj['networks'])) {
             unset($postObj['networks']);
             $postObj['text'] = $defaultText;
@@ -1286,6 +1332,8 @@ PROMPT;
         [$success, $error] = $this->publerPublishAndWait($apiKey, $workspaceId, $payload);
 
         if (! $success) {
+            $this->lastPublerError = $error;
+
             Log::warning('Publer post failed', [
                 'job_id' => $job->getKey(),
                 'error'  => $error,
@@ -1295,13 +1343,59 @@ PROMPT;
         return $success;
     }
 
-    private function withPublerPublishLock(callable $callback): mixed
+    private function filterPublerAccountsForNetworks(
+        string $apiKey,
+        string $workspaceId,
+        array $accountIds,
+        array $targetNetworks,
+    ): array {
+        if (empty($targetNetworks)) {
+            return array_map(fn ($id) => ['id' => (string) $id], $accountIds);
+        }
+
+        try {
+            $accounts = $this->fetchPublerAccounts($apiKey, $workspaceId);
+            $allowedIds = collect($accounts)
+                ->filter(function (array $account) use ($targetNetworks): bool {
+                    $platform = strtolower((string) ($account['platform'] ?? ''));
+                    $type = strtolower((string) ($account['type'] ?? ''));
+
+                    if ($platform === '') {
+                        $platform = match (true) {
+                            str_starts_with($type, 'fb_') => 'facebook',
+                            str_starts_with($type, 'in_') => 'linkedin',
+                            default => $type,
+                        };
+                    }
+
+                    return in_array($platform, $targetNetworks, true);
+                })
+                ->pluck('id')
+                ->all();
+
+            return collect($accountIds)
+                ->map(fn ($id) => (string) $id)
+                ->filter(fn (string $id) => in_array($id, $allowedIds, true))
+                ->map(fn (string $id) => ['id' => $id])
+                ->values()
+                ->all();
+        } catch (Throwable $e) {
+            Log::warning('Could not filter Publer accounts by network', [
+                'networks' => $targetNetworks,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+    }
+
+    private function withLinkedInPublishLock(callable $callback): mixed
     {
-        return Cache::lock('job-board:publer-publish', 1200)->block(900, function () use ($callback) {
+        return Cache::lock('job-board:publer-publish:linkedin', 1200)->block(900, function () use ($callback) {
             try {
                 return $callback();
             } finally {
-                // LinkedIn rejects consecutive posts to one account without a one-minute gap.
+                // Publer reports LinkedIn's one-minute minimum gap between posts.
                 sleep(61);
             }
         });
@@ -1402,9 +1496,7 @@ PROMPT;
 
     protected function postToPublerCountryMapping(Job $job, array &$results): void
     {
-        $this->withPublerPublishLock(function () use ($job, &$results): void {
-            $this->postToPublerCountryMappingUnlocked($job, $results);
-        });
+        $this->postToPublerCountryMappingUnlocked($job, $results);
     }
 
     protected function postToPublerCountryMappingUnlocked(Job $job, array &$results): void
@@ -1437,14 +1529,14 @@ PROMPT;
         }
 
         $posts       = $this->buildPlatformPosts($job);
-        $defaultText = $posts['facebook'] ?? $this->buildJobMessage($job);
+        $defaultText = $posts['facebook'] ?? $this->buildJobMessage($job, 'facebook');
 
         $networkTextMap = [
             'facebook'  => $posts['facebook']  ?? $defaultText,
             'linkedin'  => $posts['linkedin']  ?? $defaultText,
             'tiktok'    => $posts['tiktok']    ?? $defaultText,
             'twitter'   => $posts['twitter']   ?? $defaultText,
-            'instagram' => $posts['facebook']  ?? $defaultText,
+            'instagram' => $posts['instagram'] ?? $defaultText,
         ];
 
         // ── Image resolution & upload ─────────────────────────────────────────
@@ -1543,13 +1635,24 @@ PROMPT;
 
         try {
             $errors = [];
+            usort($publerPosts, static function (array $left, array $right): int {
+                $leftIsLinkedIn = isset($left['networks']['linkedin']);
+                $rightIsLinkedIn = isset($right['networks']['linkedin']);
+
+                return $leftIsLinkedIn <=> $rightIsLinkedIn;
+            });
+
             foreach ($publerPosts as $publerPost) {
-                [$postSuccess, $postError] = $this->publerPublishAndWait($apiKey, $workspaceId, [
+                $publish = fn (): array => $this->publerPublishAndWait($apiKey, $workspaceId, [
                     'bulk' => [
                         'state' => 'scheduled',
                         'posts' => [$publerPost],
                     ],
                 ]);
+
+                [$postSuccess, $postError] = isset($publerPost['networks']['linkedin'])
+                    ? $this->withLinkedInPublishLock($publish)
+                    : $publish();
 
                 if (! $postSuccess) {
                     $errors[] = $postError;
@@ -1945,7 +2048,7 @@ PROMPT;
 
         $response = Http::timeout(20)
             ->post("https://graph.facebook.com/v19.0/{$pageId}/feed", [
-                'message'      => $this->buildJobMessage($job),
+                'message'      => $this->buildJobMessage($job, 'facebook'),
                 'access_token' => $token,
             ]);
 
@@ -1974,7 +2077,7 @@ PROMPT;
                 'lifecycleState'  => 'PUBLISHED',
                 'specificContent' => [
                     'com.linkedin.ugc.ShareContent' => [
-                        'shareCommentary'   => ['text' => $this->buildJobMessage($job)],
+                        'shareCommentary'   => ['text' => $this->buildJobMessage($job, 'linkedin')],
                         'shareMediaCategory' => 'NONE',
                     ],
                 ],
@@ -2007,7 +2110,7 @@ PROMPT;
                 'messaging_product' => 'whatsapp',
                 'to'   => $recipient,
                 'type' => 'text',
-                'text' => ['body' => $this->buildJobMessage($job)],
+                'text' => ['body' => $this->buildJobMessage($job, 'whatsapp')],
             ]);
 
         return $response->successful();
@@ -2068,7 +2171,7 @@ PROMPT;
         }
 
         $posts   = $this->buildPlatformPosts($job);
-        $message = $posts['whatsapp'] ?? $this->buildJobMessage($job);
+        $message = $posts['whatsapp'] ?? $this->buildJobMessage($job, 'whatsapp');
 
         // 1. Use the job's stored whatsapp_image if available (highest priority)
         $storedImage = trim((string) ($job->whatsapp_image ?? ''));
@@ -2139,12 +2242,26 @@ PROMPT;
     {
         $postText  = $this->buildManualSocialPost($job);
         $imagePath = null;
+        $companyLogo = null;
 
         if ($generateImage) {
             try {
                 $imagePath = app(JobImageGeneratorService::class)->generate($job);
             } catch (Throwable) {
                 $imagePath = null;
+            }
+        }
+
+        if (! $imagePath && $job->company && ! empty($job->company->logo)) {
+            try {
+                $logoUrl = RvMedia::getImageUrl($job->company->logo);
+                $logoResponse = Http::timeout(20)->get($logoUrl);
+
+                if ($logoResponse->successful()) {
+                    $companyLogo = $this->prepareTelegramCompanyLogo($logoResponse->body());
+                }
+            } catch (Throwable) {
+                $companyLogo = null;
             }
         }
 
@@ -2158,7 +2275,22 @@ PROMPT;
                     'caption' => $caption,
                 ]);
             @unlink($imagePath);
+        } elseif ($companyLogo) {
+            $response = Http::timeout(30)
+                ->attach('photo', $companyLogo['content'], $companyLogo['filename'])
+                ->post("https://api.telegram.org/bot{$token}/sendPhoto", [
+                    'chat_id' => $chatId,
+                    'caption' => Str::limit($postText, 1020, '…'),
+                ]);
         } else {
+            $response = Http::timeout(20)->post("https://api.telegram.org/bot{$token}/sendMessage", [
+                'chat_id'                  => $chatId,
+                'text'                     => $postText,
+                'disable_web_page_preview' => true,
+            ]);
+        }
+
+        if ((! $response->successful() || ! data_get($response->json(), 'ok')) && ($imagePath || $companyLogo)) {
             $response = Http::timeout(20)->post("https://api.telegram.org/bot{$token}/sendMessage", [
                 'chat_id'                  => $chatId,
                 'text'                     => $postText,
@@ -2297,6 +2429,41 @@ PROMPT;
         }
 
         return true;
+    }
+
+    private function prepareTelegramCompanyLogo(string $content): ?array
+    {
+        if ($content === '' || ! function_exists('imagecreatefromstring')) {
+            return null;
+        }
+
+        $source = @imagecreatefromstring($content);
+        if (! $source) {
+            return null;
+        }
+
+        $width = imagesx($source);
+        $height = imagesy($source);
+        $canvas = imagecreatetruecolor($width, $height);
+        $white = imagecolorallocate($canvas, 255, 255, 255);
+        imagefill($canvas, 0, 0, $white);
+        imagecopy($canvas, $source, 0, 0, 0, 0, $width, $height);
+
+        ob_start();
+        $encoded = imagejpeg($canvas, null, 90);
+        $jpeg = ob_get_clean();
+
+        imagedestroy($source);
+        imagedestroy($canvas);
+
+        if (! $encoded || ! is_string($jpeg) || $jpeg === '') {
+            return null;
+        }
+
+        return [
+            'content' => $jpeg,
+            'filename' => 'company-logo.jpg',
+        ];
     }
 
 }

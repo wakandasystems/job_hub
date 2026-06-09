@@ -21,7 +21,7 @@ class SendNewsletterEmailJob implements ShouldQueue
 
     public function __construct(
         private readonly int $sendId,
-        private readonly int $subscriberId,
+        private readonly ?int $subscriberId,
         private readonly string $email,
         private readonly ?string $name,
         private readonly string $subject,

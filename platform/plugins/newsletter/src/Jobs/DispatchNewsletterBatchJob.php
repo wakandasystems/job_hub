@@ -2,6 +2,7 @@
 
 namespace Botble\Newsletter\Jobs;
 
+use Botble\JobBoard\Supports\EmployerContactAudience;
 use Illuminate\Bus\Batch;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -17,7 +18,7 @@ class DispatchNewsletterBatchJob implements ShouldQueue
 
     public function __construct(private readonly int $sendId) {}
 
-    public function handle(): void
+    public function handle(EmployerContactAudience $audience): void
     {
         $send = DB::table('newsletter_sends')->find($this->sendId);
 
@@ -25,9 +26,12 @@ class DispatchNewsletterBatchJob implements ShouldQueue
             return;
         }
 
-        $query = DB::table('newsletters')
-            ->where('status', 'subscribed')
-            ->select('id', 'email', 'name');
+        $subscribers = ($send->audience ?? 'subscribers') === 'employers'
+            ? $audience->emails()
+            : DB::table('newsletters')
+                ->where('status', 'subscribed')
+                ->select('id', 'email', 'name')
+                ->get();
 
         if ($send->dedup_minutes > 0) {
             $since        = now()->subMinutes($send->dedup_minutes);
@@ -39,11 +43,11 @@ class DispatchNewsletterBatchJob implements ShouldQueue
                 ->all();
 
             if (! empty($recentEmails)) {
-                $query->whereNotIn(DB::raw('LOWER(email)'), $recentEmails);
+                $subscribers = $subscribers
+                    ->reject(fn ($subscriber) => in_array(strtolower($subscriber->email), $recentEmails, true))
+                    ->values();
             }
         }
-
-        $subscribers = $query->get();
 
         if ($subscribers->isEmpty()) {
             DB::table('newsletter_sends')->where('id', $this->sendId)->update(['status' => 'completed']);
@@ -59,7 +63,7 @@ class DispatchNewsletterBatchJob implements ShouldQueue
 
         $jobs = $subscribers->map(fn ($s) => new SendNewsletterEmailJob(
             sendId:       $sendId,
-            subscriberId: (int) $s->id,
+            subscriberId: $s->id ? (int) $s->id : null,
             email:        $s->email,
             name:         $s->name,
             subject:      $send->subject,

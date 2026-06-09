@@ -4,11 +4,14 @@ namespace Botble\JobBoard\Http\Controllers;
 
 use Botble\Base\Http\Controllers\BaseController;
 use Botble\Base\Supports\Breadcrumb;
+use Botble\JobBoard\Jobs\SendEmployerBroadcastChunkJob;
 use Botble\JobBoard\Jobs\SendSocialBroadcastJob;
 use Botble\JobBoard\Models\SocialAutomation;
 use Botble\JobBoard\Models\SocialBroadcast;
 use Botble\JobBoard\Services\SocialPublisherService;
+use Botble\JobBoard\Supports\EmployerContactAudience;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 
@@ -23,7 +26,7 @@ class SocialBroadcastController extends BaseController
             ->add('Broadcast', route('job-board.automations.broadcast'));
     }
 
-    public function index()
+    public function index(EmployerContactAudience $audience)
     {
         $this->pageTitle('Broadcast — Post to All Channels');
 
@@ -38,7 +41,15 @@ class SocialBroadcastController extends BaseController
             ->limit(15)
             ->get();
 
-        return view('plugins/job-board::broadcasts.index', compact('channels', 'broadcasts'));
+        $employerPhoneCount = $audience->phones()->count();
+        $hasWhapi = $channels->contains('platform', 'whapi');
+
+        return view('plugins/job-board::broadcasts.index', compact(
+            'channels',
+            'broadcasts',
+            'employerPhoneCount',
+            'hasWhapi'
+        ));
     }
 
     public function uploadImage(Request $request)
@@ -53,12 +64,44 @@ class SocialBroadcastController extends BaseController
         return response()->json(['ok' => true, 'url' => $url, 'path' => $path]);
     }
 
+    public function employerContacts(Request $request, EmployerContactAudience $audience): JsonResponse
+    {
+        $perPage = 20;
+        $page = max(1, $request->integer('page', 1));
+        $contacts = $audience->phones();
+        $total = $contacts->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min($page, $lastPage);
+
+        return response()->json([
+            'data' => $contacts
+                ->slice(($page - 1) * $perPage, $perPage)
+                ->values()
+                ->map(fn ($contact) => [
+                    'name' => $contact->name,
+                    'phone' => $contact->phone,
+                    'country_code' => $contact->country_code,
+                    'country_name' => $contact->country_name,
+                    'edit_url' => $contact->edit_url,
+                ]),
+            'meta' => [
+                'current_page' => $page,
+                'last_page' => $lastPage,
+                'per_page' => $perPage,
+                'total' => $total,
+                'from' => $total ? (($page - 1) * $perPage) + 1 : 0,
+                'to' => min($page * $perPage, $total),
+            ],
+        ]);
+    }
+
     public function send(Request $request)
     {
         $validated = $request->validate([
             'message'      => ['required', 'string', 'max:3000'],
             'image_path'   => ['nullable', 'string', 'max:255'],
             'scheduled_at' => ['nullable', 'date', 'after:now'],
+            'audience'     => ['required', 'in:channels,employers'],
         ]);
 
         $scheduledAt = $validated['scheduled_at'] ?? null;
@@ -66,23 +109,32 @@ class SocialBroadcastController extends BaseController
         $broadcast = SocialBroadcast::create([
             'message'      => $validated['message'],
             'image_path'   => $validated['image_path'] ?? null,
+            'audience'     => $validated['audience'],
             'status'       => $scheduledAt ? 'scheduled' : 'pending',
             'scheduled_at' => $scheduledAt,
             'created_by'   => Auth::id(),
         ]);
 
         if ($scheduledAt) {
-            SendSocialBroadcastJob::dispatch($broadcast->getKey())
-                ->delay(now()->diffInSeconds($scheduledAt, true));
+            $job = $broadcast->audience === 'employers'
+                ? SendEmployerBroadcastChunkJob::dispatch($broadcast->getKey())
+                : SendSocialBroadcastJob::dispatch($broadcast->getKey());
+            $job->delay(now()->diffInSeconds($scheduledAt, true));
 
             return $this->httpResponse()->setMessage(
                 'Broadcast scheduled for ' . $broadcast->scheduled_at->format('M j, Y \a\t g:i A') . '.'
             );
         }
 
-        SendSocialBroadcastJob::dispatch($broadcast->getKey());
+        $broadcast->audience === 'employers'
+            ? SendEmployerBroadcastChunkJob::dispatch($broadcast->getKey())
+            : SendSocialBroadcastJob::dispatch($broadcast->getKey());
 
-        return $this->httpResponse()->setMessage('Broadcast queued — it will post to your channels shortly.');
+        return $this->httpResponse()->setMessage(
+            $broadcast->audience === 'employers'
+                ? 'Employer WhatsApp broadcast queued.'
+                : 'Broadcast queued — it will post to your channels shortly.'
+        );
     }
 
     public function cancel(SocialBroadcast $broadcast)

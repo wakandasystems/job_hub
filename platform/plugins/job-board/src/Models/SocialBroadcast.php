@@ -11,6 +11,10 @@ class SocialBroadcast extends BaseModel
     protected $fillable = [
         'message',
         'image_path',
+        'audience',
+        'recipient_count',
+        'sent_count',
+        'failed_count',
         'status',
         'scheduled_at',
         'sent_at',

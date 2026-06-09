@@ -10,6 +10,7 @@ use Botble\Base\Supports\Avatar;
 use Botble\JobBoard\Facades\JobBoardHelper;
 use Botble\JobBoard\Models\Concerns\HasActiveJobsRelation;
 use Botble\JobBoard\Models\Concerns\UniqueId;
+use Botble\JobBoard\Services\CompanyContactService;
 use Botble\Media\Facades\RvMedia;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -31,7 +32,9 @@ class Company extends BaseModel
         'account_id',
         'address',
         'email',
+        'contact_emails',
         'phone',
+        'contact_numbers',
         'year_founded',
         'number_of_offices',
         'number_of_employees',
@@ -79,6 +82,8 @@ class Company extends BaseModel
         'ceo' => SafeContent::class,
         'is_verified' => 'boolean',
         'verified_at' => 'datetime',
+        'contact_emails' => 'array',
+        'contact_numbers' => 'array',
     ];
 
     public function accounts(): BelongsToMany
@@ -184,6 +189,18 @@ class Company extends BaseModel
 
     protected static function booted(): void
     {
+        self::saving(function (Company $company): void {
+            $contacts = app(CompanyContactService::class);
+            $company->contact_emails = $contacts->normalizeEmails(array_merge(
+                $company->contact_emails ?? [],
+                [$company->email],
+            ));
+            $company->contact_numbers = $contacts->normalizePhones(array_merge(
+                $company->contact_numbers ?? [],
+                [$company->phone],
+            ), $contacts->countryCode($company->country_id));
+        });
+
         self::deleting(function (Company $company): void {
             $company->jobs()->delete();
             $company->reviews()->delete();

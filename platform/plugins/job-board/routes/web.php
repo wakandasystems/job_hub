@@ -327,6 +327,12 @@ AdminHelper::registerRoutes(function (): void {
                 'permission' => 'job-board.automations.index',
             ]);
 
+            Route::get('broadcast/employer-contacts', [
+                'as'         => 'broadcast-employer-contacts',
+                'uses'       => 'SocialBroadcastController@employerContacts',
+                'permission' => 'job-board.automations.index',
+            ]);
+
             Route::post('broadcast/upload-image', [
                 'as'         => 'broadcast-upload-image',
                 'uses'       => 'SocialBroadcastController@uploadImage',
@@ -660,6 +666,18 @@ AdminHelper::registerRoutes(function (): void {
             Route::resource('', 'JobApplicationController')
                 ->except(['create', 'store'])
                 ->parameters(['' => 'job-application']);
+
+            Route::post('mark-all-reviewed', [
+                'as' => 'mark-all-reviewed',
+                'uses' => 'JobApplicationController@markAllReviewed',
+                'permission' => 'job-applications.edit',
+            ]);
+
+            Route::post('{jobApplication}/mark-reviewed', [
+                'as' => 'mark-reviewed',
+                'uses' => 'JobApplicationController@markReviewed',
+                'permission' => 'job-applications.edit',
+            ])->wherePrimaryKey('jobApplication');
 
             Route::get('download-cv/{application}', [
                 'as' => 'download-cv',

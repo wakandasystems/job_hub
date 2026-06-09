@@ -341,6 +341,7 @@ class TelegramSocialMessageController extends BaseController
         $uploadUrlsJson    = json_encode($uploadUrls, JSON_UNESCAPED_UNICODE);
         $jobImagesJson     = json_encode($jobImages, JSON_UNESCAPED_UNICODE);
         $companyLogoJson   = json_encode($companyLogoUrl, JSON_UNESCAPED_UNICODE);
+        $companyNameJson   = json_encode((string) ($companyName ?? ''), JSON_UNESCAPED_UNICODE);
         $csrfToken         = csrf_token();
         $whapiSendUrlJson  = json_encode($whapiSendUrl ?? null, JSON_UNESCAPED_UNICODE);
         $whapiChannelJson  = json_encode($whapiChannelName ?? '', JSON_UNESCAPED_UNICODE);
@@ -378,6 +379,9 @@ class TelegramSocialMessageController extends BaseController
         $heroSubLine     = $escapedCompany ? "{$escapedJobName} &middot; {$escapedCompany}" : $escapedJobName;
         $heroCompanyHtml = $escapedCompany ? "<div class=\"hero-company\">🏢 {$escapedCompany}</div>" : '';
         $jobBtnHtml      = $escapedJobUrl ? "<a href=\"{$escapedJobUrl}\" target=\"_blank\" rel=\"noopener\" class=\"bb-job\">🔗 View Job</a>" : '';
+        $copyCompanyNameHtml = ! $companyLogoUrl && $escapedCompany
+            ? '<button type="button" class="img-copy-btn" onclick="doCopy(companyName,this,\'Copy company name\')" title="Copy company name">📋 Copy name</button>'
+            : '';
 
 
         // Attachment tip (Image tab)
@@ -602,6 +606,7 @@ class TelegramSocialMessageController extends BaseController
                                 <span class="img-slot-label">{$escapedCompany}</span>
                                 <span class="img-slot-dim">Company Logo · Square or landscape · PNG/WebP</span>
                             </div>
+                            {$copyCompanyNameHtml}
                         </div>
                         <div class="img-slot-body">
                             <div id="preview-company_logo" style="display:none">
@@ -961,6 +966,7 @@ class TelegramSocialMessageController extends BaseController
             const uploadUrls      = {$uploadUrlsJson};
             const jobImages       = {$jobImagesJson};
             const companyLogoUrl  = {$companyLogoJson};
+            const companyName     = {$companyNameJson};
             const slotPrompts     = {$slotPromptsJson};
             const slotPosts       = {$slotPostsJson};
             const csrfToken       = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
@@ -1159,11 +1165,32 @@ class TelegramSocialMessageController extends BaseController
                             const fd = new FormData();
                             fd.append('_token', csrfToken);
                             fd.append('image_field', 'tiktok_image');
+                            fd.append('exclude_networks', 'facebook,linkedin,twitter,instagram');
+                            fd.append('retry_background', '1');
                             fetch(publerSendUrl, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
                                 .then(r => r.json())
                                 .then(d => {
                                     const ok = d.error !== true;
-                                    Swal.fire({ icon: ok ? 'success' : 'error', title: ok ? 'Posted!' : 'Failed', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload());
+                                    if (ok) {
+                                        Swal.fire({ icon: 'success', title: 'Posted!', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload());
+                                        return;
+                                    }
+                                    const detail = d.data && d.data.error_detail ? d.data.error_detail : d.message;
+                                    Swal.fire({
+                                        icon: 'error',
+                                        title: 'TikTok post failed',
+                                        text: d.message + '\\n\\n' + detail,
+                                        confirmButtonText: 'Copy error',
+                                        showCancelButton: true,
+                                        cancelButtonText: 'Close',
+                                    }).then(result => {
+                                        if (result.isConfirmed) {
+                                            const copyButton = document.createElement('button');
+                                            doCopy(detail, copyButton, 'Copy error');
+                                            return;
+                                        }
+                                        location.reload();
+                                    });
                                 })
                                 .catch(() => Swal.fire({ icon: 'error', title: 'Network error' }).then(() => location.reload()));
                         } else { location.reload(); }
@@ -1497,6 +1524,7 @@ class TelegramSocialMessageController extends BaseController
         $uploadUrlsJson    = json_encode($uploadUrls, JSON_UNESCAPED_UNICODE);
         $jobImagesJson     = json_encode($jobImages, JSON_UNESCAPED_UNICODE);
         $companyLogoJson   = json_encode($companyLogoUrl, JSON_UNESCAPED_UNICODE);
+        $companyNameJson   = json_encode((string) ($companyName ?? ''), JSON_UNESCAPED_UNICODE);
         $whapiSendUrlJson  = json_encode($whapiSendUrl, JSON_UNESCAPED_UNICODE);
         $whapiChannelJson  = json_encode($whapiChannelName ?? '', JSON_UNESCAPED_UNICODE);
         $publerSendUrlJson = json_encode($publerSendUrl, JSON_UNESCAPED_UNICODE);
@@ -1531,6 +1559,9 @@ class TelegramSocialMessageController extends BaseController
         $heroCompanyHtml = $escapedCompany ? "<div class=\"hero-company\">🏢 {$escapedCompany}</div>" : '';
         $jobBtnHtml      = $escapedJobUrl ? "<a href=\"{$escapedJobUrl}\" target=\"_blank\" rel=\"noopener\" class=\"bb-job\">🔗 View Job</a>" : '';
         $escapedHeroBadge = htmlspecialchars($heroBadge, ENT_QUOTES, 'UTF-8');
+        $copyCompanyNameHtml = ! $companyLogoUrl && $escapedCompany
+            ? '<button type="button" class="img-copy-btn" onclick="doCopy(companyName,this,\'Copy company name\')" title="Copy company name">📋 Copy name</button>'
+            : '';
 
         $wjLogo1 = 'https://www.wakandajobs.com/storage/gemini-generated-image-s1e9dgs1e9dgs1e9.png';
         $wjLogo2 = 'https://www.wakandajobs.com/storage/chatgpt-image-may-14-2026-03-00-04-pm.png';
@@ -1822,9 +1853,10 @@ JSFN;
                         <div class="img-slot-head">
                             <span class="img-slot-icon">🏢</span>
                             <div class="img-slot-info">
-                                <span class="img-slot-label">Company Logo</span>
-                                <span class="img-slot-dim">Square or landscape · PNG/WebP</span>
+                                <span class="img-slot-label">{$escapedCompany}</span>
+                                <span class="img-slot-dim">Company Logo · Square or landscape · PNG/WebP</span>
                             </div>
+                            {$copyCompanyNameHtml}
                         </div>
                         <div class="img-slot-body">
                             <div id="preview-company_logo" style="display:none">
@@ -2186,6 +2218,7 @@ JSFN;
             const uploadUrls      = {$uploadUrlsJson};
             const jobImages       = {$jobImagesJson};
             const companyLogoUrl  = {$companyLogoJson};
+            const companyName     = {$companyNameJson};
             const slotPrompts     = {$slotPromptsJson};
             const slotPosts       = {$slotPostsJson};
             const csrfToken       = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
@@ -2382,11 +2415,32 @@ JSFN;
                             const fd = new FormData();
                             fd.append('_token', csrfToken);
                             fd.append('image_field', 'tiktok_image');
+                            fd.append('exclude_networks', 'facebook,linkedin,twitter,instagram');
+                            fd.append('retry_background', '1');
                             fetch(publerSendUrl, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
                                 .then(r => r.json())
                                 .then(d => {
                                     const ok = d.error !== true;
-                                    Swal.fire({ icon: ok ? 'success' : 'error', title: ok ? 'Posted!' : 'Failed', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload());
+                                    if (ok) {
+                                        Swal.fire({ icon: 'success', title: 'Posted!', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload());
+                                        return;
+                                    }
+                                    const detail = d.data && d.data.error_detail ? d.data.error_detail : d.message;
+                                    Swal.fire({
+                                        icon: 'error',
+                                        title: 'TikTok post failed',
+                                        text: d.message + '\\n\\n' + detail,
+                                        confirmButtonText: 'Copy error',
+                                        showCancelButton: true,
+                                        cancelButtonText: 'Close',
+                                    }).then(result => {
+                                        if (result.isConfirmed) {
+                                            const copyButton = document.createElement('button');
+                                            doCopy(detail, copyButton, 'Copy error');
+                                            return;
+                                        }
+                                        location.reload();
+                                    });
                                 })
                                 .catch(() => Swal.fire({ icon: 'error', title: 'Network error' }).then(() => location.reload()));
                         } else { location.reload(); }

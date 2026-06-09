@@ -13,7 +13,7 @@ class NewsletterMail extends Mailable
     public string $emailSubject;
     public string $body;
     public ?string $imageUrl;
-    public int $subscriberId;
+    public ?int $subscriberId;
     public ?string $pdfPath;
     public ?string $pdfName;
 
@@ -21,7 +21,7 @@ class NewsletterMail extends Mailable
         string $subject,
         string $body,
         ?string $imageUrl,
-        int $subscriberId,
+        ?int $subscriberId,
         ?string $pdfPath = null,
     ) {
         $this->emailSubject = $subject;

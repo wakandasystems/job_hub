@@ -63,7 +63,9 @@
     <p>©2026 Wakanda Systems. All rights reserved.</p>
     <p>
       <a href="https://www.wakandajobs.com">WakandaJobs.com</a> &nbsp;|&nbsp;
-      <a href="{{ url('/newsletter/unsubscribe/' . $subscriberId) }}">Unsubscribe</a>
+      @if($subscriberId)
+        <a href="{{ url('/newsletter/unsubscribe/' . $subscriberId) }}">Unsubscribe</a>
+      @endif
     </p>
   </div>
 

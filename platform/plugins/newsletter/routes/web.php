@@ -14,6 +14,18 @@ Route::group(['namespace' => 'Botble\Newsletter\Http\Controllers'], function ():
                 'permission' => 'newsletter.index',
             ]);
 
+            Route::get('send/employer-contacts', [
+                'as'         => 'send.employer-contacts',
+                'uses'       => 'NewsletterController@employerContacts',
+                'permission' => 'newsletter.index',
+            ]);
+
+            Route::get('send/subscriber-contacts', [
+                'as'         => 'send.subscriber-contacts',
+                'uses'       => 'NewsletterController@subscriberContacts',
+                'permission' => 'newsletter.index',
+            ]);
+
             Route::post('send', [
                 'as'         => 'send.post',
                 'uses'       => 'NewsletterController@sendPost',

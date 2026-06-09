@@ -7,6 +7,7 @@ use Botble\Base\Facades\Html;
 use Botble\JobBoard\Enums\JobApplicationStatusEnum;
 use Botble\JobBoard\Models\JobApplication;
 use Botble\Table\Abstracts\TableAbstract;
+use Botble\Table\Actions\Action;
 use Botble\Table\Actions\DeleteAction;
 use Botble\Table\Actions\EditAction;
 use Botble\Table\BulkActions\DeleteBulkAction;
@@ -15,6 +16,7 @@ use Botble\Table\Columns\CreatedAtColumn;
 use Botble\Table\Columns\FormattedColumn;
 use Botble\Table\Columns\IdColumn;
 use Botble\Table\Columns\StatusColumn;
+use Botble\Table\HeaderActions\HeaderAction;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Query\Builder as QueryBuilder;
@@ -27,10 +29,41 @@ class JobApplicationTable extends TableAbstract
     {
         $this
             ->model(JobApplication::class)
+            ->addHeaderAction(
+                HeaderAction::make('mark-all-reviewed')
+                    ->label('Mark all reviewed')
+                    ->icon('ti ti-checks')
+                    ->color('success')
+                    ->url(route('job-applications.mark-all-reviewed'))
+                    ->permission('job-applications.edit')
+                    ->withDefaultAction(false)
+                    ->addAttribute('class', 'mark-all-reviewed-button')
+            )
             ->addActions([
+                Action::make('mark-reviewed')
+                    ->route('job-applications.mark-reviewed')
+                    ->permission('job-applications.edit')
+                    ->label('Mark reviewed')
+                    ->icon('ti ti-check')
+                    ->color('success')
+                    ->action(),
                 EditAction::make()->route('job-applications.edit'),
                 DeleteAction::make()->route('job-applications.destroy'),
             ]);
+
+        static $registeredBulkReviewAction = false;
+
+        if (! $registeredBulkReviewAction) {
+            add_filter(BASE_FILTER_TABLE_BEFORE_RENDER, function (?string $html, TableAbstract $table): ?string {
+                if (! $table instanceof self) {
+                    return $html;
+                }
+
+                return ($html ?: '') . view('plugins/job-board::job-applications.mark-all-reviewed')->render();
+            }, 20, 2);
+
+            $registeredBulkReviewAction = true;
+        }
     }
 
     public function ajax(): JsonResponse

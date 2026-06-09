@@ -57,6 +57,10 @@ class CompanyTable extends TableAbstract
                 'id',
                 'logo',
                 'name',
+                'email',
+                'phone',
+                'contact_emails',
+                'contact_numbers',
                 'unique_id',
                 'is_verified',
                 'created_at',
@@ -73,6 +77,20 @@ class CompanyTable extends TableAbstract
             ImageColumn::make('logo')
                 ->title(trans('plugins/job-board::messages.logo')),
             NameColumn::make()->route('companies.edit'),
+            FormattedColumn::make('contacts')
+                ->getValueUsing(function (FormattedColumn $column): string {
+                    $company = $column->getItem();
+
+                    return sprintf(
+                        '<span class="text-nowrap"><i class="ti ti-mail me-1"></i>%d</span> <span class="text-nowrap ms-2"><i class="ti ti-phone me-1"></i>%d</span>',
+                        count($company->contact_emails ?? []),
+                        count($company->contact_numbers ?? []),
+                    );
+                })
+                ->title('Contacts')
+                ->alignLeft()
+                ->searchable(false)
+                ->orderable(false),
             FormattedColumn::make('unique_id')
                 ->getValueUsing(function (FormattedColumn $column) {
                     $item = $column->getItem();

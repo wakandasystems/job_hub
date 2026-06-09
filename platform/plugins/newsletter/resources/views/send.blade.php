@@ -43,12 +43,88 @@
 
             <x-core::card.body>
                 <div class="alert alert-info mb-4" id="subscriber-info">
-                    Sending to <strong>{{ number_format($subscriberCount) }}</strong> subscribed recipient(s).
+                    Choose between <strong>{{ number_format($subscriberCount) }}</strong> subscribed recipient(s)
+                    and <strong>{{ number_format($employerCount) }}</strong> deduplicated employer email contact(s).
                     Add a test email below to send a preview to one address first.
                 </div>
 
                 <form id="nl-send-form" enctype="multipart/form-data">
                     @csrf
+
+                    <div class="mb-3">
+                        <label class="form-label d-block">Audience</label>
+                        <div class="d-flex flex-wrap gap-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="audience" id="audience-subscribers" value="subscribers" checked>
+                                <label class="form-check-label" for="audience-subscribers">
+                                    All newsletter subscribers ({{ number_format($subscriberCount) }})
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="audience" id="audience-employers" value="employers">
+                                <label class="form-check-label" for="audience-employers">
+                                    Employers only ({{ number_format($employerCount) }})
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-text">
+                            Employer contacts come from registered employer accounts and company contact records.
+                        </div>
+                    </div>
+
+                    <div class="border rounded mb-4" id="nl-subscriber-contacts-panel">
+                        <div class="d-flex align-items-center justify-content-between gap-3 px-3 py-2 border-bottom">
+                            <div>
+                                <div class="fw-semibold">Newsletter Subscribers</div>
+                                <div class="text-muted small" id="nl-subscribers-summary">Loading subscribers…</div>
+                            </div>
+                            <div class="spinner-border spinner-border-sm text-primary" id="nl-subscribers-loading" role="status"></div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th style="width:70px">#</th>
+                                        <th>Name</th>
+                                        <th>Email Address</th>
+                                        <th>Subscribed</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="nl-subscribers-body"></tbody>
+                            </table>
+                        </div>
+                        <div class="d-flex align-items-center justify-content-between gap-3 px-3 py-2 border-top">
+                            <span class="text-muted small" id="nl-subscribers-page-label"></span>
+                            <div class="btn-group btn-group-sm" id="nl-subscribers-pagination"></div>
+                        </div>
+                    </div>
+
+                    <div class="border rounded mb-4" id="nl-employer-contacts-panel" style="display:none">
+                        <div class="d-flex align-items-center justify-content-between gap-3 px-3 py-2 border-bottom">
+                            <div>
+                                <div class="fw-semibold">Employer Email Recipients</div>
+                                <div class="text-muted small" id="nl-contacts-summary">Loading contacts…</div>
+                            </div>
+                            <div class="spinner-border spinner-border-sm text-primary" id="nl-contacts-loading" role="status"></div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th style="width:70px">#</th>
+                                        <th>Employer / Company</th>
+                                        <th>Origin</th>
+                                        <th>Email Address</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="nl-contacts-body"></tbody>
+                            </table>
+                        </div>
+                        <div class="d-flex align-items-center justify-content-between gap-3 px-3 py-2 border-top">
+                            <span class="text-muted small" id="nl-contacts-page-label"></span>
+                            <div class="btn-group btn-group-sm" id="nl-contacts-pagination"></div>
+                        </div>
+                    </div>
 
                     <div class="mb-3">
                         <label class="form-label" for="subject">Subject <span class="text-danger">*</span></label>
@@ -94,7 +170,7 @@
                         <div class="col-md-6">
                             <label class="form-label" for="test_to">Test email (preview only)</label>
                             <input class="form-control" id="test_to" name="test_to" type="email" placeholder="name@example.com">
-                            <div class="form-text">Leave blank to send to all subscribers.</div>
+                            <div class="form-text">Leave blank to send to the selected audience.</div>
                         </div>
                     </div>
 
@@ -245,6 +321,201 @@
 
 <script>
 let pollInterval = null;
+let employerContactsLoaded = false;
+let subscriberContactsLoaded = false;
+
+document.querySelectorAll('input[name="audience"]').forEach(function (input) {
+    input.addEventListener('change', function () {
+        const employersSelected = this.value === 'employers';
+        document.getElementById('nl-employer-contacts-panel').style.display = employersSelected ? 'block' : 'none';
+        document.getElementById('nl-subscriber-contacts-panel').style.display = employersSelected ? 'none' : 'block';
+        if (employersSelected && !employerContactsLoaded) {
+            loadEmployerContacts(1);
+        } else if (!employersSelected && !subscriberContactsLoaded) {
+            loadSubscriberContacts(1);
+        }
+    });
+});
+
+async function loadSubscriberContacts(page) {
+    const loading = document.getElementById('nl-subscribers-loading');
+    loading.style.display = 'inline-block';
+    document.getElementById('nl-subscribers-summary').textContent = 'Loading subscribers…';
+
+    try {
+        const response = await fetch('{{ route("newsletter.send.subscriber-contacts") }}?page=' + page, {
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        if (!response.ok) throw new Error('Could not load newsletter subscribers.');
+
+        const data = await response.json();
+        subscriberContactsLoaded = true;
+        renderSubscriberContacts(data.data || [], data.meta || {});
+    } catch (error) {
+        const body = document.getElementById('nl-subscribers-body');
+        body.replaceChildren();
+        const row = body.insertRow();
+        const cell = row.insertCell();
+        cell.colSpan = 4;
+        cell.className = 'text-danger text-center py-3';
+        cell.textContent = error.message;
+        document.getElementById('nl-subscribers-summary').textContent = 'Subscribers could not be loaded.';
+    } finally {
+        loading.style.display = 'none';
+    }
+}
+
+function renderSubscriberContacts(subscribers, meta) {
+    const body = document.getElementById('nl-subscribers-body');
+    body.replaceChildren();
+
+    subscribers.forEach(function (subscriber, index) {
+        const row = body.insertRow();
+        const numberCell = row.insertCell();
+        const nameCell = row.insertCell();
+        const emailCell = row.insertCell();
+        const dateCell = row.insertCell();
+
+        numberCell.className = 'text-muted';
+        emailCell.className = 'text-nowrap';
+        dateCell.className = 'text-nowrap text-muted';
+        numberCell.textContent = (meta.from || 1) + index;
+        nameCell.textContent = subscriber.name || 'Subscriber';
+        emailCell.textContent = subscriber.email;
+        dateCell.textContent = subscriber.subscribed_at || '—';
+    });
+
+    if (!subscribers.length) {
+        const row = body.insertRow();
+        const cell = row.insertCell();
+        cell.colSpan = 4;
+        cell.className = 'text-muted text-center py-3';
+        cell.textContent = 'No newsletter subscribers found.';
+    }
+
+    document.getElementById('nl-subscribers-summary').textContent = meta.total
+        ? `Showing ${meta.from}–${meta.to} of ${meta.total} subscribers.`
+        : 'No subscribers found.';
+    document.getElementById('nl-subscribers-page-label').textContent =
+        `Page ${meta.current_page || 1} of ${meta.last_page || 1}`;
+
+    const pagination = document.getElementById('nl-subscribers-pagination');
+    pagination.replaceChildren();
+
+    const previous = document.createElement('button');
+    previous.type = 'button';
+    previous.className = 'btn btn-outline-secondary';
+    previous.textContent = 'Previous';
+    previous.disabled = meta.current_page <= 1;
+    previous.addEventListener('click', () => loadSubscriberContacts(meta.current_page - 1));
+    pagination.appendChild(previous);
+
+    const next = document.createElement('button');
+    next.type = 'button';
+    next.className = 'btn btn-outline-secondary';
+    next.textContent = 'Next';
+    next.disabled = meta.current_page >= meta.last_page;
+    next.addEventListener('click', () => loadSubscriberContacts(meta.current_page + 1));
+    pagination.appendChild(next);
+}
+
+async function loadEmployerContacts(page) {
+    const loading = document.getElementById('nl-contacts-loading');
+    loading.style.display = 'inline-block';
+    document.getElementById('nl-contacts-summary').textContent = 'Loading contacts…';
+
+    try {
+        const response = await fetch('{{ route("newsletter.send.employer-contacts") }}?page=' + page, {
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        if (!response.ok) throw new Error('Could not load employer contacts.');
+
+        const data = await response.json();
+        employerContactsLoaded = true;
+        renderEmployerContacts(data.data || [], data.meta || {});
+    } catch (error) {
+        const body = document.getElementById('nl-contacts-body');
+        body.replaceChildren();
+        const row = body.insertRow();
+        const cell = row.insertCell();
+        cell.colSpan = 4;
+        cell.className = 'text-danger text-center py-3';
+        cell.textContent = error.message;
+        document.getElementById('nl-contacts-summary').textContent = 'Contacts could not be loaded.';
+    } finally {
+        loading.style.display = 'none';
+    }
+}
+
+function renderEmployerContacts(contacts, meta) {
+    const body = document.getElementById('nl-contacts-body');
+    body.replaceChildren();
+
+    contacts.forEach(function (contact, index) {
+        const row = body.insertRow();
+        const numberCell = row.insertCell();
+        const nameCell = row.insertCell();
+        const countryCell = row.insertCell();
+        const emailCell = row.insertCell();
+        numberCell.className = 'text-muted';
+        emailCell.className = 'text-nowrap';
+        numberCell.textContent = (meta.from || 1) + index;
+        if (contact.edit_url) {
+            const editLink = document.createElement('a');
+            editLink.href = contact.edit_url;
+            editLink.textContent = contact.name || 'Employer';
+            editLink.className = 'fw-medium';
+            nameCell.appendChild(editLink);
+        } else {
+            nameCell.textContent = contact.name || 'Employer';
+        }
+        countryCell.className = 'text-nowrap';
+        countryCell.title = contact.country_name || 'Unknown';
+        countryCell.textContent = countryFlag(contact.country_code) + ' ' + (contact.country_name || 'Unknown');
+        emailCell.textContent = contact.email;
+    });
+
+    if (!contacts.length) {
+        const row = body.insertRow();
+        const cell = row.insertCell();
+        cell.colSpan = 4;
+        cell.className = 'text-muted text-center py-3';
+        cell.textContent = 'No employer email contacts found.';
+    }
+
+    document.getElementById('nl-contacts-summary').textContent = meta.total
+        ? `Showing ${meta.from}–${meta.to} of ${meta.total} email contacts.`
+        : 'No email contacts found.';
+    document.getElementById('nl-contacts-page-label').textContent =
+        `Page ${meta.current_page || 1} of ${meta.last_page || 1}`;
+
+    const pagination = document.getElementById('nl-contacts-pagination');
+    pagination.replaceChildren();
+
+    const previous = document.createElement('button');
+    previous.type = 'button';
+    previous.className = 'btn btn-outline-secondary';
+    previous.textContent = 'Previous';
+    previous.disabled = meta.current_page <= 1;
+    previous.addEventListener('click', () => loadEmployerContacts(meta.current_page - 1));
+    pagination.appendChild(previous);
+
+    const next = document.createElement('button');
+    next.type = 'button';
+    next.className = 'btn btn-outline-secondary';
+    next.textContent = 'Next';
+    next.disabled = meta.current_page >= meta.last_page;
+    next.addEventListener('click', () => loadEmployerContacts(meta.current_page + 1));
+    pagination.appendChild(next);
+}
+
+function countryFlag(code) {
+    code = String(code || '').toUpperCase();
+    if (!/^[A-Z]{2}$/.test(code)) return '🏳';
+    return String.fromCodePoint(...[...code].map(char => 127397 + char.charCodeAt(0)));
+}
+
+loadSubscriberContacts(1);
 
 function toggleSchedule(chk) {
     document.getElementById('schedule-picker').style.display = chk.checked ? 'block' : 'none';

@@ -47,6 +47,54 @@
                         @csrf
 
                         <div class="mb-3">
+                            <label class="form-label d-block">Audience</label>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="radio" name="audience" id="bc-audience-channels" value="channels" checked>
+                                <label class="form-check-label" for="bc-audience-channels">
+                                    Connected social channels ({{ $channels->count() }})
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="audience" id="bc-audience-employers" value="employers"
+                                       {{ !$hasWhapi || !$employerPhoneCount ? 'disabled' : '' }}>
+                                <label class="form-check-label" for="bc-audience-employers">
+                                    Employers only via WhatsApp ({{ number_format($employerPhoneCount) }})
+                                </label>
+                            </div>
+                            <div class="form-text">
+                                Employer numbers combine registered employer and company phone/WhatsApp fields.
+                                @if(!$hasWhapi) Connect an active Whapi automation to enable direct delivery. @endif
+                            </div>
+                        </div>
+
+                        <div class="border rounded mb-4" id="bc-employer-contacts-panel" style="display:none">
+                            <div class="d-flex align-items-center justify-content-between gap-3 px-3 py-2 border-bottom">
+                                <div>
+                                    <div class="fw-semibold">Employer WhatsApp Recipients</div>
+                                    <div class="text-muted small" id="bc-contacts-summary">Loading contacts…</div>
+                                </div>
+                                <div class="spinner-border spinner-border-sm text-success" id="bc-contacts-loading" role="status"></div>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:70px">#</th>
+                                            <th>Employer / Company</th>
+                                            <th>Origin</th>
+                                            <th>WhatsApp Number</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="bc-contacts-body"></tbody>
+                                </table>
+                            </div>
+                            <div class="d-flex align-items-center justify-content-between gap-3 px-3 py-2 border-top">
+                                <span class="text-muted small" id="bc-contacts-page-label"></span>
+                                <div class="btn-group btn-group-sm" id="bc-contacts-pagination"></div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
                             <label class="form-label" for="bc-message">Message <span class="text-danger">*</span></label>
                             <textarea class="form-control" id="bc-message" name="message" rows="8" maxlength="3000" required
                                       placeholder="What do you want to tell your audience across Facebook, LinkedIn, and WhatsApp?"></textarea>
@@ -80,7 +128,7 @@
                         </div>
 
                         <div class="d-flex gap-2 justify-content-end mt-4">
-                            <button class="btn btn-primary" type="submit" id="bc-submit-btn" {{ $channels->isEmpty() ? 'disabled' : '' }}>
+                            <button class="btn btn-primary" type="submit" id="bc-submit-btn" {{ $channels->isEmpty() && (!$hasWhapi || !$employerPhoneCount) ? 'disabled' : '' }}>
                                 <i class="ti ti-send me-1"></i> Post to Channels
                             </button>
                         </div>
@@ -228,16 +276,99 @@
         const csrfToken     = $('meta[name="csrf-token"]').attr('content');
         const uploadUrl     = '{{ route('job-board.automations.broadcast-upload-image') }}';
         const sendUrl       = '{{ route('job-board.automations.broadcast-send') }}';
+        const contactsUrl   = '{{ route('job-board.automations.broadcast-employer-contacts') }}';
         const channelCount  = {{ $channels->count() }};
+        const employerCount = {{ $employerPhoneCount }};
 
         let uploadedImagePath = null;
         let uploadedImageUrl  = null;
         let uploading         = false;
+        let contactsLoaded    = false;
 
         // Message counter
         $('#bc-message').on('input', function () {
             $('#bc-message-counter').text($(this).val().length);
         });
+        $('input[name="audience"]').on('change', function () {
+            const employersSelected = $(this).val() === 'employers';
+            $('#bc-submit-btn').html(
+                employersSelected
+                    ? '<i class="ti ti-brand-whatsapp me-1"></i> Send to Employers'
+                    : '<i class="ti ti-send me-1"></i> Post to Channels'
+            );
+            $('#bc-employer-contacts-panel').toggle(employersSelected);
+            if (employersSelected && !contactsLoaded) loadEmployerContacts(1);
+        });
+
+        function loadEmployerContacts(page) {
+            $('#bc-contacts-loading').show();
+            $('#bc-contacts-summary').text('Loading contacts…');
+
+            fetch(contactsUrl + '?page=' + page, {
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+            })
+                .then(r => {
+                    if (!r.ok) throw new Error('Could not load employer contacts.');
+                    return r.json();
+                })
+                .then(resp => {
+                    contactsLoaded = true;
+                    renderEmployerContacts(resp.data || [], resp.meta || {});
+                })
+                .catch(err => {
+                    $('#bc-contacts-body')
+                        .empty()
+                        .append($('<tr>').append($('<td colspan="4" class="text-danger text-center py-3">').text(err.message)));
+                    $('#bc-contacts-summary').text('Contacts could not be loaded.');
+                })
+                .finally(() => $('#bc-contacts-loading').hide());
+        }
+
+        function renderEmployerContacts(contacts, meta) {
+            const $body = $('#bc-contacts-body').empty();
+            contacts.forEach(function (contact, index) {
+                const $name = contact.edit_url
+                    ? $('<a class="fw-medium">').attr('href', contact.edit_url).text(contact.name || 'Employer')
+                    : document.createTextNode(contact.name || 'Employer');
+
+                $('<tr>')
+                    .append($('<td class="text-muted">').text((meta.from || 1) + index))
+                    .append($('<td>').append($name))
+                    .append($('<td class="text-nowrap">').attr('title', contact.country_name || 'Unknown').text(
+                        countryFlag(contact.country_code) + ' ' + (contact.country_name || 'Unknown')
+                    ))
+                    .append($('<td class="text-nowrap">').append(
+                        $('<i class="ti ti-brand-whatsapp text-success me-1">'),
+                        document.createTextNode('+' + contact.phone)
+                    ))
+                    .appendTo($body);
+            });
+
+            if (!contacts.length) {
+                $body.html('<tr><td colspan="4" class="text-muted text-center py-3">No employer WhatsApp numbers found.</td></tr>');
+            }
+
+            $('#bc-contacts-summary').text(
+                meta.total ? 'Showing ' + meta.from + '–' + meta.to + ' of ' + meta.total + ' numbers.' : 'No numbers found.'
+            );
+            $('#bc-contacts-page-label').text('Page ' + (meta.current_page || 1) + ' of ' + (meta.last_page || 1));
+
+            const $pagination = $('#bc-contacts-pagination').empty();
+            $('<button type="button" class="btn btn-outline-secondary">Previous</button>')
+                .prop('disabled', meta.current_page <= 1)
+                .on('click', () => loadEmployerContacts(meta.current_page - 1))
+                .appendTo($pagination);
+            $('<button type="button" class="btn btn-outline-secondary">Next</button>')
+                .prop('disabled', meta.current_page >= meta.last_page)
+                .on('click', () => loadEmployerContacts(meta.current_page + 1))
+                .appendTo($pagination);
+        }
+
+        function countryFlag(code) {
+            code = String(code || '').toUpperCase();
+            if (!/^[A-Z]{2}$/.test(code)) return '🏳';
+            return String.fromCodePoint(...[...code].map(char => 127397 + char.charCodeAt(0)));
+        }
 
         // ── Image drop zone ──────────────────────────────────────────────
         const $dropZone   = $('#bc-drop-zone');
@@ -333,13 +464,16 @@
                 Botble.showError('Write a message before posting.');
                 return;
             }
-            if (!channelCount) {
+            const audience = $('input[name="audience"]:checked').val();
+            if (audience === 'channels' && !channelCount) {
                 Botble.showError('No active channels are connected — add one in Automations first.');
                 return;
             }
 
             $('#bc-confirm-intro').html(
-                'Ready to post to <strong>' + channelCount + '</strong> connected channel(s)' +
+                (audience === 'employers'
+                    ? 'Ready to send directly to <strong>' + employerCount + '</strong> employer WhatsApp contact(s)'
+                    : 'Ready to post to <strong>' + channelCount + '</strong> connected channel(s)') +
                 (uploadedImagePath ? ' with your uploaded image' : ' as a text-only post') + '.'
             );
             $('#bc-confirm-preview').text(message);
@@ -369,6 +503,7 @@
             const fd = new FormData();
             fd.append('_token', csrfToken);
             fd.append('message', message);
+            fd.append('audience', $('input[name="audience"]:checked').val());
             if (uploadedImagePath) fd.append('image_path', uploadedImagePath);
             if (scheduled && scheduledAt) fd.append('scheduled_at', scheduledAt.replace('T', ' '));
 
