@@ -1974,10 +1974,8 @@ span {
             position: absolute;
             inset: 0;
             height: 100%;
-
-            @media screen and (min-width: 1368px) {
-                height: auto;
-            }
+            object-fit: contain;
+            background: #f3efff;
         }
     }
 }

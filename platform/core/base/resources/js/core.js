@@ -121,7 +121,7 @@ class Botble {
                 text: message,
                 duration: 5000,
                 close: true,
-                gravity: 'bottom',
+                gravity: 'top',
                 position: 'right',
                 stopOnFocus: true,
                 escapeMarkup: false,
