@@ -217,6 +217,8 @@ class AdOrderCheckoutController extends BaseController
 
             $options[] = [
                 'tier_id' => $tier->getKey(),
+                'name' => $tier->name,
+                'countries' => $countryList,
                 'label' => $countryList ? "{$tier->name} ({$countryList})" : $tier->name,
                 'display' => $this->formatAmount($override->price, $override->currency),
                 'price' => $override->price,
@@ -227,6 +229,8 @@ class AdOrderCheckoutController extends BaseController
         if (empty($options)) {
             $options[] = [
                 'tier_id' => null,
+                'name' => __('All locations'),
+                'countries' => __('No targeting — shown to every visitor'),
                 'label' => __('All locations (no targeting)'),
                 'display' => $this->formatAmount($placement->price, $placement->currency),
                 'price' => $placement->price,

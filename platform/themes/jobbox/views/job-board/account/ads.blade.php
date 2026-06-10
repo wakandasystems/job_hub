@@ -188,6 +188,53 @@
     </div>
 
     @push('footer')
+    <style>
+        .reach-option {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: .75rem;
+            border: 1px solid #dde1e6;
+            border-radius: 10px;
+            padding: .75rem 1rem;
+            margin-bottom: .6rem;
+            cursor: pointer;
+            background-color: #fff;
+            transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease;
+        }
+        .reach-option:hover {
+            border-color: var(--bs-primary, #1877f2);
+            background-color: rgba(24, 119, 242, 0.04);
+        }
+        .reach-option.is-selected {
+            border-color: var(--bs-primary, #1877f2);
+            background-color: rgba(24, 119, 242, 0.08);
+            box-shadow: 0 0 0 1px var(--bs-primary, #1877f2) inset;
+        }
+        .reach-option input[type="radio"] {
+            margin-top: .2rem;
+            flex-shrink: 0;
+        }
+        .reach-option .reach-option-text {
+            min-width: 0;
+        }
+        .reach-option .reach-option-name {
+            font-weight: 600;
+            line-height: 1.3;
+        }
+        .reach-option .reach-option-countries {
+            font-size: .8rem;
+            color: var(--tp-text-body, #6b7280);
+            line-height: 1.3;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .reach-option .reach-option-price {
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+    </style>
     <script>
         document.querySelectorAll('[data-bs-target="#requestAdModal"]').forEach(function (btn) {
             btn.addEventListener('click', function () {
@@ -214,10 +261,11 @@
                 wrapper.classList.remove('d-none');
 
                 options.forEach(function (option, index) {
-                    var label = document.createElement('label');
-                    label.className = 'form-check d-flex align-items-center justify-content-between border rounded p-2 mb-2';
-
-                    var left = document.createElement('span');
+                    var row = document.createElement('label');
+                    row.className = 'reach-option';
+                    if (index === 0) {
+                        row.classList.add('is-selected');
+                    }
 
                     var input = document.createElement('input');
                     input.type = 'radio';
@@ -227,21 +275,36 @@
                     if (index === 0) {
                         input.checked = true;
                     }
+                    input.addEventListener('change', function () {
+                        container.querySelectorAll('.reach-option').forEach(function (el) {
+                            el.classList.remove('is-selected');
+                        });
+                        row.classList.add('is-selected');
+                    });
 
                     var text = document.createElement('span');
-                    text.className = 'form-check-label';
-                    text.textContent = option.label;
+                    text.className = 'reach-option-text';
 
-                    left.appendChild(input);
-                    left.appendChild(text);
+                    var name = document.createElement('div');
+                    name.className = 'reach-option-name';
+                    name.textContent = option.name || option.label;
+                    text.appendChild(name);
+
+                    if (option.countries) {
+                        var countries = document.createElement('div');
+                        countries.className = 'reach-option-countries';
+                        countries.textContent = option.countries;
+                        text.appendChild(countries);
+                    }
 
                     var price = document.createElement('span');
-                    price.className = 'fw-semibold color-brand-1';
+                    price.className = 'fw-semibold color-brand-1 reach-option-price';
                     price.textContent = option.display;
 
-                    label.appendChild(left);
-                    label.appendChild(price);
-                    container.appendChild(label);
+                    row.appendChild(input);
+                    row.appendChild(text);
+                    row.appendChild(price);
+                    container.appendChild(row);
                 });
             });
         });
