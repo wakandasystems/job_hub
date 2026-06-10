@@ -7,6 +7,8 @@
     }
 
     $applyModalCountry   = wakanda_selected_country();
+    $applyModalWaUrl     = wakanda_whatsapp_channel_url($applyModalCountry?->id);
+    $applyModalWaLabel   = $applyModalCountry ? 'Follow Wakanda Jobs ' . $applyModalCountry->name . ' on WhatsApp' : null;
     $applyModalTgUrl     = wakanda_telegram_channel_url($applyModalCountry?->id);
     $applyModalTgLabel   = $applyModalCountry ? 'Join Wakanda Jobs ' . $applyModalCountry->name . ' on Telegram' : null;
 @endphp
@@ -23,9 +25,11 @@
                 <div class="modal-body pl-30 pr-30 pt-50">
                     {!! \Botble\JobBoard\Forms\Fronts\InternalJobApplicationForm::create()->renderForm() !!}
                     <div class="text-center py-3 border-top mt-3">
-                        <a href="https://whatsapp.com/channel/0029Vb7umsx2ZjClLN546U3f" target="_blank" rel="noopener" class="d-inline-flex align-items-center gap-2 text-decoration-none fw-semibold" style="color:#25D366;">
-                            <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" width="20" height="20" alt="WhatsApp"> Follow our WhatsApp Channel for job updates
-                        </a>
+                        @if($applyModalWaUrl)
+                            <a href="{{ $applyModalWaUrl }}" target="_blank" rel="noopener" class="d-inline-flex align-items-center gap-2 text-decoration-none fw-semibold" style="color:#25D366;">
+                                <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" width="20" height="20" alt="WhatsApp"> {{ $applyModalWaLabel }}
+                            </a>
+                        @endif
                         @if($applyModalTgUrl)
                         <div class="mt-2">
                             <a href="{{ $applyModalTgUrl }}" target="_blank" rel="noopener" class="d-inline-flex align-items-center gap-2 text-decoration-none fw-semibold" style="color:#229ED9;">
@@ -48,9 +52,11 @@
                 <div class="modal-body pl-30 pr-30 pt-50">
                     {!! \Botble\JobBoard\Forms\Fronts\ExternalJobApplicationForm::create()->renderForm() !!}
                     <div class="text-center py-3 border-top mt-3">
-                        <a href="https://whatsapp.com/channel/0029Vb7umsx2ZjClLN546U3f" target="_blank" rel="noopener" class="d-inline-flex align-items-center gap-2 text-decoration-none fw-semibold" style="color:#25D366;">
-                            <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" width="20" height="20" alt="WhatsApp"> Follow our WhatsApp Channel for job updates
-                        </a>
+                        @if($applyModalWaUrl)
+                            <a href="{{ $applyModalWaUrl }}" target="_blank" rel="noopener" class="d-inline-flex align-items-center gap-2 text-decoration-none fw-semibold" style="color:#25D366;">
+                                <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" width="20" height="20" alt="WhatsApp"> {{ $applyModalWaLabel }}
+                            </a>
+                        @endif
                         @if($applyModalTgUrl)
                         <div class="mt-2">
                             <a href="{{ $applyModalTgUrl }}" target="_blank" rel="noopener" class="d-inline-flex align-items-center gap-2 text-decoration-none fw-semibold" style="color:#229ED9;">

@@ -9,8 +9,8 @@
         <x-core::card.body>
             <dl>
                 <div class="d-flex justify-content-between">
-                    <dt>{{ $package->name }} <span class="text-muted">({{ ucfirst($billingCycle ?? 'monthly') }})</span></dt>
-                    <dd>{{ format_price($packageAmount ?? $package->price) }}</dd>
+                    <dt>{{ $package->name }} <span class="text-muted">({{ $billingCycle === 'one_time' ? __('One-time') : ucfirst($billingCycle ?? 'monthly') }})</span></dt>
+                    <dd>{{ format_price($packageAmount ?? $package->price, $package->currency) }}</dd>
                 </div>
             </dl>
             @if (session()->has('applied_coupon_code'))
@@ -25,7 +25,7 @@
                     <dl>
                         <div class="d-flex justify-content-between">
                             <dt>{{ trans('plugins/job-board::coupon.discount_amount') }}</dt>
-                            <dd class="text-success">{{ format_price(session()->get('coupon_discount_amount')) }}</dd>
+                            <dd class="text-success">{{ format_price(session()->get('coupon_discount_amount'), $package->currency) }}</dd>
                         </div>
                     </dl>
                 @endif
@@ -33,7 +33,7 @@
             <dl>
                 <div class="d-flex justify-content-between">
                     <dt>{{ trans('plugins/job-board::coupon.total') }}</dt>
-                    <dd class="fs-3 fw-bold">{{ format_price($totalAmount) }}</dd>
+                    <dd class="fs-3 fw-bold">{{ format_price($totalAmount, $package->currency) }}</dd>
                 </div>
             </dl>
         </x-core::card.body>

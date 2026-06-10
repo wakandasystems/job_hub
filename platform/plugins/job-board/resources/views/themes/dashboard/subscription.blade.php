@@ -51,36 +51,140 @@
 
     {{-- Talent Hub value proposition --}}
     @if($plans->where('can_search_candidates', true)->isNotEmpty())
-        <div class="card mb-4" style="background:linear-gradient(135deg,#1a2b6d 0%,#3c65f5 100%);border:none;color:#fff;">
-            <div class="card-body py-4 px-4">
-                <div class="row align-items-center g-3">
-                    <div class="col-auto">
-                        <span class="d-flex align-items-center justify-content-center rounded-circle"
-                              style="width:56px;height:56px;background:rgba(255,255,255,.15);font-size:1.6rem;">
-                            🎯
+        <style>
+            .talent-hub-intro {
+                background: #fff;
+                border: 1px solid #dbe4f0;
+                border-radius: 18px;
+                box-shadow: 0 12px 35px rgba(16, 24, 40, .08);
+                overflow: hidden;
+            }
+
+            .talent-hub-intro__accent {
+                background: linear-gradient(155deg, #172554 0%, #2548a7 100%);
+                color: #fff;
+                min-height: 100%;
+                padding: 2rem;
+            }
+
+            .talent-hub-intro__icon {
+                align-items: center;
+                background: rgba(255, 255, 255, .14);
+                border: 1px solid rgba(255, 255, 255, .2);
+                border-radius: 14px;
+                display: inline-flex;
+                height: 54px;
+                justify-content: center;
+                margin-bottom: 1.25rem;
+                width: 54px;
+            }
+
+            .talent-hub-intro__eyebrow {
+                color: #bfdbfe;
+                font-size: .75rem;
+                font-weight: 700;
+                letter-spacing: .08em;
+                text-transform: uppercase;
+            }
+
+            .talent-hub-intro__title {
+                color: #fff;
+                font-size: clamp(1.35rem, 2vw, 1.8rem);
+                line-height: 1.25;
+            }
+
+            .talent-hub-intro__content {
+                padding: 2rem;
+            }
+
+            .talent-hub-intro__copy {
+                color: #475467;
+                font-size: .95rem;
+                line-height: 1.7;
+                max-width: 780px;
+            }
+
+            .talent-hub-intro__feature {
+                align-items: center;
+                background: #f8fafc;
+                border: 1px solid #e4eaf2;
+                border-radius: 12px;
+                color: #26364d;
+                display: flex;
+                font-size: .84rem;
+                font-weight: 600;
+                gap: .65rem;
+                height: 100%;
+                padding: .8rem .9rem;
+            }
+
+            .talent-hub-intro__feature .icon {
+                color: #3159c9;
+                flex-shrink: 0;
+            }
+
+            @media (max-width: 991.98px) {
+                .talent-hub-intro__accent,
+                .talent-hub-intro__content {
+                    padding: 1.5rem;
+                }
+            }
+        </style>
+
+        <div class="talent-hub-intro mb-4">
+            <div class="row g-0">
+                <div class="col-lg-4">
+                    <div class="talent-hub-intro__accent">
+                        <span class="talent-hub-intro__icon">
+                            <x-core::icon name="ti ti-users-search" size="30" />
                         </span>
+                        <div class="talent-hub-intro__eyebrow mb-2">Wakanda Jobs Talent Hub</div>
+                        <h2 class="talent-hub-intro__title fw-bold mb-3">Find qualified local talent before they apply.</h2>
+                        <p class="mb-0 text-white opacity-75">
+                            Built for employers hiring across Zambia, Zimbabwe, and growing African markets.
+                        </p>
                     </div>
-                    <div class="col">
-                        <div class="fw-bold fs-4 mb-1">Unlock the Wakanda Jobs Talent Hub</div>
-                        <div style="opacity:.88;font-size:.95rem;">
-                            Stop waiting for the right CV to land in your inbox. With <strong>Talent Hub access</strong> you search our full candidate database — filter by skills, location, experience and availability — and reveal contact details instantly. <strong>LinkedIn doesn't cover Zambia and Zimbabwe the way we do.</strong> Our talent pool is local, verified and ready to work.
+                </div>
+                <div class="col-lg-8">
+                    <div class="talent-hub-intro__content">
+                        <h3 class="h4 fw-bold text-dark mb-2">Search, shortlist, and contact candidates directly</h3>
+                        <p class="talent-hub-intro__copy mb-4">
+                            Talent Hub gives your team access to our candidate database with practical filters for skills,
+                            location, experience, and availability. Review complete profiles, reveal verified contact
+                            details, and download CVs without waiting for applications.
+                        </p>
+
+                        <div class="row g-2 mb-4">
+                            <div class="col-sm-6">
+                                <div class="talent-hub-intro__feature">
+                                    <x-core::icon name="ti ti-user-check" />
+                                    <span>Complete candidate profiles</span>
+                                </div>
+                            </div>
+                            <div class="col-sm-6">
+                                <div class="talent-hub-intro__feature">
+                                    <x-core::icon name="ti ti-address-book" />
+                                    <span>Phone, email, and WhatsApp</span>
+                                </div>
+                            </div>
+                            <div class="col-sm-6">
+                                <div class="talent-hub-intro__feature">
+                                    <x-core::icon name="ti ti-file-download" />
+                                    <span>One-click CV downloads</span>
+                                </div>
+                            </div>
+                            <div class="col-sm-6">
+                                <div class="talent-hub-intro__feature">
+                                    <x-core::icon name="ti ti-adjustments-search" />
+                                    <span>Advanced search and filters</span>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="col-lg-auto text-lg-end mt-2 mt-lg-0">
-                        <div class="d-flex flex-wrap gap-2 justify-content-start justify-content-lg-end">
-                            <span class="badge" style="background:rgba(255,255,255,.2);font-size:.8rem;padding:.45em .85em;">
-                                👤 Full candidate profiles
-                            </span>
-                            <span class="badge" style="background:rgba(255,255,255,.2);font-size:.8rem;padding:.45em .85em;">
-                                📞 Phone & email reveals
-                            </span>
-                            <span class="badge" style="background:rgba(255,255,255,.2);font-size:.8rem;padding:.45em .85em;">
-                                📄 CV downloads
-                            </span>
-                            <span class="badge" style="background:rgba(255,255,255,.2);font-size:.8rem;padding:.45em .85em;">
-                                🔎 Advanced search & filters
-                            </span>
-                        </div>
+
+                        <a href="#plans" class="btn btn-primary px-4">
+                            View Talent Hub plans
+                            <x-core::icon name="ti ti-arrow-right" class="ms-1" />
+                        </a>
                     </div>
                 </div>
             </div>

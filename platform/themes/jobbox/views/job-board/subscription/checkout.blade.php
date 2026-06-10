@@ -31,7 +31,7 @@
                 <div class="checkout-wrapper">
                     <x-core::form :url="$formAction" class="payment-checkout-form" method="post">
                         <input name="name"                    type="hidden" value="{{ $name }}">
-                        <input name="amount"                  type="hidden" value="{{ $price }}">
+                        <input name="amount"                  type="hidden" value="{{ $amount }}">
                         <input name="currency"                type="hidden" value="{{ $currency }}">
                         <input name="return_url"              type="hidden" value="{{ $returnUrl }}">
                         <input name="callback_url"            type="hidden" value="{{ $callbackUrl }}">

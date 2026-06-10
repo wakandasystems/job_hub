@@ -74,7 +74,10 @@
                    style="transition:transform .15s,box-shadow .15s;border-radius:12px!important;overflow:hidden;">
                     <div class="card-body d-flex flex-column align-items-center justify-content-center text-center p-3" style="gap:.4rem;">
                         <span class="avatar avatar-md rounded-circle bg-{{ $action['color'] }}-lt mb-1" style="width:46px;height:46px;font-size:1.35rem;">
-                            <i class="{{ $action['icon'] }} text-{{ $action['color'] }}"></i>
+                            <x-core::icon
+                                :name="$action['icon']"
+                                class="quick-action-icon text-{{ $action['color'] }}"
+                            />
                         </span>
                         <div class="fw-semibold" style="font-size:.82rem;line-height:1.2;color:#1a2332;">{{ $action['label'] }}</div>
                         <div class="text-muted" style="font-size:.72rem;line-height:1.3;">{{ $action['desc'] }}</div>
@@ -99,7 +102,12 @@
         .quick-action-primary .avatar {
             background: rgba(255,255,255,.2) !important;
         }
-        .quick-action-primary .avatar i {
+        .quick-action-icon {
+            height: 24px;
+            stroke-width: 2;
+            width: 24px;
+        }
+        .quick-action-primary .quick-action-icon {
             color: #fff !important;
         }
     </style>

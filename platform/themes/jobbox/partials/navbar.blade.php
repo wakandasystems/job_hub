@@ -56,30 +56,15 @@
                                         <span class="text-left fw-medium icon-down" title="{{ __('Hi, :name', ['name' => $name = Str::limit($account->name, 15)]) }}">{{ __('Hi, :name', ['name' => $name]) }} </span>
                                     </a>
                                     <ul class="dropdown-menu dropdown-menu-end user-dropdown-menu" aria-labelledby="userdropdown">
-                                        @if ($account->isEmployer())
-                                            <li><a class="dropdown-item" href="{{ route('public.account.dashboard') }}">{{ __('Employer Dashboard') }}</a></li>
-                                        @else
-                                            <li><a class="dropdown-item" href="{{ route('public.account.settings') }}">{{ __('My Profile') }}</a></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.security') }}">{{ __('Security') }}</a></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.overview') }}">{{ __('Overview') }}</a></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.experiences.index') }}">{{ __('Experiences') }}</a></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.educations.index') }}">{{ __('Educations') }}</a></li>
-                                            <li><hr class="dropdown-divider my-1"></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.jobs.saved') }}">{{ __('Saved Jobs') }}</a></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.jobs.applied-jobs') }}">{{ __('Applied Jobs') }}</a></li>
-                                            <li><hr class="dropdown-divider my-1"></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.career-services') }}">{{ __('Career Services') }}</a></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.job-alerts.index') }}">{{ __('Job Alerts') }}</a></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.job-alert.packages.index') }}">{{ __('Alert Packages') }}</a></li>
-                                        @endif
-                                        <li><hr class="dropdown-divider my-1"></li>
-                                        <li>
-                                            <a class="dropdown-item text-danger" onclick="event.preventDefault(); document.getElementById('logout-form').submit();" href="#">{{ __('Logout') }}</a>
-                                            <form id="logout-form" action="{{ route('public.account.logout') }}" method="POST" style="display: none;">
-                                                @csrf
-                                            </form>
-                                        </li>
+                                        @include(Theme::getThemeNamespace('partials.account-menu-items'), [
+                                            'account' => $account,
+                                            'linkClass' => 'dropdown-item',
+                                            'logoutFormId' => 'desktop-logout-form',
+                                        ])
                                     </ul>
+                                    <form id="desktop-logout-form" action="{{ route('public.account.logout') }}" method="POST" style="display: none;">
+                                        @csrf
+                                    </form>
                                 </li>
                             @endif
                         </ul>
@@ -100,7 +85,7 @@
     </div>
     <div class="mobile-header-wrapper-inner">
         <div class="mobile-header-content-area">
-            <div class="perfect-scroll">
+            <div>
                 <div class="mobile-search mobile-header-border mb-30">
                     <form action="#">
                         <input type="text" placeholder="{{ __('Search...') }}">
@@ -125,20 +110,17 @@
                 </div>
                 @if (is_plugin_active('job-board'))
                     @auth('account')
+                        @php($mobileAccount = auth('account')->user())
                         <div class="mobile-account">
                             <h6 class="mb-10">{{ __('Your Account') }}</h6>
                             <ul class="mobile-menu font-heading">
-                                @if (auth('account')->user()->isEmployer())
-                                    <li><a href="{{ route('public.account.dashboard') }}">{{ __('Employer Dashboard') }}</a></li>
-                                @else
-                                    <li><a href="{{ route('public.account.jobs.saved') }}">{{ __('Saved Jobs') }}</a></li>
-                                    <li><a href="{{ route('public.account.jobs.applied-jobs') }}">{{ __('Applied Jobs') }}</a></li>
-                                @endif
-                                <li><a href="{{ route('public.account.settings') }}">{{ __('Account Settings') }}</a></li>
-                                <li><a href="{{ route('public.account.logout') }}" onclick="event.preventDefault(); document.getElementById('logout-form').submit()">{{ __('Sign Out') }}</a></li>
+                                @include(Theme::getThemeNamespace('partials.account-menu-items'), [
+                                    'account' => $mobileAccount,
+                                    'logoutFormId' => 'mobile-logout-form',
+                                ])
                             </ul>
                         </div>
-                        <form id="logout-form" action="{{ route('public.account.logout') }}" method="post">
+                        <form id="mobile-logout-form" action="{{ route('public.account.logout') }}" method="post" style="display: none;">
                             @csrf
                         </form>
                     @else

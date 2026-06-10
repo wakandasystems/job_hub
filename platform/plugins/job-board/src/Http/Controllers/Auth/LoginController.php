@@ -28,8 +28,21 @@ class LoginController extends Controller
 
         Theme::breadcrumb()->add(trans('plugins/job-board::messages.login'), route('public.account.register'));
 
-        if (! session()->has('url.intended')) {
-            session(['url.intended' => url()->previous()]);
+        $intendedUrl = session('url.intended');
+        if ($intendedUrl) {
+            $intendedPath = '/' . ltrim((string) parse_url($intendedUrl, PHP_URL_PATH), '/');
+            $ignoredPaths = [
+                '/',
+                '/' . ltrim(parse_url(route('public.account.login'), PHP_URL_PATH), '/'),
+                '/' . ltrim(parse_url(route('public.account.register'), PHP_URL_PATH), '/'),
+            ];
+
+            if (in_array(rtrim($intendedPath, '/') ?: '/', array_map(
+                fn (string $path): string => rtrim($path, '/') ?: '/',
+                $ignoredPaths
+            ), true)) {
+                session()->forget('url.intended');
+            }
         }
 
         Theme::asset()->container('footer')->add('js-validation', 'vendor/core/core/js-validation/js/js-validation.js', ['jquery']);

@@ -269,7 +269,7 @@ class DashboardController extends BaseController
             $package->id
         )->count() >= $package->account_limit, 403);
 
-        $billingCycle = $this->normalizePackageBillingCycle($request->input('billing_cycle'));
+        $billingCycle = $this->normalizePackageBillingCycle($request->input('billing_cycle'), $package);
         session(['subscribed_package_billing_cycle' => $billingCycle]);
         session(['subscribed_package_amount' => $this->getPackageBillingAmount($package, $billingCycle)]);
 
@@ -403,7 +403,10 @@ class DashboardController extends BaseController
         Assets::addScripts('form-validation');
 
         $package = $this->getPackageById($id);
-        $billingCycle = $this->normalizePackageBillingCycle($request->input('billing_cycle', session('subscribed_package_billing_cycle')));
+        $billingCycle = $this->normalizePackageBillingCycle(
+            $request->input('billing_cycle', session('subscribed_package_billing_cycle')),
+            $package
+        );
         $packageAmount = $this->getPackageBillingAmount($package, $billingCycle);
 
         Session::put('cart_total', $packageAmount);
@@ -424,8 +427,12 @@ class DashboardController extends BaseController
         return view(JobBoardHelper::viewPath('dashboard.checkout'), compact('package', 'packageAmount', 'billingCycle'));
     }
 
-    protected function normalizePackageBillingCycle(?string $billingCycle): string
+    protected function normalizePackageBillingCycle(?string $billingCycle, Package $package): string
     {
+        if (! $package->isSubscription()) {
+            return 'one_time';
+        }
+
         return $billingCycle === 'annual' ? 'annual' : 'monthly';
     }
 

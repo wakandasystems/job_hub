@@ -63,13 +63,14 @@ class SubscriptionCheckoutController extends BaseController
             $price = round($price * 12 * 0.8, 2);
         }
 
+        $amount = $price;
         $billingCycle = $request->input('cycle', $package->billing_cycle);
 
         $sub = EmployerSubscription::create([
             'account_id'   => $account->getKey(),
             'package_id'   => $package->getKey(),
             'billing_cycle'=> $billingCycle,
-            'amount'       => $price,
+            'amount'       => $amount,
             'currency'     => $currency,
             'status'       => 'pending',
         ]);
@@ -79,7 +80,7 @@ class SubscriptionCheckoutController extends BaseController
         $name        = $package->name . ' — ' . ucfirst($billingCycle) . ' Subscription';
 
         return Theme::scope('job-board.subscription.checkout', compact(
-            'package', 'sub', 'account', 'callbackUrl', 'returnUrl', 'currency', 'name', 'price', 'billingCycle'
+            'package', 'sub', 'account', 'callbackUrl', 'returnUrl', 'currency', 'name', 'price', 'amount', 'billingCycle'
         ))->render();
     }
 
