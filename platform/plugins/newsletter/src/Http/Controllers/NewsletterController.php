@@ -513,7 +513,33 @@ class NewsletterController extends BaseController
             ->groupBy('status')
             ->pluck('cnt', 'status');
 
-        return view('plugins/newsletter::recipients', compact('send', 'recipients', 'status', 'counts'));
+        $blockedEmails = DB::table('newsletter_blocked_emails')
+            ->pluck('email')
+            ->map(fn ($e) => strtolower($e))
+            ->flip()
+            ->all();
+
+        return view('plugins/newsletter::recipients', compact('send', 'recipients', 'status', 'counts', 'blockedEmails'));
+    }
+
+    public function blockEmail(Request $request): JsonResponse
+    {
+        $email = strtolower(trim($request->input('email', '')));
+
+        if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return response()->json(['error' => true, 'message' => 'Invalid email address.'], 422);
+        }
+
+        $exists = DB::table('newsletter_blocked_emails')->where('email', $email)->exists();
+
+        if (! $exists) {
+            DB::table('newsletter_blocked_emails')->insert([
+                'email'      => $email,
+                'created_at' => now(),
+            ]);
+        }
+
+        return response()->json(['error' => false, 'message' => "'{$email}' has been blocked and will never receive emails again."]);
     }
 
     public function destroy(Newsletter $newsletter)

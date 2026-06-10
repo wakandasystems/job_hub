@@ -56,6 +56,12 @@ Route::group(['namespace' => 'Botble\Newsletter\Http\Controllers'], function ():
                 'permission' => 'newsletter.index',
             ]);
 
+            Route::post('block-email', [
+                'as'         => 'block-email',
+                'uses'       => 'NewsletterController@blockEmail',
+                'permission' => 'newsletter.index',
+            ]);
+
             Route::resource('', 'NewsletterController')->only(['index', 'destroy'])->parameters(['' => 'newsletter']);
         });
 

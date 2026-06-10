@@ -16,8 +16,12 @@ class SendNewsletterEmailJob implements ShouldQueue
 {
     use Batchable, Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    // ~8 emails/minute keeps well below Hostinger's per-hour session limit (~500)
+    private const DELAY_MIN = 6;
+    private const DELAY_MAX = 9;
+
     public int $tries = 3;
-    public array $backoff = [60, 120, 300];
+    public array $backoff = [300, 600, 1200];
 
     public function __construct(
         private readonly int $sendId,
@@ -49,6 +53,8 @@ class SendNewsletterEmailJob implements ShouldQueue
                 ['newsletter_send_id' => $this->sendId, 'email' => strtolower($this->email)],
                 ['name' => $this->name, 'status' => 'sent', 'error_message' => null, 'created_at' => now()],
             );
+
+            sleep(rand(self::DELAY_MIN, self::DELAY_MAX));
         } catch (\Throwable $e) {
             DB::table('newsletter_send_recipients')->updateOrInsert(
                 ['newsletter_send_id' => $this->sendId, 'email' => strtolower($this->email)],

@@ -88,12 +88,19 @@
                                 <th class="text-center" style="width:90px">Status</th>
                                 <th>Error</th>
                                 <th style="width:140px">Date</th>
+                                <th style="width:110px"></th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach($recipients as $r)
-                            <tr>
-                                <td class="fw-medium">{{ $r->email }}</td>
+                            @php $isBlocked = isset($blockedEmails[strtolower($r->email)]); @endphp
+                            <tr id="row-{{ md5($r->email) }}" class="{{ $isBlocked ? 'table-secondary opacity-50' : '' }}">
+                                <td class="fw-medium">
+                                    {{ $r->email }}
+                                    @if($isBlocked)
+                                        <span class="badge bg-secondary ms-1">Blocked</span>
+                                    @endif
+                                </td>
                                 <td class="text-muted">{{ $r->name ?: '—' }}</td>
                                 <td class="text-center">
                                     @if($r->status === 'sent')
@@ -114,6 +121,15 @@
                                     @endif
                                 </td>
                                 <td class="text-muted small">{{ \Carbon\Carbon::parse($r->created_at)->format('d M Y, H:i') }}</td>
+                                <td class="text-end">
+                                    @if(! $isBlocked)
+                                        <button class="btn btn-outline-secondary btn-sm btn-block-email"
+                                                data-email="{{ $r->email }}"
+                                                title="Block this address — it will never receive emails again">
+                                            <i class="ti ti-ban me-1"></i>Block
+                                        </button>
+                                    @endif
+                                </td>
                             </tr>
                             @endforeach
                         </tbody>
@@ -141,4 +157,78 @@
     </div>
 </div>
 
+{{-- Block email confirm modal --}}
+<div class="modal fade" id="blockEmailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-body text-center py-4 px-4">
+                <div class="mb-3">
+                    <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger bg-opacity-10" style="width:52px;height:52px;">
+                        <i class="ti ti-ban text-danger fs-3"></i>
+                    </span>
+                </div>
+                <p class="fw-semibold mb-1">Block this address?</p>
+                <p class="text-muted small mb-4" id="blockEmailLabel"></p>
+                <div class="d-flex gap-2 justify-content-center">
+                    <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger px-4" id="blockEmailConfirmBtn">Block</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 @endsection
+
+@push('footer')
+<script>
+$(function () {
+    const blockUrl  = '{{ route('newsletter.block-email') }}';
+    const csrfToken = $('meta[name="csrf-token"]').attr('content');
+    const modal     = new bootstrap.Modal(document.getElementById('blockEmailModal'));
+
+    let pendingEmail = null;
+    let $pendingBtn  = null;
+    let $pendingRow  = null;
+
+    $(document).on('click', '.btn-block-email', function () {
+        $pendingBtn  = $(this);
+        $pendingRow  = $pendingBtn.closest('tr');
+        pendingEmail = $pendingBtn.data('email');
+
+        $('#blockEmailLabel').text('"' + pendingEmail + '" will never receive emails from Wakanda Jobs again.');
+        $('#blockEmailConfirmBtn').prop('disabled', false).text('Block');
+        modal.show();
+    });
+
+    $('#blockEmailConfirmBtn').on('click', function () {
+        if (! pendingEmail) return;
+
+        const $btn = $(this);
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span>');
+
+        $.post({ url: blockUrl, data: { _token: csrfToken, email: pendingEmail } })
+            .done(function (resp) {
+                modal.hide();
+                if (resp.error) {
+                    Botble.showError(resp.message || 'Could not block email.');
+                    return;
+                }
+                Botble.showSuccess(resp.message || 'Email blocked.');
+                $pendingRow.addClass('table-secondary opacity-50');
+                $pendingRow.find('td:first-child').append('<span class="badge bg-secondary ms-1">Blocked</span>');
+                $pendingBtn.closest('td').empty();
+            })
+            .fail(function () {
+                modal.hide();
+                Botble.showError('Request failed.');
+            })
+            .always(function () {
+                pendingEmail = null;
+                $pendingBtn  = null;
+                $pendingRow  = null;
+            });
+    });
+});
+</script>
+@endpush
