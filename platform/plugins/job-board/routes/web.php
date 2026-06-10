@@ -7,6 +7,8 @@ use Botble\JobBoard\Http\Controllers\CreditOrderController;
 use Botble\JobBoard\Http\Controllers\AccountExperienceController;
 use Botble\JobBoard\Http\Controllers\CareerServiceOrderController;
 use Botble\JobBoard\Http\Controllers\EmployerSubscriptionController;
+use Botble\JobBoard\Http\Controllers\AdOrderController;
+use Botble\JobBoard\Http\Controllers\AdPlacementController;
 use Botble\JobBoard\Http\Controllers\FeaturedOrderController;
 use Botble\JobBoard\Http\Controllers\FeaturedPackageController;
 use Botble\JobBoard\Http\Controllers\JobAlertOrderController;
@@ -64,6 +66,18 @@ AdminHelper::registerRoutes(function (): void {
         Route::get('', [FeaturedOrderController::class, 'index'])->name('index');
         Route::post('{featuredOrder}/approve', [FeaturedOrderController::class, 'approve'])->name('approve');
         Route::post('{featuredOrder}/reject', [FeaturedOrderController::class, 'reject'])->name('reject');
+    });
+
+    Route::group(['prefix' => 'ad-placements', 'as' => 'ad-placements.', 'middleware' => 'auth'], function (): void {
+        Route::resource('', AdPlacementController::class)
+            ->parameters(['' => 'adPlacement'])
+            ->except('show');
+    });
+
+    Route::group(['prefix' => 'ad-orders', 'as' => 'ad-orders.', 'middleware' => 'auth'], function (): void {
+        Route::get('', [AdOrderController::class, 'index'])->name('index');
+        Route::post('{adOrder}/approve', [AdOrderController::class, 'approve'])->name('approve');
+        Route::post('{adOrder}/reject', [AdOrderController::class, 'reject'])->name('reject');
     });
 
     Route::group(['prefix' => 'employer-subscriptions', 'as' => 'employer-subscriptions.', 'middleware' => 'auth'], function (): void {
@@ -241,6 +255,12 @@ AdminHelper::registerRoutes(function (): void {
                 'permission' => 'job-board.automations.index',
             ]);
 
+            Route::post('actions/whapi-token', [
+                'as'         => 'whapi-token',
+                'uses'       => 'SocialAutomationController@saveWhapiToken',
+                'permission' => 'job-board.automations.index',
+            ]);
+
             Route::put('{automation}', [
                 'as'         => 'update',
                 'uses'       => 'SocialAutomationController@update',
@@ -358,6 +378,12 @@ AdminHelper::registerRoutes(function (): void {
             Route::post('broadcast/{broadcast}/cancel', [
                 'as'         => 'broadcast-cancel',
                 'uses'       => 'SocialBroadcastController@cancel',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::post('broadcast/{broadcast}/retry', [
+                'as'         => 'broadcast-retry',
+                'uses'       => 'SocialBroadcastController@retry',
                 'permission' => 'job-board.automations.index',
             ])->wherePrimaryKey();
 

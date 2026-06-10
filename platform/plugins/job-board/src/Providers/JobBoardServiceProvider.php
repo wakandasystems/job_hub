@@ -565,6 +565,24 @@ class JobBoardServiceProvider extends ServiceProvider
                     'permissions' => ['featured-packages.index'],
                 ])
                 ->registerItem([
+                    'id' => 'cms-plugins-job-board-ad-placements',
+                    'priority' => 3,
+                    'parent_id' => 'cms-plugins-ads',
+                    'name' => 'Ad Pricing',
+                    'icon' => 'ti ti-currency-dollar',
+                    'url' => route('ad-placements.index'),
+                    'permissions' => ['ad-placements.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-ad-orders',
+                    'priority' => 3,
+                    'parent_id' => 'cms-plugins-ads',
+                    'name' => 'Ad Requests',
+                    'icon' => 'ti ti-receipt',
+                    'url' => route('ad-orders.index'),
+                    'permissions' => ['ad-orders.index'],
+                ])
+                ->registerItem([
                     'id' => 'cms-plugins-job-board-employer-subscriptions',
                     'priority' => 7,
                     'parent_id' => 'cms-plugins-job-board-main',
@@ -850,6 +868,14 @@ class JobBoardServiceProvider extends ServiceProvider
                         'name' => 'Feature a Job',
                         'url' => fn () => route('public.account.featured-jobs.index'),
                         'icon' => 'ti ti-star',
+                    ])
+                    ->registerItem([
+                        'id' => 'cms-account-advertise',
+                        'priority' => 76,
+                        'parent_id' => null,
+                        'name' => 'Advertise',
+                        'url' => fn () => route('public.account.ads.index'),
+                        'icon' => 'ti ti-ad',
                     ])
                     ->registerItem([
                         'id' => 'cms-account-subscription',
@@ -1204,7 +1230,7 @@ class JobBoardServiceProvider extends ServiceProvider
                     'guard' => 'account',
                     'model' => Account::class,
                     'login_url' => route('public.account.login'),
-                    'redirect_url' => route('public.account.choose-type'),
+                    'redirect_url' => route('public.account.dashboard'),
                 ]);
             }
 

@@ -17,6 +17,7 @@ use Botble\JobBoard\Enums\JobApplicationStatusEnum;
 use Botble\JobBoard\Enums\ModerationStatusEnum;
 use Botble\JobBoard\Facades\JobBoardHelper;
 use Botble\JobBoard\Models\Account;
+use Botble\JobBoard\Models\AdOrder;
 use Botble\JobBoard\Models\Category;
 use Botble\JobBoard\Models\CareerServiceOrder;
 use Botble\JobBoard\Models\CreditOrder;
@@ -221,6 +222,30 @@ class HookServiceProvider extends ServiceProvider
                     return;
                 }
 
+                // Handle ad placement orders
+                if ($adOrderId = session('ad_order_id')) {
+                    $adOrder = AdOrder::query()->with('placement')->find($adOrderId);
+                    if ($adOrder && $adOrder->status === 'pending') {
+                        $adOrder->update([
+                            'charge_id'      => $data['charge_id'],
+                            'payment_method' => $data['payment_channel'],
+                        ]);
+
+                        $isManual = in_array($data['payment_channel'], [
+                            PaymentMethodEnum::BANK_TRANSFER,
+                            PaymentMethodEnum::COD,
+                        ]);
+
+                        if (! $isManual) {
+                            $adOrder->approve();
+                        }
+
+                        $this->sendAdOrderAdminEmail($adOrder->fresh(['placement', 'account']), $isManual);
+                    }
+
+                    return;
+                }
+
                 if (session('career_service_order_id') || request()->input('career_service_order_id')) {
                     return;
                 }
@@ -402,6 +427,11 @@ class HookServiceProvider extends ServiceProvider
                     return $jobAlertCallbackUrl;
                 }
 
+                if ($adCallbackUrl = session('ad_callback_url')) {
+                    session()->forget(['ad_order_id', 'ad_callback_url', 'ad_return_url']);
+                    return $adCallbackUrl;
+                }
+
                 if ($vipAlertCallbackUrl = session('vip_alert_callback_url')) {
                     session()->forget(['vip_alert_order_id', 'vip_alert_callback_url', 'vip_alert_return_url']);
                     return $vipAlertCallbackUrl;
@@ -445,6 +475,11 @@ class HookServiceProvider extends ServiceProvider
                 if ($jobAlertReturnUrl = session('job_alert_return_url')) {
                     session()->forget(['job_alert_order_id', 'job_alert_callback_url', 'job_alert_return_url']);
                     return $jobAlertReturnUrl;
+                }
+
+                if ($adReturnUrl = session('ad_return_url')) {
+                    session()->forget(['ad_order_id', 'ad_callback_url', 'ad_return_url']);
+                    return $adReturnUrl;
                 }
 
                 if ($vipAlertReturnUrl = session('vip_alert_return_url')) {
@@ -507,6 +542,15 @@ class HookServiceProvider extends ServiceProvider
 
                         if ($pendingSub) {
                             $pendingSub->activate();
+                        }
+
+                        $adOrder = AdOrder::query()
+                            ->where('charge_id', $payment->charge_id)
+                            ->where('status', 'pending')
+                            ->first();
+
+                        if ($adOrder) {
+                            $adOrder->approve();
                         }
 
                     }
@@ -620,9 +664,15 @@ class HookServiceProvider extends ServiceProvider
                 }
 
                 if ($subscriptionOrderId = $request->input('subscription_order_id')) {
-                    $sub = EmployerSubscription::query()->with('package')->find($subscriptionOrderId);
+                    $sub = EmployerSubscription::query()
+                        ->with('package')
+                        ->whereKey($subscriptionOrderId)
+                        ->where('account_id', auth('account')->id())
+                        ->where('status', 'pending')
+                        ->whereHas('package', fn ($query) => $query->wherePublished())
+                        ->first();
 
-                    if (! $sub || ! $sub->package?->is_active) {
+                    if (! $sub || ! $sub->package?->isSubscription()) {
                         return $data;
                     }
 
@@ -768,6 +818,63 @@ class HookServiceProvider extends ServiceProvider
                             [
                                 'id'              => $package->getKey(),
                                 'name'            => $package->name . ' — Job Alerts',
+                                'price'           => (float) $order->amount,
+                                'price_per_order' => (float) $order->amount,
+                                'qty'             => 1,
+                            ],
+                        ],
+                        'orders'          => [$order],
+                        'address'         => [
+                            'name'    => $request->input('customer_name') ?: $account?->name,
+                            'email'   => $request->input('customer_email') ?: $account?->email,
+                            'phone'   => $account?->phone,
+                            'country' => null,
+                            'state'   => null,
+                            'city'    => null,
+                            'address' => null,
+                            'zip'     => null,
+                        ],
+                        'checkout_token'  => $request->input('callback_url'),
+                    ];
+                }
+
+                if ($adOrderId = $request->input('ad_order_id')) {
+                    $order = AdOrder::query()->with('placement')->find($adOrderId);
+
+                    if (! $order || ! $order->placement?->is_active) {
+                        return $data;
+                    }
+
+                    /** @var Account $account */
+                    $account = auth('account')->user();
+                    $placement = $order->placement;
+
+                    session([
+                        'ad_order_id'     => $order->getKey(),
+                        'ad_callback_url' => $request->input('callback_url'),
+                        'ad_return_url'   => $request->input('return_url'),
+                    ]);
+
+                    return [
+                        'amount'          => (float) $order->amount,
+                        'shipping_amount' => 0,
+                        'shipping_method' => null,
+                        'tax_amount'      => 0,
+                        'currency'        => strtoupper($order->currency),
+                        'order_id'        => [$order->getKey()],
+                        'description'     => trans('plugins/payment::payment.payment_description', [
+                            'order_id' => $order->getKey(),
+                            'site_url' => $request->getHost(),
+                        ]),
+                        'customer_id'     => $account?->getKey(),
+                        'customer_type'   => $account ? Account::class : null,
+                        'email'           => $request->input('customer_email') ?: $account?->email,
+                        'return_url'      => $request->input('return_url'),
+                        'callback_url'    => $request->input('callback_url'),
+                        'products'        => [
+                            [
+                                'id'              => $placement->getKey(),
+                                'name'            => $placement->name . ' — Ad Placement',
                                 'price'           => (float) $order->amount,
                                 'price_per_order' => (float) $order->amount,
                                 'qty'             => 1,
@@ -952,8 +1059,8 @@ class HookServiceProvider extends ServiceProvider
                     [
                         'id' => $package->id,
                         'name' => $package->name,
-                        'price' => $this->convertOrderAmount($package->price - $discountAmount),
-                        'price_per_order' => $this->convertOrderAmount($package->price - $discountAmount),
+                        'price' => $package->price - $discountAmount,
+                        'price_per_order' => $package->price - $discountAmount,
                         'qty' => 1,
                     ],
                 ];
@@ -972,11 +1079,11 @@ class HookServiceProvider extends ServiceProvider
                 ];
 
                 return [
-                    'amount' => $this->convertOrderAmount($price),
+                    'amount' => $price,
                     'shipping_amount' => 0,
                     'shipping_method' => null,
                     'tax_amount' => 0,
-                    'currency' => strtoupper(get_application_currency()->title),
+                    'currency' => strtoupper($package->currency->title ?: get_application_currency()->title),
                     'order_id' => $orderIds,
                     'description' => trans('plugins/payment::payment.payment_description', ['order_id' => Arr::first($orderIds), 'site_url' => request()->getHost()]),
                     'customer_id' => $account->getKey(),
@@ -1153,6 +1260,22 @@ class HookServiceProvider extends ServiceProvider
             return $data;
         }, 49);
 
+        add_filter('social_login_redirect_url', function (string $redirectUrl, $account, array $providerData): string {
+            if (
+                Arr::get($providerData, 'model') !== Account::class
+                || Arr::get($providerData, 'guard') !== 'account'
+                || ! $account instanceof Account
+            ) {
+                return $redirectUrl;
+            }
+
+            if ($account->isJobSeeker() || $account->isEmployer()) {
+                return route('public.account.dashboard');
+            }
+
+            return route('public.account.choose-type');
+        }, 49, 3);
+
         add_action(BASE_ACTION_TOP_FORM_CONTENT_NOTIFICATION, function (Request $request, BaseModel|string|null $model = null): void {
             if (! $model instanceof Job || Route::currentRouteName() !== 'public.account.jobs.edit') {
                 return;
@@ -1211,6 +1334,7 @@ class HookServiceProvider extends ServiceProvider
                 'cms-plugins-job-board-career-service-orders' => 'pending-career-services',
                 'cms-plugins-job-board-job-alert-orders' => 'pending-job-alert-orders',
                 'cms-plugins-job-board-featured-orders'           => 'pending-featured-orders',
+                'cms-plugins-job-board-ad-orders'                 => 'pending-ad-orders',
                 'cms-plugins-job-board-employer-subscriptions'    => 'pending-employer-subscriptions',
                 'cms-plugins-job-board-wakanda-verification'      => 'pending-wakanda-verifications',
                 'cms-plugins-job-board-candidate-alerts'          => 'active-candidate-alerts',
@@ -1285,6 +1409,15 @@ class HookServiceProvider extends ServiceProvider
             $data[] = [
                 'key'   => 'pending-featured-orders',
                 'value' => $pendingFeaturedOrders,
+            ];
+
+            $pendingAdOrders = Auth::user()->hasPermission('ad-orders.index')
+                ? AdOrder::query()->where('status', 'pending')->count()
+                : 0;
+
+            $data[] = [
+                'key'   => 'pending-ad-orders',
+                'value' => $pendingAdOrders,
             ];
 
             $pendingSubscriptions = Auth::user()->hasPermission('employer-subscriptions.index')
@@ -1561,6 +1694,43 @@ class HookServiceProvider extends ServiceProvider
                     $subject = $isManual
                         ? "Featured Job Order Pending Approval: {$packageName}"
                         : "Featured Job Order Received: {$packageName}";
+                    $msg->to($adminEmail)->subject($subject);
+                }
+            );
+        } catch (\Throwable) {
+            // Non-fatal
+        }
+    }
+
+    protected function sendAdOrderAdminEmail(AdOrder $order, bool $isManual): void
+    {
+        $adminEmail = setting('admin_email') ?: config('mail.from.address');
+        if (! $adminEmail) {
+            return;
+        }
+
+        $placementName = $order->placement?->name ?? $order->placement?->location ?? 'Unknown placement';
+        $customerName  = $order->account?->name ?? 'Unknown';
+        $customerEmail = $order->account?->email ?? '';
+        $paymentMethod = ucwords(str_replace('_', ' ', $order->payment_method ?? ''));
+        $status        = $isManual ? 'Pending — awaiting manual payment verification' : 'Auto-approved';
+        $adminUrl      = url('/admin/ad-orders');
+
+        try {
+            Mail::raw(
+                "New Ad Placement Request\n\n" .
+                "Order #: {$order->id}\n" .
+                "Placement: {$placementName}\n" .
+                "Amount: {$order->currency} {$order->amount}\n" .
+                "Customer: {$customerName} ({$customerEmail})\n" .
+                "Payment method: {$paymentMethod}\n" .
+                "Charge ID: {$order->charge_id}\n" .
+                "Status: {$status}\n\n" .
+                ($isManual ? "Action required — verify payment and approve at:\n{$adminUrl}" : "Action required — review the creative and approve at:\n{$adminUrl}"),
+                function ($msg) use ($adminEmail, $placementName, $isManual): void {
+                    $subject = $isManual
+                        ? "Ad Request Pending Approval: {$placementName}"
+                        : "Ad Request Received: {$placementName}";
                     $msg->to($adminEmail)->subject($subject);
                 }
             );
