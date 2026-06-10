@@ -30,6 +30,7 @@
         "doctrine/dbal": "^4.2",
         "guzzlehttp/guzzle": "^7.9",
         "laravel/framework": "12.43.1",
+        "laravel/horizon": "^5.47",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10",
         "minishlink/web-push": "^10.0",

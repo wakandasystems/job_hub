@@ -5,15 +5,15 @@ namespace Botble\JobBoard\Services;
 use Botble\JobBoard\Models\Job;
 
 /**
- * Generates a 1854×848 landscape banner image for the job detail page cover section.
+ * Generates an 1800×540 landscape banner image for the job detail page cover section.
  *
  * Design: split layout — dark purple gradient left panel with job text,
  * lighter right panel with a large geometric accent and branding.
  */
 class JobCoverImageGeneratorService
 {
-    private const W = 1854;
-    private const H = 848;
+    private const W = 1800;
+    private const H = 540;
 
     private const FONT_BLACK   = '/usr/share/fonts/truetype/lato/Lato-Black.ttf';
     private const FONT_BOLD    = '/usr/share/fonts/truetype/lato/Lato-Bold.ttf';
