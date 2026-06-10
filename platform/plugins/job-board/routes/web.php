@@ -9,6 +9,7 @@ use Botble\JobBoard\Http\Controllers\CareerServiceOrderController;
 use Botble\JobBoard\Http\Controllers\EmployerSubscriptionController;
 use Botble\JobBoard\Http\Controllers\AdOrderController;
 use Botble\JobBoard\Http\Controllers\AdPlacementController;
+use Botble\JobBoard\Http\Controllers\AdPricingTierController;
 use Botble\JobBoard\Http\Controllers\FeaturedOrderController;
 use Botble\JobBoard\Http\Controllers\FeaturedPackageController;
 use Botble\JobBoard\Http\Controllers\JobAlertOrderController;
@@ -78,6 +79,12 @@ AdminHelper::registerRoutes(function (): void {
         Route::get('', [AdOrderController::class, 'index'])->name('index');
         Route::post('{adOrder}/approve', [AdOrderController::class, 'approve'])->name('approve');
         Route::post('{adOrder}/reject', [AdOrderController::class, 'reject'])->name('reject');
+    });
+
+    Route::group(['prefix' => 'ad-pricing-tiers', 'as' => 'ad-pricing-tiers.', 'middleware' => 'auth'], function (): void {
+        Route::resource('', AdPricingTierController::class)
+            ->parameters(['' => 'adPricingTier'])
+            ->except('show');
     });
 
     Route::group(['prefix' => 'employer-subscriptions', 'as' => 'employer-subscriptions.', 'middleware' => 'auth'], function (): void {

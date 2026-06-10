@@ -16,6 +16,7 @@ class AdOrder extends BaseModel
     protected $fillable = [
         'account_id',
         'placement_id',
+        'tier_id',
         'amount',
         'currency',
         'status',
@@ -47,6 +48,11 @@ class AdOrder extends BaseModel
         return $this->belongsTo(AdPlacement::class, 'placement_id');
     }
 
+    public function tier(): BelongsTo
+    {
+        return $this->belongsTo(AdPricingTier::class, 'tier_id');
+    }
+
     public function approve(): void
     {
         $placement = $this->placement;
@@ -72,6 +78,7 @@ class AdOrder extends BaseModel
             'url' => $this->url,
             'open_in_new_tab' => $this->open_in_new_tab,
             'location' => $placement?->location,
+            'target_country_ids' => $this->tier?->country_ids ?: null,
             'status' => BaseStatusEnum::PUBLISHED,
             'expired_at' => $expiresAt ?? Carbon::now()->addYears(10),
         ]);

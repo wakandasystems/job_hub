@@ -78,6 +78,42 @@
                     <a class="btn btn-outline-secondary" href="{{ route('ad-placements.index') }}">Cancel</a>
                 </x-core::card.footer>
             </x-core::card>
+
+            @if(isset($placement) && $placement && $tiers->isNotEmpty())
+                <x-core::card class="mt-3">
+                    <x-core::card.header>
+                        <x-core::card.title>Pricing by Reach</x-core::card.title>
+                    </x-core::card.header>
+                    <x-core::card.body>
+                        <p class="text-muted">
+                            Set the price for this placement at each reach. Employers will pick one of these reaches
+                            when requesting this placement and pay the price below &mdash; e.g. "{{ $placement->name }}
+                            for {{ $tiers->first()->name }}". Leave a reach's price blank to not offer it for this
+                            placement. Manage reaches under
+                            <a href="{{ route('ad-pricing-tiers.index') }}">Ads &raquo; Ad Reach &amp; Pricing Tiers</a>.
+                        </p>
+                        <div class="row g-3">
+                            @foreach($tiers as $tier)
+                                @php
+                                    $override = $placement->tierPrices->firstWhere('tier_id', $tier->id);
+                                @endphp
+                                <div class="col-md-6">
+                                    <label class="form-label">{{ $placement->name }} for {{ $tier->name }}</label>
+                                    <div class="input-group">
+                                        <input type="number" step="0.01" min="0" class="form-control"
+                                            name="tier_prices[{{ $tier->id }}][price]"
+                                            value="{{ old('tier_prices.' . $tier->id . '.price', $override->price ?? '') }}"
+                                            placeholder="Not offered">
+                                        <input class="form-control" maxlength="3" style="max-width:5rem;"
+                                            name="tier_prices[{{ $tier->id }}][currency]"
+                                            value="{{ old('tier_prices.' . $tier->id . '.currency', $override->currency ?? $placement->currency) }}">
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    </x-core::card.body>
+                </x-core::card>
+            @endif
         </div>
     </div>
 </form>

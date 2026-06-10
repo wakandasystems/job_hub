@@ -769,6 +769,143 @@ Outro     : Music and SFX fade out in final 0.4 s — clean, professional end.
 PROMPT;
     }
 
+    /**
+     * Pick the social platforms we'll pitch to the employer, based on the
+     * type of role being filled.
+     */
+    public function employerMarketingPlatforms(Job $job): array
+    {
+        $jobTypes   = $job->jobTypes->pluck('name')->filter()->map(fn ($n) => strtolower($n))->implode(' ');
+        $categories = $job->categories->pluck('name')->filter()->map(fn ($n) => strtolower($n))->implode(' ');
+        $text       = $jobTypes . ' ' . $categories . ' ' . strtolower((string) $job->name);
+
+        $platforms = ['WhatsApp Channels', 'Facebook'];
+
+        $tiktokKeywords  = ['retail', 'hospitality', 'sales', 'customer', 'driver', 'creative', 'marketing', 'social media', 'content', 'entry level', 'waiter', 'chef', 'beauty', 'fashion'];
+        $linkedinKeywords = ['manager', 'engineer', 'developer', 'accountant', 'finance', 'executive', 'director', 'analyst', 'professional', 'specialist', 'officer', 'administrator', 'consultant', 'lead', 'head of'];
+
+        $addTikTok   = Str::contains($text, $tiktokKeywords);
+        $addLinkedIn = Str::contains($text, $linkedinKeywords);
+
+        // For general roles that don't clearly match either bucket, pitch both.
+        if (! $addTikTok && ! $addLinkedIn) {
+            $addTikTok = $addLinkedIn = true;
+        }
+
+        if ($addLinkedIn) {
+            $platforms[] = 'LinkedIn';
+        }
+        if ($addTikTok) {
+            $platforms[] = 'TikTok';
+        }
+
+        return array_values(array_unique($platforms));
+    }
+
+    /**
+     * AI image prompt for a "your job is now live" marketing graphic sent to the employer.
+     */
+    public function buildEmployerImagePrompt(Job $job): string
+    {
+        $title   = trim((string) $job->name);
+        $company = trim((string) ($job->company?->name ?? ''));
+
+        $companyLogoUrl = null;
+        if ($job->company && ! empty($job->company->logo)) {
+            try {
+                $companyLogoUrl = RvMedia::getImageUrl($job->company->logo);
+            } catch (Throwable) {}
+        }
+
+        $platforms = $this->employerMarketingPlatforms($job);
+        $platformsText = implode(', ', $platforms);
+
+        $prompt  = "Generate a polished, professional 'Your Job Ad Is Live!' marketing graphic that Wakanda Jobs (wakandajobs.com) sends to an employer client to show off the marketing campaign for their job posting.";
+        $prompt .= " The role being advertised is: {$title}";
+        if ($company) {
+            $prompt .= " at {$company}";
+        }
+        $prompt .= ".";
+
+        $prompt .= " DIMENSIONS: 1080 x 1350 pixels (4:5 portrait), suitable for sharing over WhatsApp and email.";
+        $prompt .= " STYLE: Clean, premium, corporate-confidence design using the Wakanda Jobs purple/violet brand palette, with modern gradients, soft shapes, and generous whitespace — should feel like a results/marketing report a client would be proud to receive.";
+
+        $prompt .= " HEADLINE TEXT OVERLAY: \"Your Job Ad Is LIVE! 🚀\"";
+        $prompt .= " Below it, display the job title \"{$title}\"" . ($company ? " and the company name \"{$company}\"" : '') . ".";
+
+        $prompt .= " CENTERPIECE: A clean grid or row of platform logos/icons representing where this ad is being promoted: {$platformsText}. Each icon should be in its recognizable brand colours, arranged neatly with small labels underneath (e.g. \"{$platformsText}\").";
+
+        $prompt .= " SUPPORTING TEXT: Include a short reassuring line such as \"High-quality, professionally designed ad — marketed across our platforms to reach the right candidates fast.\"";
+
+        if ($companyLogoUrl) {
+            $prompt .= " " . $this->companyLogoLine($company, $companyLogoUrl);
+            $prompt .= " Place the company logo near the top of the design, alongside the Wakanda Jobs logo.";
+        }
+
+        $prompt .= " " . $this->wakandaLogoLine();
+        $prompt .= " Add a small \"wakandajobs.com\" footer.";
+
+        return $prompt;
+    }
+
+    /**
+     * Friendly, "selling" marketing message sent to the employer about their live job ad.
+     */
+    public function buildEmployerPitchMessage(Job $job): string
+    {
+        $title   = trim((string) $job->name);
+        $company = trim((string) ($job->company?->name ?? ''));
+        $platforms = $this->employerMarketingPlatforms($job);
+        $whatsappLink = 'https://wa.me/260970766123';
+
+        $jobUrl = null;
+        if (! empty($job->slugable->key)) {
+            $jobUrl = rtrim(config('app.url'), '/') . '/jobs/' . $job->slugable->key;
+        }
+
+        $greeting = $company ? "Hi {$company} team" : 'Hi there';
+
+        $platformList = '';
+        foreach ($platforms as $platform) {
+            $platformList .= "📱 {$platform}\n";
+        }
+
+        // Crawled jobs: the employer hasn't actually posted with us — this is a persuasion / activation pitch.
+        if (! $job->is_organic) {
+            $msg  = "{$greeting}, 👋\n\n";
+            $msg .= "We came across your job ad for *{$title}* online and gave it a free, professionally designed makeover — it's now live on Wakanda Jobs! ✅\n\n";
+            $msg .= "We're already showcasing it across:\n";
+            $msg .= $platformList;
+            $msg .= "\n...because that's where the right candidates for this type of role spend their time. 🎯\n\n";
+            $msg .= "This is just a taste of what we can do for you. Activate your free employer account on Wakanda Jobs and let us handle the design, copywriting, and distribution for all your job ads — high-quality, professionally marketed, and reaching candidates fast. 🚀\n\n";
+
+            if ($jobUrl) {
+                $msg .= "👉 See your ad: {$jobUrl}\n\n";
+            }
+
+            $msg .= "👉 Activate your account or chat with us on WhatsApp: {$whatsappLink}\n\n";
+            $msg .= "Wakanda Jobs — Africa's growing job platform. 🌍";
+
+            return $msg;
+        }
+
+        $msg  = "{$greeting}, 👋\n\n";
+        $msg .= "Great news — your job ad for *{$title}* is now live on Wakanda Jobs! ✅\n\n";
+        $msg .= "Our team has polished it into a high-quality, professional ad, and we're actively marketing it across:\n";
+        $msg .= $platformList;
+        $msg .= "\n...because that's where the right candidates for this type of role spend their time. 🎯\n\n";
+        $msg .= "We handle the design, copywriting, and distribution end-to-end — so you can sit back while we bring quality applicants straight to you. 🚀\n\n";
+
+        if ($jobUrl) {
+            $msg .= "👉 View your live ad: {$jobUrl}\n\n";
+        }
+
+        $msg .= "👉 Need anything? Chat with us on WhatsApp: {$whatsappLink}\n\n";
+        $msg .= "Thank you for choosing Wakanda Jobs — Africa's growing job platform. 🌍";
+
+        return $msg;
+    }
+
     private function companyLogoLine(string $company, string $logoUrl): string
     {
         return "⚠️ COMPANY LOGO — CRITICAL INSTRUCTION: I have physically attached the {$company} logo image to this conversation. You MUST use ONLY that attached logo image — do NOT invent, guess, approximate, recreate, or hallucinate any version of this logo. Look at the attached image I sent you and reproduce it exactly. The logo is also available at {$logoUrl} for additional reference, but the attached image is the authoritative source. Place the real logo prominently in the design and extract its dominant colours as the primary palette for the whole image.";
@@ -2401,6 +2538,11 @@ PROMPT;
             } catch (Throwable) {}
         }
 
+        // Does this employer have a contact email on file? Surfaced as a flag button below.
+        $hasEmployerEmail = collect($job->company?->contact_emails ?? [])->filter()->isNotEmpty()
+            || ! empty($job->company?->email)
+            || ! empty($job->apply_email);
+
         Cache::put($cacheKey, [
             'text'                => $postText,
             'ai_prompt'           => $aiPrompt,
@@ -2422,6 +2564,10 @@ PROMPT;
                     'inline_keyboard' => [
                         [
                             ['text' => '🎨 Step 1: AI Image Prompt', 'url' => $step1Url],
+                            [
+                                'text' => $hasEmployerEmail ? '📧 Has Email' : '🚫 No Email',
+                                'url' => $step1Url,
+                            ],
                         ],
                     ],
                 ],

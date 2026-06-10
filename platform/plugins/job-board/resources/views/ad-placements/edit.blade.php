@@ -5,5 +5,6 @@
         'action' => route('ad-placements.update', $placement),
         'method' => 'POST',
         'placement' => $placement,
+        'tiers' => $tiers,
     ])
 @endsection

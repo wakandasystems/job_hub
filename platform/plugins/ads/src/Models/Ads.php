@@ -23,6 +23,7 @@ class Ads extends BaseModel
         'open_in_new_tab',
         'expired_at',
         'location',
+        'target_country_ids',
         'image',
         'tablet_image',
         'mobile_image',
@@ -37,6 +38,7 @@ class Ads extends BaseModel
         'status' => BaseStatusEnum::class,
         'expired_at' => 'date',
         'open_in_new_tab' => 'boolean',
+        'target_country_ids' => 'array',
     ];
 
     public function scopeNotExpired(Builder $query): Builder

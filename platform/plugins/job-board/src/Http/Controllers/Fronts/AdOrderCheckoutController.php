@@ -8,7 +8,9 @@ use Botble\JobBoard\Facades\JobBoardHelper;
 use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\AdOrder;
 use Botble\JobBoard\Models\AdPlacement;
+use Botble\JobBoard\Models\AdPricingTier;
 use Botble\JobBoard\Models\Currency;
+use Botble\Location\Models\Country;
 use Botble\Media\Facades\RvMedia;
 use Botble\SeoHelper\Facades\SeoHelper;
 use Botble\Theme\Facades\Theme;
@@ -23,10 +25,13 @@ class AdOrderCheckoutController extends BaseController
         /** @var Account $account */
         $account = auth('account')->user();
 
-        $placements = AdPlacement::query()->where('is_active', true)->orderBy('sort_order')->orderBy('price')->get();
+        $placements = AdPlacement::query()->with('tierPrices')->where('is_active', true)->orderBy('sort_order')->orderBy('price')->get();
 
-        $placementPrices = $placements
-            ->mapWithKeys(fn (AdPlacement $placement): array => [$placement->getKey() => $this->placementPricing($placement)]);
+        $tiers = AdPricingTier::query()->orderBy('sort_order')->orderBy('name')->get();
+        $countryNames = Country::query()->pluck('name', 'id');
+
+        $placementOptions = $placements
+            ->mapWithKeys(fn (AdPlacement $placement): array => [$placement->getKey() => $this->placementOptions($placement, $tiers, $countryNames)]);
 
         $groups = $placements->groupBy(function (AdPlacement $placement): string {
             return match (true) {
@@ -50,7 +55,7 @@ class AdOrderCheckoutController extends BaseController
             ->latest()
             ->get();
 
-        return JobBoardHelper::scope('account.ads', compact('account', 'placements', 'placementPrices', 'groups', 'myOrders'));
+        return JobBoardHelper::scope('account.ads', compact('account', 'placements', 'placementOptions', 'groups', 'myOrders'));
     }
 
     public function store(AdPlacement $placement, Request $request, BaseHttpResponse $response)
@@ -61,7 +66,18 @@ class AdOrderCheckoutController extends BaseController
             'image' => ['required', 'image', 'max:5120'],
             'url' => ['nullable', 'url', 'max:255'],
             'open_in_new_tab' => ['nullable', 'boolean'],
+            'tier_id' => ['nullable', 'integer'],
         ]);
+
+        $tiers = AdPricingTier::query()->orderBy('sort_order')->orderBy('name')->get();
+        $countryNames = Country::query()->pluck('name', 'id');
+
+        $option = collect($this->placementOptions($placement, $tiers, $countryNames))
+            ->firstWhere('tier_id', $request->input('tier_id') ? (int) $request->input('tier_id') : null);
+
+        if (! $option) {
+            return $response->setError()->setMessage(__('Please choose a valid reach for this placement.'));
+        }
 
         /** @var Account $account */
         $account = auth('account')->user();
@@ -72,13 +88,14 @@ class AdOrderCheckoutController extends BaseController
             return $response->setError()->setMessage($result['message']);
         }
 
-        $pricing = $this->placementPricing($placement);
+        $amount = $this->convertToAccountCurrency($option['price'], $option['currency']);
 
         $order = AdOrder::create([
             'account_id' => $account->getKey(),
             'placement_id' => $placement->getKey(),
-            'amount' => $pricing['amount'],
-            'currency' => $pricing['currency_code'],
+            'tier_id' => $option['tier_id'],
+            'amount' => $amount['amount'],
+            'currency' => $amount['currency_code'],
             'status' => 'pending',
             'image' => $result['data']->url,
             'url' => $request->input('url'),
@@ -166,23 +183,85 @@ class AdOrderCheckoutController extends BaseController
         return Theme::scope('job-board.ads.pending', compact('order', 'placement', 'account'))->render();
     }
 
-    protected function placementPricing(AdPlacement $placement): array
+    /**
+     * Build the list of reach options an employer can choose from for a
+     * placement, one per pricing tier with a price configured for this
+     * placement (shown only to visitors from that tier's countries). If no
+     * reach prices are configured for this placement, fall back to a single
+     * "All locations" option using the placement's default price, shown to
+     * everyone.
+     *
+     * @param \Illuminate\Support\Collection<int, AdPricingTier> $tiers
+     * @param \Illuminate\Support\Collection<int, string> $countryNames
+     * @return array<int, array{tier_id: ?int, label: string, display: string, price: float, currency: string}>
+     */
+    protected function placementOptions(AdPlacement $placement, $tiers, $countryNames): array
     {
-        $originCode = strtoupper((string) $placement->currency);
-        $originCurrency = Currency::query()->where('title', $originCode)->first();
+        $options = [];
+
+        foreach ($tiers as $tier) {
+            $override = $placement->tierPrices->firstWhere('tier_id', $tier->getKey());
+
+            if (! $override) {
+                continue;
+            }
+
+            $names = collect($tier->country_ids ?? [])
+                ->map(fn (int $id) => $countryNames->get($id))
+                ->filter()
+                ->values();
+
+            $countryList = $names->count() > 5
+                ? $names->take(5)->implode(', ') . ' + ' . ($names->count() - 5) . ' more'
+                : $names->implode(', ');
+
+            $options[] = [
+                'tier_id' => $tier->getKey(),
+                'label' => $countryList ? "{$tier->name} ({$countryList})" : $tier->name,
+                'display' => $this->formatAmount($override->price, $override->currency),
+                'price' => $override->price,
+                'currency' => strtoupper($override->currency),
+            ];
+        }
+
+        if (empty($options)) {
+            $options[] = [
+                'tier_id' => null,
+                'label' => __('All locations (no targeting)'),
+                'display' => $this->formatAmount($placement->price, $placement->currency),
+                'price' => $placement->price,
+                'currency' => strtoupper($placement->currency),
+            ];
+        }
+
+        return $options;
+    }
+
+    protected function formatAmount(float $price, string $currencyCode): string
+    {
+        $currency = Currency::query()->where('title', strtoupper($currencyCode))->first();
+
+        return $currency
+            ? format_price($price, $currency, fullNumber: true)
+            : number_format($price, 2) . ' ' . strtoupper($currencyCode);
+    }
+
+    /**
+     * Convert a price in the given currency to the application's active
+     * currency, for storing as the order's payable amount.
+     *
+     * @return array{amount: float, currency_code: string}
+     */
+    protected function convertToAccountCurrency(float $price, string $currencyCode): array
+    {
+        $originCurrency = Currency::query()->where('title', strtoupper($currencyCode))->first();
         $targetCurrency = get_application_currency();
-        $amount = round((float) format_price($placement->price, $originCurrency, true, true, true), (int) ($targetCurrency->decimals ?? 2));
-        $originMeta = function_exists('wakanda_currency_meta') ? wakanda_currency_meta($originCode) : null;
-        $targetMeta = $targetCurrency && function_exists('wakanda_currency_meta') ? wakanda_currency_meta($targetCurrency->title) : null;
+
+        $amount = round((float) format_price($price, $originCurrency, true, true, true), (int) ($targetCurrency->decimals ?? 2));
 
         return [
             'amount' => $amount,
-            'display' => $originCurrency ? format_price($placement->price, $originCurrency, fullNumber: true) : number_format($placement->price, 2) . ' ' . $originCode,
-            'currency_code' => strtoupper((string) ($targetCurrency->title ?? $originCode)),
-            'target_country' => $targetMeta['country'] ?? null,
-            'origin_country' => $originMeta['country'] ?? null,
-            'origin_currency_code' => $originCode,
-            'origin_display' => number_format($placement->price, 2) . ' ' . $originCode,
+            'currency_code' => strtoupper((string) ($targetCurrency->title ?? $currencyCode)),
         ];
     }
 }

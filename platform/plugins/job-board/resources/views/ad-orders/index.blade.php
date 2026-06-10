@@ -58,6 +58,7 @@
                             <th width="60">ID</th>
                             <th>Customer</th>
                             <th>Placement</th>
+                            <th>Reach</th>
                             <th>Creative</th>
                             <th>Amount</th>
                             <th>Payment</th>
@@ -78,6 +79,7 @@
                                     {{ $order->placement?->name ?? 'N/A' }}
                                     <div class="text-muted small"><code>{{ $order->placement?->location }}</code></div>
                                 </td>
+                                <td>{{ $order->tier?->name ?? 'All locations' }}</td>
                                 <td>
                                     @if($order->image)
                                         <a href="{{ \Botble\Media\Facades\RvMedia::getImageUrl($order->image) }}" target="_blank">
@@ -128,7 +130,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="text-center text-muted">No ad requests found.</td>
+                                <td colspan="10" class="text-center text-muted">No ad requests found.</td>
                             </tr>
                         @endforelse
                     </tbody>

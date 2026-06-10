@@ -6,6 +6,8 @@ use Botble\Base\Http\Controllers\BaseController;
 use Botble\Base\Http\Responses\BaseHttpResponse;
 use Botble\Base\Supports\Breadcrumb;
 use Botble\JobBoard\Models\AdPlacement;
+use Botble\JobBoard\Models\AdPlacementTierPrice;
+use Botble\JobBoard\Models\AdPricingTier;
 use Illuminate\Http\Request;
 
 class AdPlacementController extends BaseController
@@ -64,7 +66,11 @@ class AdPlacementController extends BaseController
     {
         $this->pageTitle('Edit Ad Placement');
 
-        return view('plugins/job-board::ad-placements.edit', ['placement' => $adPlacement]);
+        $adPlacement->load('tierPrices');
+
+        $tiers = AdPricingTier::query()->orderBy('sort_order')->orderBy('name')->get();
+
+        return view('plugins/job-board::ad-placements.edit', ['placement' => $adPlacement, 'tiers' => $tiers]);
     }
 
     public function update(AdPlacement $adPlacement, Request $request, BaseHttpResponse $response)
@@ -73,10 +79,36 @@ class AdPlacementController extends BaseController
 
         $adPlacement->update($validated);
 
+        $this->saveTierPrices($adPlacement, $request);
+
         return $response
             ->setPreviousUrl(route('ad-placements.index'))
             ->setNextUrl(route('ad-placements.edit', $adPlacement))
             ->setMessage('Ad placement updated successfully.');
+    }
+
+    protected function saveTierPrices(AdPlacement $adPlacement, Request $request): void
+    {
+        $tierIds = AdPricingTier::query()->pluck('id');
+
+        foreach ($tierIds as $tierId) {
+            $price = $request->input("tier_prices.$tierId.price");
+            $currency = $request->input("tier_prices.$tierId.currency");
+
+            if ($price === null || $price === '') {
+                AdPlacementTierPrice::query()
+                    ->where('ad_placement_id', $adPlacement->getKey())
+                    ->where('tier_id', $tierId)
+                    ->delete();
+
+                continue;
+            }
+
+            AdPlacementTierPrice::query()->updateOrCreate(
+                ['ad_placement_id' => $adPlacement->getKey(), 'tier_id' => $tierId],
+                ['price' => (float) $price, 'currency' => strtoupper((string) ($currency ?: $adPlacement->currency))]
+            );
+        }
     }
 
     public function destroy(AdPlacement $adPlacement, BaseHttpResponse $response)

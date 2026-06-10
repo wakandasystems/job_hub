@@ -583,6 +583,15 @@ class JobBoardServiceProvider extends ServiceProvider
                     'permissions' => ['ad-orders.index'],
                 ])
                 ->registerItem([
+                    'id' => 'cms-plugins-job-board-ad-pricing-tiers',
+                    'priority' => 3,
+                    'parent_id' => 'cms-plugins-ads',
+                    'name' => 'Pricing Tiers',
+                    'icon' => 'ti ti-world',
+                    'url' => route('ad-pricing-tiers.index'),
+                    'permissions' => ['ad-pricing-tiers.index'],
+                ])
+                ->registerItem([
                     'id' => 'cms-plugins-job-board-employer-subscriptions',
                     'priority' => 7,
                     'parent_id' => 'cms-plugins-job-board-main',

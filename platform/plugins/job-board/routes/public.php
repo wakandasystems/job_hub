@@ -194,6 +194,11 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers', 'middleware' =>
         'uses' => 'TelegramSocialMessageController@upload',
     ])->middleware('signed');
 
+    Route::post('telegram/social-message/send-to-employer', [
+        'as' => 'public.telegram-social-send-to-employer',
+        'uses' => 'TelegramSocialMessageController@sendToEmployer',
+    ])->middleware('signed');
+
     Route::get('telegram/crawler-error/copy', [
         'as' => 'public.telegram-crawler-error-copy',
         'uses' => 'TelegramCrawlerErrorController@show',

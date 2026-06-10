@@ -21,7 +21,7 @@ class AdOrderController extends BaseController
         $this->pageTitle('Ad Requests');
 
         $query = AdOrder::query()
-            ->with(['account', 'placement'])
+            ->with(['account', 'placement', 'tier'])
             ->latest();
 
         if ($status = $request->query('status')) {

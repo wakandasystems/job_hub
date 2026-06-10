@@ -32,6 +32,11 @@ class AdPlacement extends BaseModel
         return $this->hasMany(AdOrder::class, 'placement_id');
     }
 
+    public function tierPrices(): HasMany
+    {
+        return $this->hasMany(AdPlacementTierPrice::class, 'ad_placement_id');
+    }
+
     public function isUnlimitedDuration(): bool
     {
         return $this->duration_days === 0;

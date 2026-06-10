@@ -46,7 +46,8 @@
                     <div class="row g-3">
                         @foreach($groupPlacements as $placement)
                             @php
-                                $pricing = $placementPrices[$placement->id] ?? null;
+                                $options = $placementOptions[$placement->id] ?? [];
+                                $cheapest = collect($options)->sortBy('price')->first();
                             @endphp
                             <div class="col-md-6 col-lg-4">
                                 <div class="card h-100 border" style="border-radius:12px;">
@@ -60,14 +61,20 @@
                                         <div class="color-text-paragraph-2 font-sm d-flex align-items-center" style="margin-bottom:1rem;">
                                             <i class="fi-rr-clock me-2"></i> {{ $placement->displayDuration() }}
                                         </div>
+                                        @if(count($options) > 1)
+                                            <div class="font-xs color-text-paragraph-2 mb-2">
+                                                {{ __('Choose your reach when requesting') }}
+                                            </div>
+                                        @endif
                                         <div class="d-flex align-items-center justify-content-between mt-auto">
                                             <span class="fw-bold color-brand-1 fs-5">
-                                                {{ $pricing['display'] ?? ($placement->currency . ' ' . number_format($placement->price, 2)) }}
+                                                {{ count($options) > 1 ? __('From :price', ['price' => $cheapest['display']]) : $cheapest['display'] }}
                                             </span>
                                             <button type="button" class="btn btn-apply px-4"
                                                 data-bs-toggle="modal" data-bs-target="#requestAdModal"
                                                 data-action="{{ route('public.account.ads.store', ['placement' => $placement->id]) }}"
-                                                data-name="{{ $placement->name }}">
+                                                data-name="{{ $placement->name }}"
+                                                data-options="{{ json_encode($options) }}">
                                                 {{ __('Request') }}
                                             </button>
                                         </div>
@@ -92,6 +99,7 @@
                             <tr>
                                 <th>{{ __('Ref') }}</th>
                                 <th>{{ __('Placement') }}</th>
+                                <th>{{ __('Reach') }}</th>
                                 <th>{{ __('Amount') }}</th>
                                 <th>{{ __('Status') }}</th>
                                 <th>{{ __('Date') }}</th>
@@ -111,6 +119,7 @@
                                 <tr>
                                     <td class="text-muted">#{{ str_pad((string) $o->id, 6, '0', STR_PAD_LEFT) }}</td>
                                     <td>{{ $o->placement?->name ?? '—' }}</td>
+                                    <td>{{ $o->tier?->name ?? __('All locations') }}</td>
                                     <td>{{ $o->currency }} {{ number_format($o->amount, 2) }}</td>
                                     <td><span class="badge {{ $badgeColor }} text-white">{{ ucfirst($o->status) }}</span></td>
                                     <td class="text-muted">{{ $o->created_at?->format('d M Y') }}</td>
@@ -142,6 +151,15 @@
                     @csrf
                     <div class="modal-body">
                         <p class="text-muted mb-3" id="requestAdPlacementName"></p>
+
+                        <div class="mb-3" id="requestAdReachWrapper">
+                            <label class="form-label required">{{ __('Choose your reach') }}</label>
+                            <div class="form-text mb-2">
+                                {{ __('Your ad will only be shown to visitors browsing from the countries included in the reach you choose.') }}
+                            </div>
+                            <div id="requestAdReachOptions"></div>
+                        </div>
+
                         <div class="mb-3">
                             <label class="form-label required">{{ __('Banner Image') }}</label>
                             <input type="file" name="image" class="form-control" accept="image/*" required>
@@ -175,6 +193,56 @@
             btn.addEventListener('click', function () {
                 document.getElementById('requestAdForm').action = this.dataset.action;
                 document.getElementById('requestAdPlacementName').textContent = '{{ __('Placement') }}: ' + this.dataset.name;
+
+                var options = JSON.parse(this.dataset.options || '[]');
+                var wrapper = document.getElementById('requestAdReachWrapper');
+                var container = document.getElementById('requestAdReachOptions');
+                container.innerHTML = '';
+
+                if (options.length <= 1) {
+                    wrapper.classList.add('d-none');
+                    if (options.length === 1) {
+                        var hidden = document.createElement('input');
+                        hidden.type = 'hidden';
+                        hidden.name = 'tier_id';
+                        hidden.value = options[0].tier_id ?? '';
+                        container.appendChild(hidden);
+                    }
+                    return;
+                }
+
+                wrapper.classList.remove('d-none');
+
+                options.forEach(function (option, index) {
+                    var label = document.createElement('label');
+                    label.className = 'form-check d-flex align-items-center justify-content-between border rounded p-2 mb-2';
+
+                    var left = document.createElement('span');
+
+                    var input = document.createElement('input');
+                    input.type = 'radio';
+                    input.className = 'form-check-input me-2';
+                    input.name = 'tier_id';
+                    input.value = option.tier_id ?? '';
+                    if (index === 0) {
+                        input.checked = true;
+                    }
+
+                    var text = document.createElement('span');
+                    text.className = 'form-check-label';
+                    text.textContent = option.label;
+
+                    left.appendChild(input);
+                    left.appendChild(text);
+
+                    var price = document.createElement('span');
+                    price.className = 'fw-semibold color-brand-1';
+                    price.textContent = option.display;
+
+                    label.appendChild(left);
+                    label.appendChild(price);
+                    container.appendChild(label);
+                });
             });
         });
     </script>

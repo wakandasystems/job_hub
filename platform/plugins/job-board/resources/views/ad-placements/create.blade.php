@@ -5,5 +5,6 @@
         'action' => route('ad-placements.store'),
         'method' => 'POST',
         'placement' => null,
+        'tiers' => collect(),
     ])
 @endsection
