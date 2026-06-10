@@ -33,4 +33,7 @@ echo "Building production caches..."
 "$PHP_BIN" artisan route:cache
 "$PHP_BIN" artisan view:cache
 
+echo "Restarting queue workers..."
+"$PHP_BIN" artisan horizon:terminate || true
+
 echo "Deployment complete."
