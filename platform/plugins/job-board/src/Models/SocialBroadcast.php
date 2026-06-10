@@ -19,12 +19,14 @@ class SocialBroadcast extends BaseModel
         'scheduled_at',
         'sent_at',
         'results',
+        'sent_recipients',
         'created_by',
     ];
 
     protected $casts = [
-        'scheduled_at' => 'datetime',
-        'sent_at'      => 'datetime',
-        'results'      => 'array',
+        'scheduled_at'    => 'datetime',
+        'sent_at'         => 'datetime',
+        'results'         => 'array',
+        'sent_recipients' => 'array',
     ];
 }

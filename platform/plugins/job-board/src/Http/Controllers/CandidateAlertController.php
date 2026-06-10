@@ -399,50 +399,9 @@ class CandidateAlertController
 
     public function sendNow(CandidateAlert $candidateAlert, Request $request): JsonResponse
     {
-        set_time_limit(60); // each call handles ≤ BATCH jobs; 60 s is ample per batch
-
-        $forceResend = $request->boolean('force_resend');
-        $jobIds      = $request->input('job_ids');
-
-        if ($jobIds) {
-            $jobs = Job::whereIn('id', (array) $jobIds)
-                ->where('status', JobStatusEnum::PUBLISHED)
-                ->with(['company', 'slugable', 'jobTypes', 'currency'])
-                ->get();
-        } else {
-            $jobs = $this->getMatchingJobs($candidateAlert, skipAlreadySent: ! $forceResend);
-        }
-
-        [$token, $gatewayUrl] = $this->getWhapiCredentials();
-
-        if (! $token) {
-            return response()->json(['error' => 'No active Whapi automation configured. Add a Whapi automation on the Automations page first.'], 422);
-        }
-
-        $sentJobIds = ! $forceResend ? $candidateAlert->logs()->pluck('job_id')->toArray() : [];
-        $sent = $failed = 0;
-
-        foreach ($jobs as $job) {
-            if (! $forceResend && in_array($job->id, $sentJobIds)) {
-                continue;
-            }
-
-            $ok = $this->sendJobMessage($token, $gatewayUrl, $candidateAlert, $job);
-
-            CandidateAlertLog::create([
-                'candidate_alert_id' => $candidateAlert->id,
-                'job_id'             => $job->id,
-                'status'             => $ok ? 'sent' : 'failed',
-                'error_message'      => $ok ? null : 'HTTP send failed',
-                'sent_at'            => now(),
-            ]);
-
-            $ok ? $sent++ : $failed++;
-        }
-
-        $msg = "Sent {$sent} job(s)" . ($failed ? ", {$failed} failed." : '.');
-
-        return response()->json(['message' => $msg, 'sent' => $sent, 'failed' => $failed]);
+        return response()->json([
+            'error' => 'Individual WhatsApp sends are disabled. Subscribers receive one paced daily digest.',
+        ], 422);
     }
 
     public function previewFilters(Request $request): JsonResponse
@@ -903,7 +862,7 @@ class CandidateAlertController
         if (! $automation) return [null, null];
 
         $settings   = $automation->settings ?? [];
-        $token      = trim((string) ($settings['token'] ?? ''));
+        $token      = SocialAutomation::whapiToken($automation);
         $gatewayUrl = rtrim(trim((string) ($settings['gateway_url'] ?? '')), '/') ?: 'https://gate.whapi.cloud';
 
         return $token ? [$token, $gatewayUrl] : [null, null];

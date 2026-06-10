@@ -15,8 +15,7 @@ class SendSocialBroadcastJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 2;
-    public array $backoff = [60];
+    public int $tries = 1;
 
     public function __construct(private readonly int $broadcastId) {}
 

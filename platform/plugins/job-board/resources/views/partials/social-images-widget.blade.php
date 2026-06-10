@@ -64,7 +64,7 @@ $whapiChannelJson   = json_encode($whapiChannelName ?? '',  JSON_UNESCAPED_SLASH
                 <span class="img-slot-icon">🖼</span>
                 <div class="img-slot-info">
                     <span class="img-slot-label">Job Cover Image</span>
-                    <span class="img-slot-dim">1854 × 848 px · landscape</span>
+                    <span class="img-slot-dim">1800 × 540 px · landscape</span>
                 </div>
                 @if(!empty($slotPrompts['cover_image']))
                     <button type="button" class="img-copy-btn" onclick="sjwCopyPrompt('cover_image',this)" title="Copy AI prompt">📋 Copy</button>
@@ -72,7 +72,7 @@ $whapiChannelJson   = json_encode($whapiChannelName ?? '',  JSON_UNESCAPED_SLASH
             </div>
             <div class="img-slot-body">
                 <div id="preview-cover_image" style="display:{{ $coverUrl ? 'block' : 'none' }};">
-                    <div class="img-preview-wrap" style="aspect-ratio:1854/848">
+                    <div class="img-preview-wrap" style="aspect-ratio:10/3">
                         <img id="img-cover_image" src="{{ $coverUrl ?? '' }}" alt="Cover image">
                         <div class="img-preview-overlay"><button type="button" class="img-replace-btn" onclick="sjwTriggerUpload('cover_image')">🔄 Replace</button></div>
                     </div>
@@ -80,7 +80,7 @@ $whapiChannelJson   = json_encode($whapiChannelName ?? '',  JSON_UNESCAPED_SLASH
                 <div id="zone-cover_image" class="img-upload-zone" onclick="sjwTriggerUpload('cover_image')" ondragover="sjwDragOver(event,'cover_image')" ondragleave="sjwDragLeave('cover_image')" ondrop="sjwDrop(event,'cover_image')" style="display:{{ $coverUrl ? 'none' : 'flex' }};">
                     <div class="img-upload-zone-icon">🖼</div>
                     <div class="img-upload-zone-label">Upload Cover Image</div>
-                    <div class="img-upload-zone-sub">1854 × 848 px</div>
+                    <div class="img-upload-zone-sub">1800 × 540 px</div>
                 </div>
                 <input type="file" id="file-cover_image" accept="image/*" onchange="sjwHandleFile('cover_image',this)" style="display:none">
                 <div class="img-progress" id="progress-cover_image"><div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-cover_image"></div></div><div class="img-progress-label" id="label-cover_image"></div></div>

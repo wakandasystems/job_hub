@@ -223,6 +223,9 @@ class TelegramSocialMessageController extends BaseController
             try {
                 $liveJob = Job::with(['company', 'slugable', 'country', 'currency', 'jobTypes'])->find($jobId);
                 if ($liveJob) {
+                    $livePublisher = app(SocialPublisherService::class);
+                    try { $coverImagePrompt = $livePublisher->buildCoverImagePrompt($liveJob); } catch (\Throwable) {}
+
                     foreach (array_keys($jobImages) as $col) {
                         if (! empty($liveJob->{$col})) {
                             $jobImages[$col] = \Botble\Media\Facades\RvMedia::getImageUrl($liveJob->{$col});
@@ -230,10 +233,13 @@ class TelegramSocialMessageController extends BaseController
                     }
                     if ($liveJob->company) {
                         $companyId = $liveJob->company->id;
-                        if (! $companyLogoUrl && ! empty($liveJob->company->logo)) {
-                            $companyLogoUrl = \Botble\Media\Facades\RvMedia::getImageUrl($liveJob->company->logo);
-                            // Cached prompts were built without a logo — regenerate them now so they embed the real logo
-                            $livePublisher = app(SocialPublisherService::class);
+                        $liveCompanyLogoUrl = ! empty($liveJob->company->logo)
+                            ? \Botble\Media\Facades\RvMedia::getImageUrl($liveJob->company->logo)
+                            : null;
+
+                        if ($liveCompanyLogoUrl && $companyLogoUrl !== $liveCompanyLogoUrl) {
+                            $companyLogoUrl = $liveCompanyLogoUrl;
+                            // Regenerate cached prompts so they always embed the current company logo.
                             try { $aiPrompt         = $livePublisher->buildAiImagePrompt($liveJob); } catch (\Throwable) {}
                             try { $tiktokImagePrompt = $livePublisher->buildTikTokImagePrompt($liveJob); } catch (\Throwable) {}
                             try { $storyboardPrompt  = $livePublisher->buildStoryboardPrompt($liveJob); } catch (\Throwable) {}
@@ -638,13 +644,13 @@ class TelegramSocialMessageController extends BaseController
                             <span class="img-slot-icon">🖼</span>
                             <div class="img-slot-info">
                                 <span class="img-slot-label">Job Cover Image</span>
-                                <span class="img-slot-dim">1854 × 848 px · landscape banner</span>
+                                <span class="img-slot-dim">1800 × 540 px · landscape banner</span>
                             </div>
                             <button class="img-copy-btn" onclick="copySlotPrompt('cover_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
                         </div>
                         <div class="img-slot-body">
                             <div id="preview-cover_image" style="display:none">
-                                <div class="img-preview-wrap" style="aspect-ratio:1854/848">
+                                <div class="img-preview-wrap" style="aspect-ratio:10/3">
                                     <img id="img-cover_image" src="" alt="Cover image">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('cover_image')">🔄 Replace</button>
@@ -654,7 +660,7 @@ class TelegramSocialMessageController extends BaseController
                             <div id="zone-cover_image" class="img-upload-zone" onclick="triggerUpload('cover_image')" ondragover="onDragOver(event,'cover_image')" ondragleave="onDragLeave('cover_image')" ondrop="onDrop(event,'cover_image')">
                                 <div class="img-upload-zone-icon">🖼</div>
                                 <div class="img-upload-zone-label">Upload Job Cover Image</div>
-                                <div class="img-upload-zone-sub">1854 × 848 px · PNG · JPG · WebP</div>
+                                <div class="img-upload-zone-sub">1800 × 540 px · PNG · JPG · WebP</div>
                             </div>
                             <input type="file" id="file-cover_image" accept="image/*" onchange="handleFileSelect('cover_image',this)" style="display:none">
                             <div class="img-progress" id="progress-cover_image">
@@ -1888,13 +1894,13 @@ JSFN;
                             <span class="img-slot-icon">🖼</span>
                             <div class="img-slot-info">
                                 <span class="img-slot-label">Job Cover Image</span>
-                                <span class="img-slot-dim">1854 × 848 px · landscape banner</span>
+                                <span class="img-slot-dim">1800 × 540 px · landscape banner</span>
                             </div>
                             <button class="img-copy-btn" onclick="copySlotPrompt('cover_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
                         </div>
                         <div class="img-slot-body">
                             <div id="preview-cover_image" style="display:none">
-                                <div class="img-preview-wrap" style="aspect-ratio:1854/848">
+                                <div class="img-preview-wrap" style="aspect-ratio:10/3">
                                     <img id="img-cover_image" src="" alt="Cover image">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('cover_image')">🔄 Replace</button>
@@ -1904,7 +1910,7 @@ JSFN;
                             <div id="zone-cover_image" class="img-upload-zone" onclick="triggerUpload('cover_image')" ondragover="onDragOver(event,'cover_image')" ondragleave="onDragLeave('cover_image')" ondrop="onDrop(event,'cover_image')">
                                 <div class="img-upload-zone-icon">🖼</div>
                                 <div class="img-upload-zone-label">Upload Job Cover Image</div>
-                                <div class="img-upload-zone-sub">1854 × 848 px · PNG · JPG · WebP</div>
+                                <div class="img-upload-zone-sub">1800 × 540 px · PNG · JPG · WebP</div>
                             </div>
                             <input type="file" id="file-cover_image" accept="image/*" onchange="handleFileSelect('cover_image',this)" style="display:none">
                             <div class="img-progress" id="progress-cover_image">

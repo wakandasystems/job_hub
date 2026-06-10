@@ -3,34 +3,6 @@
 @section('content')
     @php
         $platforms = [
-            'facebook' => [
-                'label' => 'Facebook Page',
-                'icon'  => 'ti ti-brand-facebook',
-                'color' => '#1877F2',
-                'fields' => [
-                    'page_id'      => ['label' => 'Page ID', 'placeholder' => 'e.g. 123456789012345', 'help' => 'Found in your Facebook Page settings → About'],
-                    'access_token' => ['label' => 'Page Access Token', 'placeholder' => 'Paste your long-lived page token', 'type' => 'password', 'help' => 'Get from Meta for Developers → Graph API Explorer → generate a Page token with pages_manage_posts scope'],
-                ],
-            ],
-            'linkedin' => [
-                'label' => 'LinkedIn Company Page',
-                'icon'  => 'ti ti-brand-linkedin',
-                'color' => '#0A66C2',
-                'fields' => [
-                    'org_id'       => ['label' => 'Company ID', 'placeholder' => 'e.g. 12345678', 'help' => 'Found in your Company Page URL: linkedin.com/company/your-page/admin → the numeric ID'],
-                    'access_token' => ['label' => 'Access Token', 'placeholder' => 'OAuth 2.0 access token', 'type' => 'password', 'help' => 'Generate via LinkedIn Developer Portal with w_organization_social scope'],
-                ],
-            ],
-            'whatsapp' => [
-                'label' => 'WhatsApp',
-                'icon'  => 'ti ti-brand-whatsapp',
-                'color' => '#25D366',
-                'fields' => [
-                    'phone_number_id' => ['label' => 'Phone Number ID', 'placeholder' => 'e.g. 123456789012345', 'help' => 'Found in Meta Business → WhatsApp → Phone Numbers'],
-                    'access_token'    => ['label' => 'Access Token', 'placeholder' => 'System user access token', 'type' => 'password', 'help' => 'Create a System User in Meta Business Manager and generate a token'],
-                    'recipient'       => ['label' => 'Recipient Number', 'placeholder' => '+260977000000', 'help' => 'Target phone number in international format (for broadcasts/channels, use the group JID)'],
-                ],
-            ],
             'telegram' => [
                 'label' => 'Telegram Copy Queue',
                 'icon'  => 'ti ti-brand-telegram',
@@ -47,8 +19,7 @@
                 'icon'  => 'ti ti-brand-whatsapp',
                 'color' => '#25D366',
                 'fields' => [
-                    'token'       => ['label' => 'Whapi API Token', 'placeholder' => 'Paste your Whapi channel/instance token', 'type' => 'password', 'help' => 'Found in your Whapi dashboard → Channels → your channel → API Token.'],
-                    'channel_id'  => ['label' => 'Channel / Newsletter', 'type' => 'whapi_channel_select', 'help' => 'Enter the token above, then click <strong>Fetch</strong> to load your newsletters as a dropdown.'],
+                    'channel_id'  => ['label' => 'Channel / Newsletter', 'type' => 'whapi_channel_select', 'help' => 'Save the shared Whapi token, then click <strong>Fetch</strong> to load your newsletters.'],
                     'country_id'  => ['label' => 'Country Filter (optional)', 'type' => 'country_select', 'required' => false, 'help' => 'Only jobs matching this country will be posted. Leave blank to post jobs from all countries.'],
                     'gateway_url' => ['label' => 'Gateway URL (optional)', 'placeholder' => 'https://gate.whapi.cloud', 'required' => false, 'help' => 'Your Whapi gateway URL. Leave blank to use the default https://gate.whapi.cloud'],
                     'send_image'  => ['label' => 'Attach job image with each post', 'type' => 'checkbox', 'required' => false, 'help' => 'Sends the job image (company logo or generated banner) alongside the message.'],
@@ -123,6 +94,14 @@
                         <div class="d-flex align-items-center gap-2 w-100">
                             <i class="{{ $platform['icon'] }} fs-4" style="color: {{ $platform['color'] }}"></i>
                             <h5 class="mb-0 flex-grow-1">{{ $platform['label'] }}</h5>
+                            @if($platformKey === 'whapi')
+                                <button type="button"
+                                    class="btn btn-outline-success btn-sm"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#whapiTokenModal">
+                                    <i class="fas fa-key me-1"></i> Token
+                                </button>
+                            @endif
                             <button type="button"
                                 class="btn btn-primary btn-sm"
                                 data-bs-toggle="modal"
@@ -483,6 +462,38 @@
             @endforeach
         @endforeach
 
+        <div class="modal fade" id="whapiTokenModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-sm">
+                <div class="modal-content">
+                    <form id="whapiTokenForm" action="{{ route('job-board.automations.whapi-token') }}" method="POST">
+                        @csrf
+                        <div class="modal-header">
+                            <h5 class="modal-title"><i class="fas fa-key text-success me-2"></i>Shared Whapi Token</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <label class="form-label fw-semibold">Whapi API Token</label>
+                            <input type="password" name="token" class="form-control"
+                                placeholder="{{ setting('whapi_api_token') ? 'Enter a new token to replace the saved token' : 'Paste your Whapi API token' }}"
+                                required autocomplete="new-password">
+                            @if(setting('whapi_api_token'))
+                                <div class="form-text text-success">
+                                    <i class="fas fa-check me-1"></i>A shared token is saved.
+                                </div>
+                            @endif
+                            <div class="form-text">This token is used by every Whapi channel automation.</div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-success">
+                                <i class="fas fa-save me-1"></i> Save Token
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
         {{-- Delete confirmation modal --}}
         <div class="modal fade" id="deleteAutomationModal" tabindex="-1" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered modal-sm">
@@ -721,6 +732,35 @@ $(function () {
             .finally(() => $btn.prop('disabled', false).html('<i class="fas fa-copy me-1"></i> Duplicate'));
     });
 
+    $('#whapiTokenForm').on('submit', function (e) {
+        e.preventDefault();
+        const $form = $(this);
+        const $btn = $form.find('button[type="submit"]');
+        const body = new FormData(this);
+
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin me-1"></i> Saving…');
+
+        fetch($form.attr('action'), {
+            method: 'POST',
+            body,
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        })
+            .then(r => r.json())
+            .then(resp => {
+                if (resp.error) {
+                    Botble.showError(resp.message || 'Could not save the Whapi token.');
+                    return;
+                }
+
+                Botble.showSuccess(resp.message || 'Shared Whapi token saved.');
+                bootstrap.Modal.getInstance(document.getElementById('whapiTokenModal'))?.hide();
+                $form[0].reset();
+                setTimeout(() => location.reload(), 500);
+            })
+            .catch(() => Botble.showError('Could not save the Whapi token.'))
+            .finally(() => $btn.prop('disabled', false).html('<i class="fas fa-save me-1"></i> Save Token'));
+    });
+
     // Whapi: fetch newsletters into channel dropdown
     $(document).on('click', '.whapi-fetch-btn', function () {
         const $btn          = $(this);
@@ -753,16 +793,32 @@ $(function () {
                 }
                 const channels = resp.channels || [];
                 if (!channels.length) {
-                    Botble.showError('No newsletters found for this token. Make sure the channel is connected in Whapi.');
+                    const message = (resp.excluded_count || 0) > 0
+                        ? 'All newsletters returned by Whapi are already configured.'
+                        : 'No newsletters found for this token. Make sure the channel is connected in Whapi.';
+                    Botble.showError(message);
                     return;
                 }
 
-                let opts = '<option value="">— Select newsletter —</option>';
+                $select.empty().append(
+                    $('<option>', {
+                        value: '',
+                        text: '— Select newsletter —',
+                    })
+                );
+
                 channels.forEach(ch => {
-                    const sel = ch.id === savedJid ? ' selected' : '';
-                    opts += `<option value="${ch.id}" data-channel-name="${ch.name}"${sel}>${ch.name} — ${ch.id}</option>`;
+                    const $option = $('<option>', {
+                        value: ch.id,
+                        text: `${ch.name} — ${ch.id}`,
+                    }).attr('data-channel-name', ch.name);
+
+                    if (ch.id === savedJid) {
+                        $option.prop('selected', true);
+                    }
+
+                    $select.append($option);
                 });
-                $select.html(opts);
 
                 // Re-select saved JID if it's in the list
                 if (savedJid) $select.val(savedJid);
@@ -774,19 +830,53 @@ $(function () {
                     $nameInput.val(selected.data('channel-name') || selected.text().split(' — ')[0]);
                 }
 
-                Botble.showSuccess(channels.length + ' newsletter(s) loaded. Select one from the dropdown.');
+                const excluded = resp.excluded_count || 0;
+                const excludedText = excluded > 0 ? ` ${excluded} already configured newsletter(s) hidden.` : '';
+                Botble.showSuccess(channels.length + ' newsletter(s) loaded.' + excludedText + ' Select one from the dropdown.');
             })
             .catch(() => Botble.showError('Failed to reach Whapi. Check your network and token.'))
             .finally(() => $btn.prop('disabled', false).html('<i class="fas fa-sync me-1"></i> Fetch'));
     });
 
-    // Whapi channel select → update Display Name when user picks a different channel
+    $('#modal-add-whapi').on('shown.bs.modal', function () {
+        const $fetchButton = $(this).find('.whapi-fetch-btn');
+
+        if (! $fetchButton.prop('disabled')) {
+            $fetchButton.trigger('click');
+        }
+    });
+
+    function normalizeCountryName(value) {
+        return String(value || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim()
+            .toLowerCase();
+    }
+
+    // Whapi channel select → update Display Name and country filter.
     $(document).on('change', '.whapi-channel-select', function () {
-        const $option    = $(this).find('option:selected');
+        const $select     = $(this);
+        const $option     = $select.find('option:selected');
         const channelName = $option.data('channel-name') || $option.text().split(' — ')[0];
         if (!channelName || $option.val() === '') return;
-        const $nameInput = $(this).closest('.modal-content, form').find('input[name="name"]');
+
+        const $form = $select.closest('.modal-content, form');
+        const $nameInput = $form.find('input[name="name"]');
         $nameInput.val(channelName);
+
+        const countryMatch = channelName.match(/["“”']([^"“”']+)["“”']/);
+        if (!countryMatch) return;
+
+        const countryName = normalizeCountryName(countryMatch[1]);
+        const $countrySelect = $form.find('select[name="settings[country_id]"]');
+        const matchingOption = $countrySelect.find('option').filter(function () {
+            return normalizeCountryName($(this).text()) === countryName;
+        }).first();
+
+        if (matchingOption.length) {
+            $countrySelect.val(matchingOption.val()).trigger('change');
+        }
     });
 
     // Re-submit edit form: preserve existing password values if left blank

@@ -4,7 +4,6 @@ namespace Botble\JobBoard\Http\Controllers;
 
 use Botble\Base\Http\Controllers\BaseController;
 use Botble\Base\Supports\Breadcrumb;
-use Botble\JobBoard\Jobs\SendEmployerBroadcastChunkJob;
 use Botble\JobBoard\Jobs\SendSocialBroadcastJob;
 use Botble\JobBoard\Models\SocialAutomation;
 use Botble\JobBoard\Models\SocialBroadcast;
@@ -38,7 +37,7 @@ class SocialBroadcastController extends BaseController
 
         $broadcasts = SocialBroadcast::query()
             ->orderByDesc('id')
-            ->limit(15)
+            ->limit(5)
             ->get();
 
         $employerPhoneCount = $audience->phones()->count();
@@ -101,7 +100,7 @@ class SocialBroadcastController extends BaseController
             'message'      => ['required', 'string', 'max:3000'],
             'image_path'   => ['nullable', 'string', 'max:255'],
             'scheduled_at' => ['nullable', 'date', 'after:now'],
-            'audience'     => ['required', 'in:channels,employers'],
+            'audience'     => ['required', 'in:channels'],
         ]);
 
         $scheduledAt = $validated['scheduled_at'] ?? null;
@@ -116,9 +115,7 @@ class SocialBroadcastController extends BaseController
         ]);
 
         if ($scheduledAt) {
-            $job = $broadcast->audience === 'employers'
-                ? SendEmployerBroadcastChunkJob::dispatch($broadcast->getKey())
-                : SendSocialBroadcastJob::dispatch($broadcast->getKey());
+            $job = SendSocialBroadcastJob::dispatch($broadcast->getKey());
             $job->delay(now()->diffInSeconds($scheduledAt, true));
 
             return $this->httpResponse()->setMessage(
@@ -126,15 +123,16 @@ class SocialBroadcastController extends BaseController
             );
         }
 
-        $broadcast->audience === 'employers'
-            ? SendEmployerBroadcastChunkJob::dispatch($broadcast->getKey())
-            : SendSocialBroadcastJob::dispatch($broadcast->getKey());
+        SendSocialBroadcastJob::dispatch($broadcast->getKey());
 
-        return $this->httpResponse()->setMessage(
-            $broadcast->audience === 'employers'
-                ? 'Employer WhatsApp broadcast queued.'
-                : 'Broadcast queued — it will post to your channels shortly.'
-        );
+        return $this->httpResponse()->setMessage('Broadcast queued — it will post to your channels shortly.');
+    }
+
+    public function retry(SocialBroadcast $broadcast)
+    {
+        return $this->httpResponse()
+            ->setError()
+            ->setMessage('Direct WhatsApp broadcasts are disabled.');
     }
 
     public function cancel(SocialBroadcast $broadcast)

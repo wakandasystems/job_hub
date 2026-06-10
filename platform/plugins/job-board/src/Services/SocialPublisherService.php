@@ -418,14 +418,14 @@ class SocialPublisherService
         $p .= "\n";
 
         $p .= "═══ DESIGN SPECIFICATIONS ═══\n";
-        $p .= "• DIMENSIONS: Exactly 1854 × 848 pixels — wide landscape, 16:9-ish banner ratio. This will be used as a page-width header image on a job listing page.\n";
-        $p .= "• LAYOUT: Horizontal split composition. Left ~60% carries the text and people. Right ~40% carries the company logo, a large subtle decorative circle/shape, and brand colours.\n";
-        $p .= "• FEEL: Ultra-realistic, professional corporate photography style — like a high-end recruitment agency header. Clean, modern, inspiring.\n";
+        $p .= "• DIMENSIONS: Exactly 1800 × 540 pixels — a wide 10:3 landscape banner matching the desktop job-detail cover area. This will be used as a page-width header image on a job listing page.\n";
+        $p .= "• LAYOUT: Use a stylish editorial composition with generous whitespace. Keep the text in a clean left-side content area, feature the professionals naturally across the centre, and place the company logo in a polished right-side brand card. Use soft curves, layered translucent shapes, and restrained colour accents for depth.\n";
+        $p .= "• FEEL: Bright, fresh, premium, and welcoming — like a modern African recruitment campaign or polished business magazine cover. Use natural daylight, warm skin tones, crisp detail, and an optimistic atmosphere.\n";
         $p .= "\n";
 
         $p .= "═══ CONTENT REQUIREMENTS ═══\n";
         $p .= "• Show Black African professionals in a realistic work environment suitable for the role '{$title}'. The people should look confident, aspirational, and engaged.\n";
-        $p .= "• LEFT PANEL TEXT OVERLAYS (use clean white or lavender text on the dark background):\n";
+        $p .= "• LEFT-SIDE TEXT OVERLAYS: Place text on a light cream, soft-white, or very pale tinted panel with strong contrast. Use deep charcoal or rich brand-colour text, not white text on a dark background.\n";
         $p .= "    — Large bold heading: \"{$title}\"\n";
         if ($company) $p .= "    — Subheading: \"at {$company}\"\n";
         if ($details) $p .= "    — Detail row: \"" . implode('  ·  ', $details) . "\"\n";
@@ -435,8 +435,8 @@ class SocialPublisherService
         if ($companyLogoUrl) {
             $p .= "═══ COMPANY LOGO BRANDING ═══\n";
             $p .= $this->companyLogoLine($company, $companyLogoUrl) . "\n";
-            $p .= "• Place the real attached logo prominently in the RIGHT PANEL — centred, on a white or light card/pill background so it pops against the dark scene.\n";
-            $p .= "• Extract the dominant colours from the attached logo and use them as accent colours throughout the image (background tones, overlays, border highlights).\n";
+            $p .= "• Place the real attached logo prominently in the right-side brand card — centred on a clean white or softly tinted surface with a subtle shadow.\n";
+            $p .= "• Extract the dominant colours from the attached logo and use them as tasteful accents throughout the image (soft gradients, curved shapes, highlights, and the CTA), while keeping the overall design light and airy.\n";
             $p .= "\n";
         } else {
             if ($company) {
@@ -447,8 +447,8 @@ class SocialPublisherService
         $p .= "═══ WAKANDA JOBS BRANDING ═══\n";
         $p .= $this->wakandaLogoLine() . "\n";
         $p .= "• Place the Wakanda Jobs logo small in the bottom-left corner or as a watermark.\n";
-        $p .= "• Background palette: deep dark purple (#1a0533 → #0d0219 gradient) as the primary dark tone.\n";
-        $p .= "• Accent: violet (#7c3aed) thin top bar, lavender (#c4b5fd) for secondary text.\n";
+        $p .= "• Background palette: warm white (#fffdf8), soft lavender (#f3efff), and pale lilac (#e9e1ff), with plenty of bright negative space.\n";
+        $p .= "• Accent: Wakanda violet (#7c3aed), a small touch of warm gold (#f4b942), and deep charcoal (#20202a) for readable text. Keep saturated colours controlled and elegant.\n";
         $p .= "\n";
 
         if ($flagColors) {
@@ -457,10 +457,12 @@ class SocialPublisherService
         }
 
         $p .= "═══ WHAT NOT TO DO ═══\n";
-        $p .= "• Do NOT generate a portrait or square image — must be wide landscape 1854×848.\n";
+        $p .= "• Do NOT generate a portrait or square image — it must be a wide 1800×540 landscape banner with a 10:3 aspect ratio.\n";
         $p .= "• Do NOT make the image look like a social media story — it is a webpage header/banner.\n";
         $p .= "• Do NOT use stock-photo clip-art style. Aim for authentic photorealistic quality.\n";
         $p .= "• Do NOT crowd the image with text — keep text minimal, large, and legible.\n";
+        $p .= "• Do NOT use dark-mode styling, black or near-black backgrounds, heavy shadows, neon lighting, night scenes, moody cinematic grading, or gloomy purple washes.\n";
+        $p .= "• Do NOT use a rigid corporate template. The result should feel bespoke, stylish, bright, and human.\n";
 
         return $p;
     }
@@ -1996,7 +1998,7 @@ PROMPT;
     protected function broadcastToWhapiChannel(SocialAutomation $automation, string $message, ?string $imageUrl): bool
     {
         $settings   = $automation->settings ?? [];
-        $token      = trim((string) ($settings['token'] ?? ''));
+        $token      = SocialAutomation::whapiToken($automation);
         $channelId  = trim((string) ($settings['channel_id'] ?? ''));
         $gatewayUrl = rtrim(trim((string) ($settings['gateway_url'] ?? '')), '/') ?: 'https://gate.whapi.cloud';
 
@@ -2149,7 +2151,7 @@ PROMPT;
     protected function postToWhapiChannel(SocialAutomation $automation, Job $job): bool
     {
         $settings   = $automation->settings ?? [];
-        $token      = trim((string) ($settings['token'] ?? ''));
+        $token      = SocialAutomation::whapiToken($automation);
         $channelId  = trim((string) ($settings['channel_id'] ?? ''));
         $countryId  = isset($settings['country_id']) && $settings['country_id'] !== ''
             ? (int) $settings['country_id']

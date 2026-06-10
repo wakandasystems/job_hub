@@ -34,12 +34,21 @@
                             reach channels that are active there.
                         </div>
                     @else
-                        <div class="alert alert-info d-flex flex-wrap align-items-center gap-2 mb-4">
-                            <span>Posting to <strong>{{ $channels->count() }}</strong> connected channel(s):</span>
-                            @foreach($channels as $channel)
-                                @php $meta = $platformMeta[$channel->platform] ?? ['label' => ucfirst($channel->platform), 'icon' => 'ti ti-share', 'badge' => 'bg-light text-dark']; @endphp
-                                <span class="badge {{ $meta['badge'] }}"><i class="{{ $meta['icon'] }} me-1"></i>{{ $channel->name }}</span>
-                            @endforeach
+                        <div class="alert alert-info mb-4">
+                            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 bc-collapse-toggle"
+                                 style="cursor:pointer" data-bs-toggle="collapse" data-bs-target="#bc-channel-badges-body"
+                                 role="button" aria-expanded="false" aria-controls="bc-channel-badges-body">
+                                <span>Posting to <strong>{{ $channels->count() }}</strong> connected channel(s)</span>
+                                <i class="ti ti-chevron-down bc-collapse-icon"></i>
+                            </div>
+                            <div class="collapse" id="bc-channel-badges-body">
+                                <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                                    @foreach($channels as $channel)
+                                        @php $meta = $platformMeta[$channel->platform] ?? ['label' => ucfirst($channel->platform), 'icon' => 'ti ti-share', 'badge' => 'bg-light text-dark']; @endphp
+                                        <span class="badge {{ $meta['badge'] }}"><i class="{{ $meta['icon'] }} me-1"></i>{{ $channel->name }}</span>
+                                    @endforeach
+                                </div>
+                            </div>
                         </div>
                     @endif
 
@@ -57,53 +66,52 @@
 
                             @if($channels->isNotEmpty())
                             <div class="border rounded mb-3" id="bc-channel-list-panel">
-                                <div class="table-responsive">
-                                    <table class="table table-sm table-hover align-middle mb-0">
-                                        <thead>
-                                            <tr>
-                                                <th style="width:42px">#</th>
-                                                <th>Platform</th>
-                                                <th>Channel / Page Name</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach($channels as $i => $channel)
-                                                @php $meta = $platformMeta[$channel->platform] ?? ['label' => ucfirst($channel->platform), 'icon' => 'ti ti-share', 'badge' => 'bg-light text-dark']; @endphp
-                                                <tr>
-                                                    <td class="text-muted">{{ $i + 1 }}</td>
-                                                    <td>
-                                                        <span class="badge {{ $meta['badge'] }}">
-                                                            <i class="{{ $meta['icon'] }} me-1"></i>{{ $meta['label'] }}
-                                                        </span>
-                                                    </td>
-                                                    <td>{{ $channel->name }}</td>
-                                                </tr>
-                                            @endforeach
-                                        </tbody>
-                                    </table>
+                                <div class="d-flex align-items-center justify-content-between px-3 py-2 bc-collapse-toggle"
+                                     style="cursor:pointer" data-bs-toggle="collapse" data-bs-target="#bc-channel-list-body"
+                                     role="button" aria-expanded="false" aria-controls="bc-channel-list-body">
+                                    <span class="fw-semibold">
+                                        <i class="ti ti-list me-1"></i>Connected Channels ({{ $channels->count() }})
+                                    </span>
+                                    <i class="ti ti-chevron-down bc-collapse-icon"></i>
                                 </div>
-                                <div class="px-3 py-2 border-top d-flex justify-content-end">
-                                    <a href="{{ route('job-board.automations.index') }}" class="small text-muted">
-                                        <i class="ti ti-settings me-1"></i>Manage channels
-                                    </a>
+                                <div class="collapse" id="bc-channel-list-body">
+                                    <div class="table-responsive border-top">
+                                        <table class="table table-sm table-hover align-middle mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th style="width:42px">#</th>
+                                                    <th>Platform</th>
+                                                    <th>Channel / Page Name</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach($channels as $i => $channel)
+                                                    @php $meta = $platformMeta[$channel->platform] ?? ['label' => ucfirst($channel->platform), 'icon' => 'ti ti-share', 'badge' => 'bg-light text-dark']; @endphp
+                                                    <tr>
+                                                        <td class="text-muted">{{ $i + 1 }}</td>
+                                                        <td>
+                                                            <span class="badge {{ $meta['badge'] }}">
+                                                                <i class="{{ $meta['icon'] }} me-1"></i>{{ $meta['label'] }}
+                                                            </span>
+                                                        </td>
+                                                        <td>{{ $channel->name }}</td>
+                                                    </tr>
+                                                @endforeach
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="px-3 py-2 border-top d-flex justify-content-end">
+                                        <a href="{{ route('job-board.automations.index') }}" class="small text-muted">
+                                            <i class="ti ti-settings me-1"></i>Manage channels
+                                        </a>
+                                    </div>
                                 </div>
                             </div>
                             @endif
 
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="audience" id="bc-audience-employers" value="employers"
-                                       {{ !$hasWhapi || !$employerPhoneCount ? 'disabled' : '' }}>
-                                <label class="form-check-label" for="bc-audience-employers">
-                                    Employers only via WhatsApp ({{ number_format($employerPhoneCount) }})
-                                </label>
-                            </div>
-                            <div class="form-text">
-                                Employer numbers combine registered employer and company phone/WhatsApp fields.
-                                @if(!$hasWhapi) Connect an active Whapi automation to enable direct delivery. @endif
-                            </div>
                         </div>
 
-                        <div class="border rounded mb-4" id="bc-employer-contacts-panel" style="display:none">
+                        <div class="border rounded mb-4 d-none" id="bc-employer-contacts-panel">
                             <div class="d-flex align-items-center justify-content-between gap-3 px-3 py-2 border-bottom">
                                 <div>
                                     <div class="fw-semibold">Employer WhatsApp Recipients</div>
@@ -132,6 +140,24 @@
 
                         <div class="mb-3">
                             <label class="form-label" for="bc-message">Message <span class="text-danger">*</span></label>
+
+                            <div id="bc-placeholders-bar" class="mb-2 d-none">
+                                <div class="d-flex flex-wrap align-items-center gap-2">
+                                    <span class="text-muted small">Insert:</span>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary bc-placeholder-btn"
+                                            data-placeholder="[Company Name]"
+                                            title="Replaced with the employer or company name for each recipient">
+                                        [Company Name]
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary bc-placeholder-btn"
+                                            data-placeholder="[Country]"
+                                            title="Replaced with the recipient's country">
+                                        [Country]
+                                    </button>
+                                    <span class="text-muted small fst-italic">— personalised per recipient</span>
+                                </div>
+                            </div>
+
                             <textarea class="form-control" id="bc-message" name="message" rows="8" maxlength="3000" required
                                       placeholder="What do you want to tell your audience across Facebook, LinkedIn, and WhatsApp?"></textarea>
                             <div class="form-text"><span id="bc-message-counter">0</span>/3000</div>
@@ -164,7 +190,7 @@
                         </div>
 
                         <div class="d-flex gap-2 justify-content-end mt-4">
-                            <button class="btn btn-primary" type="submit" id="bc-submit-btn" {{ $channels->isEmpty() && (!$hasWhapi || !$employerPhoneCount) ? 'disabled' : '' }}>
+                            <button class="btn btn-primary" type="submit" id="bc-submit-btn" {{ $channels->isEmpty() ? 'disabled' : '' }}>
                                 <i class="ti ti-send me-1"></i> Post to Channels
                             </button>
                         </div>
@@ -173,9 +199,13 @@
             </x-core::card>
 
             <x-core::card class="mt-4">
-                <x-core::card.header>
-                    <x-core::card.title>Recent Broadcasts</x-core::card.title>
+                <x-core::card.header class="d-flex align-items-center justify-content-between bc-collapse-toggle"
+                                      style="cursor:pointer" data-bs-toggle="collapse" data-bs-target="#bc-recent-broadcasts-body"
+                                      role="button" aria-expanded="true" aria-controls="bc-recent-broadcasts-body">
+                    <x-core::card.title class="mb-0">Recent Broadcasts</x-core::card.title>
+                    <i class="ti ti-chevron-down bc-collapse-icon"></i>
                 </x-core::card.header>
+                <div class="collapse show" id="bc-recent-broadcasts-body">
                 <x-core::card.body>
                     @if($broadcasts->isEmpty())
                         <p class="text-muted mb-0">No broadcasts sent yet — your history will show up here.</p>
@@ -212,14 +242,24 @@
                                                     —
                                                 @endif
                                             </td>
-                                            <td>
+                                            <td style="max-width:220px">
                                                 @if(is_array($broadcast->results) && $broadcast->results)
-                                                    @foreach($broadcast->results as $result)
-                                                        <span class="badge {{ ($result['success'] ?? false) ? 'bg-success-subtle text-success' : 'bg-danger-subtle text-danger' }}"
-                                                              title="{{ $result['name'] ?? '' }}">
-                                                            <i class="{{ $platformMeta[$result['platform'] ?? '']['icon'] ?? 'ti ti-share' }} me-1"></i>{{ $result['name'] ?? $result['platform'] ?? '—' }}
-                                                        </span>
-                                                    @endforeach
+                                                    @php $visibleCount = 3; @endphp
+                                                    <div class="d-flex flex-wrap gap-1">
+                                                        @foreach($broadcast->results as $index => $result)
+                                                            <span class="badge {{ ($result['success'] ?? false) ? 'bg-success-subtle text-success' : 'bg-danger-subtle text-danger' }} {{ $index >= $visibleCount ? 'collapse bc-extra-channel-'.$broadcast->id : '' }}"
+                                                                  title="{{ $result['name'] ?? '' }}">
+                                                                <i class="{{ $platformMeta[$result['platform'] ?? '']['icon'] ?? 'ti ti-share' }} me-1"></i>{{ $result['name'] ?? $result['platform'] ?? '—' }}
+                                                            </span>
+                                                        @endforeach
+                                                    </div>
+                                                    @if(count($broadcast->results) > $visibleCount)
+                                                        <button type="button" class="btn btn-link btn-sm p-0 mt-1 bc-toggle-channels"
+                                                                data-bs-toggle="collapse" data-bs-target=".bc-extra-channel-{{ $broadcast->id }}"
+                                                                aria-expanded="false">
+                                                            +{{ count($broadcast->results) - $visibleCount }} more
+                                                        </button>
+                                                    @endif
                                                 @else
                                                     <span class="text-muted small">—</span>
                                                 @endif
@@ -230,6 +270,21 @@
                                                             data-url="{{ route('job-board.automations.broadcast-cancel', $broadcast->id) }}"
                                                             data-label='Cancel the scheduled broadcast "{{ Str::limit($broadcast->message, 60) }}"?'>
                                                         <i class="ti ti-player-pause me-1"></i> Cancel
+                                                    </button>
+                                                @endif
+                                                @if(false && $broadcast->audience === 'employers' && in_array($broadcast->status, ['failed', 'sent']))
+                                                    @php
+                                                        $sentSoFar = count($broadcast->sent_recipients ?? []);
+                                                        $totalRecipients = $broadcast->recipient_count ?? 0;
+                                                        $remaining = max(0, $totalRecipients - $sentSoFar);
+                                                        $retryLabel = $broadcast->status === 'failed'
+                                                            ? ($sentSoFar ? "Retry ({$remaining} remaining, {$sentSoFar} already reached)" : 'Retry')
+                                                            : "Resend to all ({$totalRecipients})";
+                                                    @endphp
+                                                    <button class="btn btn-sm btn-outline-primary bc-retry"
+                                                            data-url="{{ route('job-board.automations.broadcast-retry', $broadcast->id) }}"
+                                                            data-label="{{ $retryLabel }}">
+                                                        <i class="ti ti-refresh me-1"></i> Retry
                                                     </button>
                                                 @endif
                                                 <button class="btn btn-sm btn-outline-danger bc-delete"
@@ -245,6 +300,7 @@
                         </div>
                     @endif
                 </x-core::card.body>
+                </div>
             </x-core::card>
 
         </div>
@@ -307,8 +363,20 @@
 @endsection
 
 @push('footer')
+    <style>
+        .bc-collapse-icon { transition: transform .2s ease; }
+        .bc-collapse-toggle[aria-expanded="true"] .bc-collapse-icon { transform: rotate(180deg); }
+    </style>
     <script>
     $(function () {
+        $('.bc-toggle-channels').each(function () {
+            const $btn   = $(this);
+            const target = $btn.data('bs-target');
+            const moreText = $btn.text().trim();
+            $(target)
+                .on('shown.bs.collapse', function () { $btn.text('Show less'); })
+                .on('hidden.bs.collapse', function () { $btn.text(moreText); });
+        });
         const csrfToken     = $('meta[name="csrf-token"]').attr('content');
         const uploadUrl     = '{{ route('job-board.automations.broadcast-upload-image') }}';
         const sendUrl       = '{{ route('job-board.automations.broadcast-send') }}';
@@ -334,7 +402,20 @@
             );
             $('#bc-channel-list-panel').toggle(!employersSelected);
             $('#bc-employer-contacts-panel').toggle(employersSelected);
+            $('#bc-placeholders-bar').toggleClass('d-none', !employersSelected);
             if (employersSelected && !contactsLoaded) loadEmployerContacts(1);
+        });
+
+        $(document).on('click', '.bc-placeholder-btn', function () {
+            const textarea = document.getElementById('bc-message');
+            const placeholder = $(this).data('placeholder');
+            const start = textarea.selectionStart;
+            const end   = textarea.selectionEnd;
+            const value = textarea.value;
+            textarea.value = value.slice(0, start) + placeholder + value.slice(end);
+            textarea.selectionStart = textarea.selectionEnd = start + placeholder.length;
+            textarea.focus();
+            $('#bc-message-counter').text(textarea.value.length);
         });
 
         function loadEmployerContacts(page) {
@@ -567,12 +648,13 @@
         const genericConfirmModal = new bootstrap.Modal(document.getElementById('bcGenericConfirmModal'));
         let pendingGenericAction = null;
 
-        $(document).on('click', '.bc-cancel, .bc-delete', function () {
+        $(document).on('click', '.bc-cancel, .bc-delete, .bc-retry', function () {
             pendingGenericAction = {
                 url:    $(this).data('url'),
                 method: $(this).hasClass('bc-delete') ? 'DELETE' : 'POST',
             };
             $('#bcGenericConfirmLabel').text($(this).data('label'));
+            $('#bcGenericConfirmBtn').text($(this).hasClass('bc-retry') ? 'Retry' : 'Confirm');
             genericConfirmModal.show();
         });
 

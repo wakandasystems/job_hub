@@ -210,7 +210,7 @@ class SendVipCandidateAlertsListener implements ShouldQueue
         if (! $automation) return [null, null];
 
         $settings   = $automation->settings ?? [];
-        $token      = trim((string) ($settings['token'] ?? ''));
+        $token      = SocialAutomation::whapiToken($automation);
         $gatewayUrl = rtrim(trim((string) ($settings['gateway_url'] ?? '')), '/') ?: 'https://gate.whapi.cloud';
 
         return $token ? [$token, $gatewayUrl] : [null, null];

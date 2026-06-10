@@ -58,6 +58,17 @@ class SocialAutomationController extends BaseController
             ->setNextUrl(route('job-board.automations.index'));
     }
 
+    public function saveWhapiToken(Request $request)
+    {
+        $validated = $request->validate([
+            'token' => ['required', 'string', 'max:500'],
+        ]);
+
+        setting()->set('whapi_api_token', trim($validated['token']))->save();
+
+        return $this->httpResponse()->setMessage('Shared Whapi API token saved.');
+    }
+
     public function update(SocialAutomation $automation, Request $request)
     {
         $validated = $request->validate([
@@ -263,7 +274,7 @@ class SocialAutomationController extends BaseController
         set_time_limit(300);
 
         $settings   = $automation->settings ?? [];
-        $token      = trim((string) ($settings['token'] ?? ''));
+        $token      = SocialAutomation::whapiToken($automation);
         $channelId  = trim((string) ($settings['channel_id'] ?? ''));
         $countryId  = isset($settings['country_id']) && $settings['country_id'] !== ''
             ? (int) $settings['country_id']
@@ -353,10 +364,14 @@ class SocialAutomationController extends BaseController
         $automationId = (int) $request->input('automation_id', 0);
         $gatewayUrl   = rtrim(trim((string) $request->input('gateway_url', '')), '/') ?: 'https://gate.whapi.cloud';
 
-        // If no token supplied (password field left blank in edit form), use the saved token
-        if ($token === '' && $automationId) {
-            $saved      = SocialAutomation::find($automationId);
-            $token      = trim((string) ($saved?->settings['token'] ?? ''));
+        $saved = $automationId
+            ? SocialAutomation::query()->where('platform', 'whapi')->find($automationId)
+            : null;
+        if ($token === '') {
+            $token = SocialAutomation::whapiToken($saved);
+        }
+
+        if ($saved) {
             $savedGw    = rtrim(trim((string) ($saved?->settings['gateway_url'] ?? '')), '/');
             if ($gatewayUrl === 'https://gate.whapi.cloud' && $savedGw !== '') {
                 $gatewayUrl = $savedGw;
@@ -364,15 +379,26 @@ class SocialAutomationController extends BaseController
         }
 
         if ($token === '') {
-            return response()->json(['error' => 'Enter (or save) the Whapi token first.'], 422);
+            return response()->json(['error' => 'Save the shared Whapi token first.'], 422);
         }
 
         try {
             $resp = Http::timeout(12)->withToken($token)->get("{$gatewayUrl}/newsletters");
 
             if (! $resp->successful()) {
+                $whapiMessage = trim((string) data_get($resp->json(), 'error.message', ''));
+                $error = match ($resp->status()) {
+                    401 => 'Whapi rejected the saved API token. Copy the current token from the Whapi channel dashboard, save it here, and reconnect the channel if Whapi shows a QR code.',
+                    403 => 'The Whapi token is valid but does not have permission to access newsletters for this channel.',
+                    default => "Whapi API returned HTTP {$resp->status()}. Check your token, channel status, and gateway URL.",
+                };
+
+                if ($whapiMessage !== '' && strcasecmp($whapiMessage, 'Internal Error') !== 0) {
+                    $error .= " Whapi says: {$whapiMessage}";
+                }
+
                 return response()->json([
-                    'error' => "Whapi API returned HTTP {$resp->status()}. Check your token and gateway URL.",
+                    'error' => $error,
                 ], 422);
             }
 
@@ -381,18 +407,57 @@ class SocialAutomationController extends BaseController
             // Whapi returns either { newsletters: [...] } or a bare array
             $list = $body['newsletters'] ?? (is_array($body) ? $body : []);
 
-            $channels = collect($list)
+            $currentChannelId = $this->normalizeWhapiChannelId(
+                (string) ($saved?->settings['channel_id'] ?? '')
+            );
+            $configuredChannelIds = SocialAutomation::query()
+                ->where('platform', 'whapi')
+                ->when($saved, fn ($query) => $query->whereKeyNot($saved->getKey()))
+                ->get(['settings'])
+                ->map(fn (SocialAutomation $automation) => $this->normalizeWhapiChannelId(
+                    (string) ($automation->settings['channel_id'] ?? '')
+                ))
+                ->filter()
+                ->unique()
+                ->flip();
+
+            $allChannels = collect($list)
                 ->map(fn ($ch) => [
                     'id'   => $ch['id'] ?? $ch['jid'] ?? '',
                     'name' => $ch['name'] ?? $ch['subject'] ?? ($ch['id'] ?? 'Unknown'),
                 ])
                 ->filter(fn ($ch) => $ch['id'] !== '')
+                ->unique(fn ($ch) => $this->normalizeWhapiChannelId((string) $ch['id']))
                 ->values();
 
-            return response()->json(['channels' => $channels]);
+            $channels = $allChannels
+                ->filter(function (array $channel) use ($configuredChannelIds, $currentChannelId): bool {
+                    $normalizedId = $this->normalizeWhapiChannelId((string) $channel['id']);
+
+                    return $normalizedId === $currentChannelId || ! $configuredChannelIds->has($normalizedId);
+                })
+                ->values();
+
+            return response()->json([
+                'channels' => $channels,
+                'excluded_count' => $allChannels->count() - $channels->count(),
+            ]);
         } catch (\Throwable $e) {
             return response()->json(['error' => 'Could not reach Whapi: ' . $e->getMessage()], 422);
         }
+    }
+
+    protected function normalizeWhapiChannelId(string $channelId): string
+    {
+        $channelId = strtolower(trim($channelId));
+
+        if ($channelId === '') {
+            return '';
+        }
+
+        return str_ends_with($channelId, '@newsletter')
+            ? $channelId
+            : $channelId . '@newsletter';
     }
 
     public function whapiSendYesterdayJobs(Request $request, SocialPublisherService $publisher)
@@ -413,7 +478,7 @@ class SocialAutomationController extends BaseController
 
         foreach ($automations as $automation) {
             $settings   = $automation->settings ?? [];
-            $token      = trim((string) ($settings['token'] ?? ''));
+            $token      = SocialAutomation::whapiToken($automation);
             $channelId  = trim((string) ($settings['channel_id'] ?? ''));
             $countryId  = isset($settings['country_id']) && $settings['country_id'] !== ''
                 ? (int) $settings['country_id']
@@ -512,7 +577,7 @@ class SocialAutomationController extends BaseController
 
         foreach ($automations as $automation) {
             $settings   = $automation->settings ?? [];
-            $token      = trim((string) ($settings['token'] ?? ''));
+            $token      = SocialAutomation::whapiToken($automation);
             $channelId  = trim((string) ($settings['channel_id'] ?? ''));
             $gatewayUrl = rtrim(trim((string) ($settings['gateway_url'] ?? '')), '/') ?: 'https://gate.whapi.cloud';
 

@@ -33,4 +33,15 @@ class SocialAutomation extends BaseModel
     {
         return static::$platforms[$this->platform] ?? $this->platform;
     }
+
+    public static function whapiToken(?self $automation = null): string
+    {
+        $sharedToken = trim((string) setting('whapi_api_token', ''));
+
+        if ($sharedToken !== '') {
+            return $sharedToken;
+        }
+
+        return trim((string) ($automation?->settings['token'] ?? ''));
+    }
 }

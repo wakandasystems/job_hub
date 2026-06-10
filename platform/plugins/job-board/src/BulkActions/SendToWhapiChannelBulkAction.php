@@ -43,7 +43,7 @@ class SendToWhapiChannelBulkAction extends TableBulkActionAbstract
 
         foreach ($automations as $automation) {
             $settings   = $automation->settings ?? [];
-            $token      = trim((string) ($settings['token'] ?? ''));
+            $token      = SocialAutomation::whapiToken($automation);
             $channelId  = trim((string) ($settings['channel_id'] ?? ''));
             $gatewayUrl = rtrim(trim((string) ($settings['gateway_url'] ?? '')), '/') ?: 'https://gate.whapi.cloud';
 

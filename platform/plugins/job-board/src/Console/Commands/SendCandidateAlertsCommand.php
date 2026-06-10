@@ -7,7 +7,6 @@ use Botble\JobBoard\Models\CandidateAlert;
 use Botble\JobBoard\Models\CandidateAlertLog;
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\SocialAutomation;
-use Botble\Media\Facades\RvMedia;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Throwable;
@@ -38,7 +37,12 @@ class SendCandidateAlertsCommand extends Command
         $totalSent = 0;
 
         foreach ($alerts as $alert) {
-            $totalSent += $this->processAlert($alert, $token, $gatewayUrl, $hours);
+            $sent = $this->processAlert($alert, $token, $gatewayUrl, $hours);
+            $totalSent += $sent;
+
+            if ($sent > 0) {
+                sleep(random_int(15, 25));
+            }
         }
 
         $this->info("Done. Total jobs sent: {$totalSent}");
@@ -48,6 +52,15 @@ class SendCandidateAlertsCommand extends Command
 
     private function processAlert(CandidateAlert $alert, string $token, string $gatewayUrl, int $hours): int
     {
+        $alreadySentToday = $alert->logs()
+            ->where('status', 'sent')
+            ->whereDate('sent_at', today())
+            ->exists();
+
+        if ($alreadySentToday) {
+            return 0;
+        }
+
         $filters    = $alert->filters ?? [];
         $sentJobIds = $alert->logs()->pluck('job_id')->toArray();
 
@@ -124,87 +137,61 @@ class SendCandidateAlertsCommand extends Command
             $query->where('jb_jobs.job_experience_id', (int) $filters['job_experience_id']);
         }
 
-        $jobs = $query->get();
+        $jobs = $query->limit(10)->get();
 
         if ($jobs->isEmpty()) {
             return 0;
         }
 
-        $this->line("  → {$alert->candidate_name} ({$alert->candidate_phone}): {$jobs->count()} new job(s)");
+        $this->line("  → {$alert->candidate_name} ({$alert->candidate_phone}): {$jobs->count()} job(s) in one digest");
 
-        $sent = 0;
+        $ok = $this->sendDigestToCandidate($token, $gatewayUrl, $alert, $jobs);
+
         foreach ($jobs as $job) {
-            $ok = $this->sendJobToCandidate($token, $gatewayUrl, $alert, $job);
-
             CandidateAlertLog::create([
                 'candidate_alert_id' => $alert->id,
                 'job_id'             => $job->id,
                 'status'             => $ok ? 'sent' : 'failed',
-                'error_message'      => $ok ? null : 'HTTP request failed',
+                'error_message'      => $ok ? null : 'Daily digest request failed',
                 'sent_at'            => now(),
             ]);
-
-            if ($ok) {
-                $sent++;
-            }
-
-            usleep(900_000); // 0.9s delay between messages to avoid rate limiting
         }
 
-        return $sent;
+        return $ok ? $jobs->count() : 0;
     }
 
-    private function sendJobToCandidate(string $token, string $gatewayUrl, CandidateAlert $alert, Job $job): bool
+    private function sendDigestToCandidate(
+        string $token,
+        string $gatewayUrl,
+        CandidateAlert $alert,
+        $jobs
+    ): bool
     {
-        $jobUrl  = $job->slugable?->key ? url("/{$job->slugable->key}") : url('/jobs/' . $job->id);
-        $company = $job->company?->name ?? '';
-        $loc     = $job->full_location ?? $job->address ?? '';
+        $message = "Hi {$alert->candidate_name},\n\n";
+        $message .= "Here is your daily Wakanda Jobs summary based on the VIP job-alert preferences you requested.\n\n";
 
-        $msg  = "🔔 *JOB ALERT*\n\n";
-        $msg .= "Hi {$alert->candidate_name}! 👋\n\n";
-        $msg .= "*{$job->name}*\n";
-        if ($company) $msg .= "🏢 {$company}\n";
-        if ($loc)     $msg .= "📍 {$loc}\n";
+        foreach ($jobs as $index => $job) {
+            $jobUrl = $job->slugable?->key ? url("/{$job->slugable->key}") : url('/jobs/' . $job->id);
+            $company = $job->company?->name;
+            $location = $job->full_location ?? $job->address;
 
-        if ($job->created_at) {
-            $msg .= "📅 *Posted:* " . $job->created_at->format('d M Y') . "\n";
+            $message .= ($index + 1) . ". *{$job->name}*\n";
+            if ($company) {
+                $message .= "{$company}\n";
+            }
+            if ($location) {
+                $message .= "{$location}\n";
+            }
+            $message .= "{$jobUrl}\n\n";
         }
 
-        $deadline = $job->application_closing_date ?? $job->expire_date ?? null;
-        if ($deadline) {
-            $msg .= "⏰ *Deadline:* " . $deadline->format('d M Y') . "\n";
-        }
-
-        $types = $job->jobTypes->pluck('name')->filter()->implode(', ');
-        if ($types) $msg .= "💼 *Type:* {$types}\n";
-
-        $salary = $job->salary_text ?? null;
-        if ($salary) $msg .= "💰 *Salary:* {$salary}\n";
-
-        if (($job->number_of_positions ?? 0) > 1) {
-            $msg .= "👥 *Positions:* {$job->number_of_positions}\n";
-        }
-
-        $msg .= "\n👉 *Apply:* {$jobUrl}\n\n";
-        $msg .= "_Wakanda Jobs VIP Alert — wakandajobs.com_";
+        $message .= "You receive at most one job digest per day. To stop these alerts, contact Wakanda Jobs support.\n";
+        $message .= "_Wakanda Jobs VIP Alerts_";
 
         try {
-            $imgField = trim((string) ($job->whatsapp_image ?? ''));
-            if ($imgField !== '') {
-                $imageUrl = RvMedia::getImageUrl($imgField);
-                $response = Http::timeout(30)->withToken($token)->post("{$gatewayUrl}/messages/image", [
-                    'to'      => $alert->recipientJid(),
-                    'media'   => $imageUrl,
-                    'caption' => $msg,
-                ]);
-                if ($response->successful()) {
-                    return true;
-                }
-            }
-
             $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
                 'to'   => $alert->recipientJid(),
-                'body' => $msg,
+                'body' => $message,
             ]);
 
             return $response->successful();
@@ -219,7 +206,7 @@ class SendCandidateAlertsCommand extends Command
         if (! $automation) return [null, null];
 
         $settings   = $automation->settings ?? [];
-        $token      = trim((string) ($settings['token'] ?? ''));
+        $token      = SocialAutomation::whapiToken($automation);
         $gatewayUrl = rtrim(trim((string) ($settings['gateway_url'] ?? '')), '/') ?: 'https://gate.whapi.cloud';
 
         return $token ? [$token, $gatewayUrl] : [null, null];
