@@ -513,13 +513,26 @@ app()->booted(function (): void {
 
                 break;
             case Post::class:
+                $publishAtValue = null;
+                if ($data->getKey()) {
+                    $raw = \Illuminate\Support\Facades\DB::table('posts')->where('id', $data->getKey())->value('publish_at');
+                    $publishAtValue = $raw ? \Carbon\Carbon::parse($raw)->format('Y-m-d H:i:s') : null;
+                }
+
                 $form
                     ->add('cover_image', 'mediaImage', [
                         'label' => __('Cover Image'),
                         'label_attr' => ['class' => 'control-label'],
                         'value' => MetaBox::getMetaData($data, 'cover_image', true),
                     ])
-                    ->addAfter('status', 'time_to_read', 'number', [
+                    ->addAfter('status', 'publish_at', \Botble\Base\Forms\Fields\DatePickerField::class,
+                        \Botble\Base\Forms\FieldOptions\DatePickerFieldOption::make()
+                            ->label(__('Publish At'))
+                            ->withTimePicker(true)
+                            ->defaultValue($publishAtValue)
+                            ->helperText(__('Schedule auto-publish. Leave empty to publish manually via Status.'))
+                    )
+                    ->addAfter('publish_at', 'time_to_read', 'number', [
                         'label' => __('Time to read'),
                         'value' => MetaBox::getMetaData($data, 'time_to_read', true),
                         'attr' => [
@@ -578,6 +591,12 @@ app()->booted(function (): void {
 
         if ($data instanceof Post) {
             MetaBox::saveMetaBoxData($data, 'cover_image', $request->input('cover_image'));
+
+            // Save publish_at directly to the posts column (not meta).
+            $publishAt = $request->input('publish_at');
+            \Illuminate\Support\Facades\DB::table('posts')->where('id', $data->getKey())->update([
+                'publish_at' => $publishAt ?: null,
+            ]);
         }
 
         if ($data instanceof Page) {

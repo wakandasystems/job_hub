@@ -1907,18 +1907,20 @@ class HookServiceProvider extends ServiceProvider
 
             $data->loadMissing(['categories']);
 
-            $promptUrl = route('job-board.blog-posts.image-prompt', $data->getKey());
-            $prompt    = app(\Botble\JobBoard\Http\Controllers\BlogPostImagePromptController::class)
-                ->buildPromptPublic($data);
+            $controller       = app(\Botble\JobBoard\Http\Controllers\BlogPostImagePromptController::class);
+            $promptUrl        = route('job-board.blog-posts.image-prompt', $data->getKey());
+            $imagePrompt      = $controller->buildImagePromptPublic($data);
+            $coverImagePrompt = $controller->buildCoverImagePromptPublic($data);
 
             $form->addMetaBoxes([
                 'blog-image-prompt' => [
                     'title'    => null,
                     'priority' => 1,
                     'content'  => view('plugins/job-board::partials.blog-image-prompt-widget', [
-                        'post'      => $data,
-                        'promptUrl' => $promptUrl,
-                        'prompt'    => $prompt,
+                        'post'            => $data,
+                        'promptUrl'       => $promptUrl,
+                        'imagePrompt'     => $imagePrompt,
+                        'coverImagePrompt' => $coverImagePrompt,
                     ])->render(),
                 ],
             ]);

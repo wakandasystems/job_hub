@@ -9,10 +9,20 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Artisan::command('blog:publish-scheduled', function () {
-    $count = DB::table('posts')
+    $posts = DB::table('posts')
         ->where('status', 'draft')
-        ->whereDate('created_at', '<=', now())
-        ->update(['status' => 'published', 'updated_at' => now()]);
-    $this->info("Published {$count} scheduled blog post(s).");
-})->purpose('Publish draft blog posts whose scheduled date has arrived');
+        ->whereNotNull('publish_at')
+        ->where('publish_at', '<=', now())
+        ->get(['id', 'publish_at']);
+
+    foreach ($posts as $post) {
+        DB::table('posts')->where('id', $post->id)->update([
+            'status'     => 'published',
+            'created_at' => $post->publish_at, // set created_at = publish_at so listing order is correct
+            'updated_at' => now(),
+        ]);
+    }
+
+    $this->info("Published {$posts->count()} scheduled blog post(s).");
+})->purpose('Publish draft blog posts whose publish_at has arrived');
 
