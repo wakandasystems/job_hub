@@ -289,6 +289,32 @@ if (! function_exists('wakanda_all_telegram_channels')) {
     }
 }
 
+if (! function_exists('wakanda_whatsapp_channel_url')) {
+    function wakanda_whatsapp_channel_url(?int $countryId): ?string
+    {
+        static $map = [
+            7  => '0029Vb7umsx2ZjClLN546U3f',
+            11 => '0029VbDDQ1EF1YlSpL17bn0g',
+            15 => '0029Vb7TTkv6LwHocjcEui3R',
+            30 => '0029VbCq6XFBadmWyVAA0v25',
+            33 => '0029Vb7pjJqFMqrgJX38J61q',
+            38 => '0029Vb7WFfu2v1J1fLFLta1Z',
+            41 => '0029VbCrAuv9sBICWkp4lV2X',
+            42 => '0029VbDTaVA7IUYZYp5WsW3x',
+            46 => '0029VbCbZzO5PO13EyEz2b1M',
+            47 => '0029Vb8GTWmAojYmDa18Tz2f',
+            53 => '0029Vb86rMo2P59dqH2FTY0L',
+            58 => '0029Vb8VaRHLSmbUMoZyWk0v',
+            59 => '0029Vb8006Q2v1InXjHOVR2b',
+            60 => '0029VbCVRf8LI8YZqWzHYB0R',
+        ];
+
+        return ($countryId && isset($map[$countryId]))
+            ? 'https://whatsapp.com/channel/' . $map[$countryId]
+            : null;
+    }
+}
+
 if (! function_exists('wakanda_selected_country')) {
     function wakanda_selected_country()
     {

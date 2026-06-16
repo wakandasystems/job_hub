@@ -14,6 +14,18 @@ Route::group(['namespace' => 'Botble\Newsletter\Http\Controllers'], function ():
                 'permission' => 'newsletter.index',
             ]);
 
+            Route::get('send/employer-contacts', [
+                'as'         => 'send.employer-contacts',
+                'uses'       => 'NewsletterController@employerContacts',
+                'permission' => 'newsletter.index',
+            ]);
+
+            Route::get('send/subscriber-contacts', [
+                'as'         => 'send.subscriber-contacts',
+                'uses'       => 'NewsletterController@subscriberContacts',
+                'permission' => 'newsletter.index',
+            ]);
+
             Route::post('send', [
                 'as'         => 'send.post',
                 'uses'       => 'NewsletterController@sendPost',
@@ -26,6 +38,12 @@ Route::group(['namespace' => 'Botble\Newsletter\Http\Controllers'], function ():
                 'permission' => 'newsletter.index',
             ]);
 
+            Route::get('{sendId}/recipients', [
+                'as'         => 'send.recipients',
+                'uses'       => 'NewsletterController@recipients',
+                'permission' => 'newsletter.index',
+            ]);
+
             Route::post('{sendId}/resend', [
                 'as'         => 'resend',
                 'uses'       => 'NewsletterController@resend',
@@ -35,6 +53,12 @@ Route::group(['namespace' => 'Botble\Newsletter\Http\Controllers'], function ():
             Route::post('{sendId}/cancel', [
                 'as'         => 'cancel',
                 'uses'       => 'NewsletterController@cancel',
+                'permission' => 'newsletter.index',
+            ]);
+
+            Route::post('block-email', [
+                'as'         => 'block-email',
+                'uses'       => 'NewsletterController@blockEmail',
                 'permission' => 'newsletter.index',
             ]);
 

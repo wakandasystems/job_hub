@@ -234,6 +234,8 @@ class SocialLoginController extends BaseController
         $redirectUrl = $providerData['redirect_url'] ?: BaseHelper::getHomepageUrl();
 
         $redirectUrl = session()->has('url.intended') ? session('url.intended') : $redirectUrl;
+        $redirectUrl = apply_filters('social_login_redirect_url', $redirectUrl, $account, $providerData);
+        session()->forget('url.intended');
 
         return $this
             ->httpResponse()

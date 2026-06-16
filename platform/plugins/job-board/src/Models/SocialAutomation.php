@@ -26,10 +26,22 @@ class SocialAutomation extends BaseModel
         'whatsapp'  => 'WhatsApp',
         'telegram'  => 'Telegram',
         'whapi'     => 'WhatsApp Channel (Whapi)',
+        'publer'    => 'Publer',
     ];
 
     public function getPlatformLabelAttribute(): string
     {
         return static::$platforms[$this->platform] ?? $this->platform;
+    }
+
+    public static function whapiToken(?self $automation = null): string
+    {
+        $sharedToken = trim((string) setting('whapi_api_token', ''));
+
+        if ($sharedToken !== '') {
+            return $sharedToken;
+        }
+
+        return trim((string) ($automation?->settings['token'] ?? ''));
     }
 }

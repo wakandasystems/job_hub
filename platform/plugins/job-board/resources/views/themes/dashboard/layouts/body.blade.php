@@ -78,7 +78,7 @@
             <h3 class="fs-1">{{ PageTitle::getTitle(false) }}</h3>
 
             <div class="d-flex align-items-center gap-4">
-                <a href="{{ route('public.index') }}" target="_blank" class="text-uppercase">
+                <a href="{{ route('public.index') }}" class="text-uppercase">
                     {{ trans('plugins/job-board::dashboard.go_to_homepage') }}
                     <x-core::icon name="ti ti-arrow-right" />
                 </a>

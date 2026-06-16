@@ -28,7 +28,7 @@ class AdsManager
         $this->load();
 
         $data = $this
-            ->filterExpired($this->data)
+            ->filterByCountry($this->filterExpired($this->data))
             ->where('location', $location)
             ->sortBy('order');
 
@@ -69,7 +69,7 @@ class AdsManager
         $this->load();
 
         return $this
-            ->filterExpired($this->data)
+            ->filterByCountry($this->filterExpired($this->data))
             ->where('location', $location)
             ->sortBy('order')
             ->isNotEmpty();
@@ -146,5 +146,31 @@ class AdsManager
         return $data
             ->where('status', BaseStatusEnum::PUBLISHED)
             ->filter(fn (Ads $item) => $item->ads_type === 'google_adsense' || $item->expired_at->gte(Carbon::now()));
+    }
+
+    /**
+     * Restrict ads with a configured target country list (jb_ad_orders'
+     * pricing tier targeting) to visitors browsing from one of those
+     * countries. Ads with no target countries are shown to everyone.
+     */
+    protected function filterByCountry(Collection $data): Collection
+    {
+        return $data->filter(function (Ads $item) {
+            if (empty($item->target_country_ids)) {
+                return true;
+            }
+
+            if (! function_exists('wakanda_selected_country')) {
+                return true;
+            }
+
+            $country = wakanda_selected_country();
+
+            if (! $country) {
+                return true;
+            }
+
+            return in_array($country->id, $item->target_country_ids, true);
+        });
     }
 }

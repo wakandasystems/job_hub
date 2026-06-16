@@ -77,9 +77,10 @@ class SendVipCandidateAlertsListener implements ShouldQueue
         if ($keywords) {
             $matched = false;
             foreach ($keywords as $kw) {
-                if (stripos($job->name, $kw) !== false
-                    || stripos((string) ($job->description ?? ''), $kw) !== false
-                    || stripos((string) ($job->address ?? ''), $kw) !== false) {
+                $kwPat = '/\b' . preg_quote($kw, '/') . '\b/iu';
+                if (preg_match($kwPat, $job->name)
+                    || preg_match($kwPat, (string) ($job->description ?? ''))
+                    || preg_match($kwPat, (string) ($job->address ?? ''))) {
                     $matched = true;
                     break;
                 }
@@ -179,28 +180,40 @@ class SendVipCandidateAlertsListener implements ShouldQueue
         $msg .= "\n👉 *Apply:* {$jobUrl}\n\n";
         $msg .= "_Wakanda Jobs VIP Alert — wakandajobs.com_";
 
-        try {
-            $imgField = trim((string) ($job->whatsapp_image ?? ''));
-            if ($imgField !== '') {
-                $imageUrl = RvMedia::getImageUrl($imgField);
-                $response = Http::timeout(30)->withToken($token)->post("{$gatewayUrl}/messages/image", [
-                    'to'      => $alert->recipientJid(),
-                    'media'   => $imageUrl,
-                    'caption' => $msg,
-                ]);
-                if ($response->successful()) {
-                    return true;
-                }
-            }
+        $imgField = trim((string) ($job->whatsapp_image ?? ''));
+        $imageUrl = $imgField !== '' ? RvMedia::getImageUrl($imgField) : null;
 
-            $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
-                'to'   => $alert->recipientJid(),
-                'body' => $msg,
-            ]);
-            return $response->successful();
-        } catch (Throwable) {
-            return false;
+        $sentToAny = false;
+
+        foreach ($alert->recipientJids() as $jid) {
+            try {
+                if ($imageUrl) {
+                    $response = Http::timeout(30)->withToken($token)->post("{$gatewayUrl}/messages/image", [
+                        'to'      => $jid,
+                        'media'   => $imageUrl,
+                        'caption' => $msg,
+                    ]);
+
+                    if ($response->successful()) {
+                        $sentToAny = true;
+                        continue;
+                    }
+                }
+
+                $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
+                    'to'   => $jid,
+                    'body' => $msg,
+                ]);
+
+                if ($response->successful()) {
+                    $sentToAny = true;
+                }
+            } catch (Throwable) {
+                // try next number
+            }
         }
+
+        return $sentToAny;
     }
 
     private function getWhapiCredentials(): array
@@ -209,7 +222,7 @@ class SendVipCandidateAlertsListener implements ShouldQueue
         if (! $automation) return [null, null];
 
         $settings   = $automation->settings ?? [];
-        $token      = trim((string) ($settings['token'] ?? ''));
+        $token      = SocialAutomation::whapiToken($automation);
         $gatewayUrl = rtrim(trim((string) ($settings['gateway_url'] ?? '')), '/') ?: 'https://gate.whapi.cloud';
 
         return $token ? [$token, $gatewayUrl] : [null, null];

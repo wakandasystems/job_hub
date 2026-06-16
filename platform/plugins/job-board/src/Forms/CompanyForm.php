@@ -87,6 +87,18 @@ class CompanyForm extends FormAbstract
                 ],
                 'colspan' => 4,
             ])
+            ->add('contact_emails', 'textarea', [
+                'label' => 'Contact Emails',
+                'value' => implode("\n", $this->getModel()->contact_emails ?? []),
+                'attr' => [
+                    'placeholder' => "jobs@example.com\nhr@example.com",
+                    'rows' => 6,
+                ],
+                'help_block' => [
+                    'text' => 'One email per line. You can directly correct or remove imported addresses here. Contacts found in this company’s jobs are added automatically.',
+                ],
+                'colspan' => 12,
+            ])
             ->add('phone', 'text', [
                 'label' => trans('plugins/job-board::forms.phone'),
                 'attr' => [
@@ -94,6 +106,18 @@ class CompanyForm extends FormAbstract
                     'data-counter' => 30,
                 ],
                 'colspan' => 4,
+            ])
+            ->add('contact_numbers', 'textarea', [
+                'label' => 'Contact Numbers',
+                'value' => implode("\n", $this->getModel()->contact_numbers ?? []),
+                'attr' => [
+                    'placeholder' => "+260 97 000 0000\n+260 96 000 0000",
+                    'rows' => 6,
+                ],
+                'help_block' => [
+                    'text' => 'One phone or WhatsApp number per line. You can directly correct or remove imported numbers here.',
+                ],
+                'colspan' => 12,
             ])
             ->add('website', 'text', [
                 'label' => trans('plugins/job-board::forms.website'),

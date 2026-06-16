@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 
@@ -40,6 +41,9 @@ class TelegramSocialMessageController extends BaseController
         try { $linkedinImagePrompt = $publisher->buildLinkedInImagePrompt($job); } catch (\Throwable) {}
         try { $twitterImagePrompt = $publisher->buildTwitterImagePrompt($job); } catch (\Throwable) {}
         try { $platformPosts = $publisher->buildPlatformPosts($job); } catch (\Throwable) {}
+        $employerImagePrompt = $employerPitchMessage = null;
+        try { $employerImagePrompt = $publisher->buildEmployerImagePrompt($job); } catch (\Throwable) {}
+        try { $employerPitchMessage = $publisher->buildEmployerPitchMessage($job); } catch (\Throwable) {}
 
         if (! $aiPrompt) {
             return response($this->expiredHtml());
@@ -52,9 +56,13 @@ class TelegramSocialMessageController extends BaseController
             'linkedin_image' => null,
             'whatsapp_image' => null,
             'twitter_image'  => null,
+            'employer_image' => null,
         ];
         $companyId = null;
         $jobUrl    = null;
+        $employerEmail  = null;
+        $employerPhone  = null;
+        $employerEmails = [];
 
         foreach (array_keys($jobImages) as $col) {
             if (! empty($job->{$col})) {
@@ -63,6 +71,9 @@ class TelegramSocialMessageController extends BaseController
         }
         if ($job->company) {
             $companyId = $job->company->id;
+            $employerEmails = collect($job->company->contact_emails ?? [])->filter()->values()->all();
+            $employerEmail = $employerEmails[0] ?? $job->company->email;
+            $employerPhone = collect($job->company->contact_numbers ?? [])->first() ?: $job->company->phone;
             if (! empty($job->company->logo)) {
                 $companyLogoUrl = \Botble\Media\Facades\RvMedia::getImageUrl($job->company->logo);
                 $companyName    = $job->company->name;
@@ -87,9 +98,27 @@ class TelegramSocialMessageController extends BaseController
             'linkedin_image' => $makeUploadUrl('linkedin_image'),
             'whatsapp_image' => $makeUploadUrl('whatsapp_image'),
             'twitter_image'  => $makeUploadUrl('twitter_image'),
+            'employer_image' => $makeUploadUrl('employer_image'),
         ];
 
+        $sendToEmployerUrl = URL::temporarySignedRoute(
+            'public.telegram-social-send-to-employer',
+            now()->addDays(7),
+            array_filter(['job_id' => $job->getKey()]),
+        );
+
         $adminEditUrl = route('jobs.edit', $job->getKey());
+
+        $whapiAutomation  = \Botble\JobBoard\Models\SocialAutomation::query()
+            ->where('platform', 'whapi')->where('is_active', true)->get()
+            ->first(fn ($a) => !($a->settings['country_id'] ?? null) || (int) ($a->settings['country_id']) === (int) $job->country_id);
+        $whapiSendUrl     = $whapiAutomation ? route('job-board.automations.whapi-send-job', $job->getKey()) : null;
+        $whapiChannelName = $whapiAutomation?->name ?? '';
+
+        $publerAutomation = \Botble\JobBoard\Models\SocialAutomation::query()
+            ->where('platform', 'publer')->where('is_active', true)->get()
+            ->first(fn ($a) => !($a->settings['country_id'] ?? null) || (int) ($a->settings['country_id']) === (int) $job->country_id);
+        $publerSendUrl    = $publerAutomation ? route('job-board.automations.publer-send-job', $job->getKey()) : null;
 
         return response($this->renderPostKitHtml(
             aiPrompt: $aiPrompt,
@@ -110,6 +139,15 @@ class TelegramSocialMessageController extends BaseController
             step2Url: null,
             heroBadge: '🔧 Admin Post Kit',
             adminEditUrl: $adminEditUrl,
+            whapiSendUrl: $whapiSendUrl,
+            whapiChannelName: $whapiChannelName,
+            publerSendUrl: $publerSendUrl,
+            employerImagePrompt: $employerImagePrompt,
+            employerPitchMessage: $employerPitchMessage,
+            employerEmail: $employerEmail,
+            employerPhone: $employerPhone,
+            sendToEmployerUrl: $sendToEmployerUrl,
+            employerEmails: $employerEmails,
         ));
     }
 
@@ -201,23 +239,46 @@ class TelegramSocialMessageController extends BaseController
             'linkedin_image' => null,
             'whatsapp_image' => null,
             'twitter_image'  => null,
+            'employer_image' => null,
         ];
         $companyId = null;
         $jobUrl    = null;
+        $employerImagePrompt   = null;
+        $employerPitchMessage  = null;
+        $employerEmail         = null;
+        $employerPhone         = null;
+        $employerEmails        = [];
 
         if ($jobId) {
             try {
-                $liveJob = Job::with(['company', 'slugable'])->find($jobId);
+                $liveJob = Job::with(['company', 'slugable', 'country', 'currency', 'jobTypes'])->find($jobId);
                 if ($liveJob) {
+                    $livePublisher = app(SocialPublisherService::class);
+                    try { $coverImagePrompt = $livePublisher->buildCoverImagePrompt($liveJob); } catch (\Throwable) {}
+                    try { $employerImagePrompt  = $livePublisher->buildEmployerImagePrompt($liveJob); } catch (\Throwable) {}
+                    try { $employerPitchMessage = $livePublisher->buildEmployerPitchMessage($liveJob); } catch (\Throwable) {}
+
                     foreach (array_keys($jobImages) as $col) {
                         if (! empty($liveJob->{$col})) {
                             $jobImages[$col] = \Botble\Media\Facades\RvMedia::getImageUrl($liveJob->{$col});
                         }
                     }
                     if ($liveJob->company) {
-                        $companyId = $liveJob->company->id;
-                        if (! $companyLogoUrl && ! empty($liveJob->company->logo)) {
-                            $companyLogoUrl = \Botble\Media\Facades\RvMedia::getImageUrl($liveJob->company->logo);
+                        $companyId    = $liveJob->company->id;
+                        $employerEmails = collect($liveJob->company->contact_emails ?? [])->filter()->values()->all();
+                        $employerEmail = $employerEmails[0] ?? $liveJob->company->email;
+                        $employerPhone = collect($liveJob->company->contact_numbers ?? [])->first() ?: $liveJob->company->phone;
+                        $liveCompanyLogoUrl = ! empty($liveJob->company->logo)
+                            ? \Botble\Media\Facades\RvMedia::getImageUrl($liveJob->company->logo)
+                            : null;
+
+                        if ($liveCompanyLogoUrl && $companyLogoUrl !== $liveCompanyLogoUrl) {
+                            $companyLogoUrl = $liveCompanyLogoUrl;
+                            // Regenerate cached prompts so they always embed the current company logo.
+                            try { $aiPrompt         = $livePublisher->buildAiImagePrompt($liveJob); } catch (\Throwable) {}
+                            try { $tiktokImagePrompt = $livePublisher->buildTikTokImagePrompt($liveJob); } catch (\Throwable) {}
+                            try { $storyboardPrompt  = $livePublisher->buildStoryboardPrompt($liveJob); } catch (\Throwable) {}
+                            try { $geminiPrompt       = $livePublisher->buildGeminiVideoPrompt($liveJob); } catch (\Throwable) {}
                         }
                         if (! $companyName) {
                             $companyName = $liveJob->company->name;
@@ -278,9 +339,38 @@ class TelegramSocialMessageController extends BaseController
             'linkedin_image' => $makeUploadUrl('linkedin_image'),
             'whatsapp_image' => $makeUploadUrl('whatsapp_image'),
             'twitter_image'  => $makeUploadUrl('twitter_image'),
+            'employer_image' => $makeUploadUrl('employer_image'),
         ];
 
+        // Signed URL for sending the "your job ad is live" pitch to the employer
+        $sendToEmployerUrl = URL::temporarySignedRoute(
+            'public.telegram-social-send-to-employer',
+            now()->addDays(7),
+            array_filter(['job_id' => $jobId]),
+        );
 
+        // Whapi send-to-channel URL for this job
+        $whapiSendUrl = null; $whapiChannelName = '';
+        if ($jobId && isset($liveJob)) {
+            $wa = \Botble\JobBoard\Models\SocialAutomation::query()
+                ->where('platform', 'whapi')->where('is_active', true)->get()
+                ->first(fn ($a) => !($a->settings['country_id'] ?? null) || (int) ($a->settings['country_id']) === (int) $liveJob->country_id);
+            if ($wa) {
+                $whapiSendUrl     = route('job-board.automations.whapi-send-job', $jobId);
+                $whapiChannelName = $wa->name;
+            }
+        }
+
+        // Publer send URL for this job (used for WhatsApp→FB/LinkedIn and TikTok posting)
+        $publerSendUrl = null;
+        if ($jobId && isset($liveJob)) {
+            $pa = \Botble\JobBoard\Models\SocialAutomation::query()
+                ->where('platform', 'publer')->where('is_active', true)->get()
+                ->first(fn ($a) => !($a->settings['country_id'] ?? null) || (int) ($a->settings['country_id']) === (int) $liveJob->country_id);
+            if ($pa) {
+                $publerSendUrl = route('job-board.automations.publer-send-job', $jobId);
+            }
+        }
 
         $storyboardSafe    = mb_convert_encoding((string) $storyboardPrompt, 'UTF-8', 'UTF-8');
         $geminiSafe        = mb_convert_encoding((string) $geminiPrompt, 'UTF-8', 'UTF-8');
@@ -290,6 +380,8 @@ class TelegramSocialMessageController extends BaseController
         $facebookImageSafe = mb_convert_encoding((string) $facebookImagePrompt, 'UTF-8', 'UTF-8');
         $linkedinImageSafe = mb_convert_encoding((string) $linkedinImagePrompt, 'UTF-8', 'UTF-8');
         $twitterImageSafe  = mb_convert_encoding((string) $twitterImagePrompt, 'UTF-8', 'UTF-8');
+        $employerImageSafe = mb_convert_encoding((string) $employerImagePrompt, 'UTF-8', 'UTF-8');
+        $employerPitchSafe = mb_convert_encoding((string) $employerPitchMessage, 'UTF-8', 'UTF-8');
 
         $storyboardJson    = json_encode($storyboardSafe, JSON_UNESCAPED_UNICODE);
         $geminiJson        = json_encode($geminiSafe, JSON_UNESCAPED_UNICODE);
@@ -298,7 +390,15 @@ class TelegramSocialMessageController extends BaseController
         $uploadUrlsJson    = json_encode($uploadUrls, JSON_UNESCAPED_UNICODE);
         $jobImagesJson     = json_encode($jobImages, JSON_UNESCAPED_UNICODE);
         $companyLogoJson   = json_encode($companyLogoUrl, JSON_UNESCAPED_UNICODE);
+        $companyNameJson   = json_encode((string) ($companyName ?? ''), JSON_UNESCAPED_UNICODE);
         $csrfToken         = csrf_token();
+        $whapiSendUrlJson  = json_encode($whapiSendUrl ?? null, JSON_UNESCAPED_UNICODE);
+        $whapiChannelJson  = json_encode($whapiChannelName ?? '', JSON_UNESCAPED_UNICODE);
+        $publerSendUrlJson = json_encode($publerSendUrl ?? null, JSON_UNESCAPED_UNICODE);
+        $sendToEmployerUrlJson = json_encode($sendToEmployerUrl, JSON_UNESCAPED_UNICODE);
+        $employerPitchJson     = json_encode($employerPitchSafe, JSON_UNESCAPED_UNICODE);
+        $employerEmailJson     = json_encode($employerEmail, JSON_UNESCAPED_UNICODE);
+        $employerPhoneJson     = json_encode($employerPhone, JSON_UNESCAPED_UNICODE);
 
         // Per-slot copy prompts (whatsapp reuses the general 9:16 portrait prompt)
         $slotPromptsJson = json_encode([
@@ -308,15 +408,18 @@ class TelegramSocialMessageController extends BaseController
             'facebook_image' => $facebookImageSafe,
             'linkedin_image' => $linkedinImageSafe,
             'twitter_image'  => $twitterImageSafe,
+            'employer_image' => $employerImageSafe,
         ], JSON_UNESCAPED_UNICODE);
 
-        // Platform post text per social slot
+        // Platform post text per social slot (image URL appended so user knows what to attach)
+        $imgRef = fn(?string $url): string => $url ? "\n\n📎 Image: {$url}" : '';
         $slotPostsJson = json_encode([
-            'tiktok_image'   => $platformPosts['tiktok']   ?? '',
-            'whatsapp_image' => $platformPosts['whatsapp']  ?? '',
-            'facebook_image' => $platformPosts['facebook']  ?? '',
-            'linkedin_image' => $platformPosts['linkedin']  ?? '',
-            'twitter_image'  => $platformPosts['twitter']   ?? '',
+            'tiktok_image'   => ($platformPosts['tiktok']   ?? '') . $imgRef($jobImages['tiktok_image']   ?: $companyLogoUrl),
+            'whatsapp_image' => ($platformPosts['whatsapp']  ?? '') . $imgRef($jobImages['whatsapp_image'] ?: $companyLogoUrl),
+            'facebook_image' => ($platformPosts['facebook']  ?? '') . $imgRef($jobImages['facebook_image'] ?: $companyLogoUrl),
+            'linkedin_image' => ($platformPosts['linkedin']  ?? '') . $imgRef($jobImages['linkedin_image'] ?: $companyLogoUrl),
+            'twitter_image'  => ($platformPosts['twitter']   ?? '') . $imgRef($jobImages['twitter_image']  ?: $companyLogoUrl),
+            'employer_image' => $employerPitchSafe . $imgRef($jobImages['employer_image'] ?: $jobImages['whatsapp_image'] ?: $companyLogoUrl),
         ], JSON_UNESCAPED_UNICODE);
 
         $escapedPrompt      = htmlspecialchars($aiPrompt, ENT_QUOTES, 'UTF-8');
@@ -331,7 +434,32 @@ class TelegramSocialMessageController extends BaseController
         $heroSubLine     = $escapedCompany ? "{$escapedJobName} &middot; {$escapedCompany}" : $escapedJobName;
         $heroCompanyHtml = $escapedCompany ? "<div class=\"hero-company\">🏢 {$escapedCompany}</div>" : '';
         $jobBtnHtml      = $escapedJobUrl ? "<a href=\"{$escapedJobUrl}\" target=\"_blank\" rel=\"noopener\" class=\"bb-job\">🔗 View Job</a>" : '';
+        $copyCompanyNameHtml = ! $companyLogoUrl && $escapedCompany
+            ? '<button type="button" class="img-copy-btn" onclick="doCopy(companyName,this,\'Copy company name\')" title="Copy company name">📋 Copy name</button>'
+            : '';
 
+        // Employer pitch tab
+        $escapedEmployerPitch = htmlspecialchars($employerPitchSafe, ENT_QUOTES, 'UTF-8');
+        $employerEmailBtnHtml = $employerEmail
+            ? '<button class="btn btn-dark" onclick="sendToEmployer(\'email\',this)">📧 Email Employer</button>'
+            : '';
+        $employerWhatsappBtnHtml = $employerPhone
+            ? '<button class="btn btn-purple" onclick="sendToEmployer(\'whatsapp\',this)">💬 WhatsApp Employer</button>'
+            : '';
+        $employerNoContactHtml = (! $employerEmail && ! $employerPhone)
+            ? '<div class="tip-amber">⚠️ No contact email or WhatsApp number on file for this employer yet.</div>'
+            : '';
+
+        $employerEmailsDisplay = $employerEmails ?: array_filter([$employerEmail]);
+        $employerEmailsHtml = '';
+        if ($employerEmailsDisplay) {
+            $emailChips = implode(' &nbsp;·&nbsp; ', array_map(
+                fn ($e) => htmlspecialchars((string) $e, ENT_QUOTES, 'UTF-8'),
+                $employerEmailsDisplay,
+            ));
+            $emailNote = count($employerEmailsDisplay) > 1 ? ' (first one used for "Email Employer")' : '';
+            $employerEmailsHtml = "<div class=\"tip-blue\">📧 Emails on file{$emailNote}: <strong>{$emailChips}</strong></div>";
+        }
 
         // Attachment tip (Image tab)
         $wjLogo1 = 'https://www.wakandajobs.com/storage/gemini-generated-image-s1e9dgs1e9dgs1e9.png';
@@ -536,6 +664,7 @@ class TelegramSocialMessageController extends BaseController
                 <div class="tab-nav">
                     <button class="tab-btn active" onclick="switchTab('image',this)">🎨 Images</button>
                     <button class="tab-btn" onclick="switchTab('video',this)">🎬 Video</button>
+                    <button class="tab-btn" onclick="switchTab('employer',this)">📨 Employer</button>
                 </div>
             </div>
         </div>
@@ -555,6 +684,7 @@ class TelegramSocialMessageController extends BaseController
                                 <span class="img-slot-label">{$escapedCompany}</span>
                                 <span class="img-slot-dim">Company Logo · Square or landscape · PNG/WebP</span>
                             </div>
+                            {$copyCompanyNameHtml}
                         </div>
                         <div class="img-slot-body">
                             <div id="preview-company_logo" style="display:none">
@@ -586,13 +716,13 @@ class TelegramSocialMessageController extends BaseController
                             <span class="img-slot-icon">🖼</span>
                             <div class="img-slot-info">
                                 <span class="img-slot-label">Job Cover Image</span>
-                                <span class="img-slot-dim">1854 × 848 px · landscape banner</span>
+                                <span class="img-slot-dim">1800 × 540 px · landscape banner</span>
                             </div>
                             <button class="img-copy-btn" onclick="copySlotPrompt('cover_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
                         </div>
                         <div class="img-slot-body">
                             <div id="preview-cover_image" style="display:none">
-                                <div class="img-preview-wrap" style="aspect-ratio:1854/848">
+                                <div class="img-preview-wrap" style="aspect-ratio:10/3">
                                     <img id="img-cover_image" src="" alt="Cover image">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('cover_image')">🔄 Replace</button>
@@ -602,7 +732,7 @@ class TelegramSocialMessageController extends BaseController
                             <div id="zone-cover_image" class="img-upload-zone" onclick="triggerUpload('cover_image')" ondragover="onDragOver(event,'cover_image')" ondragleave="onDragLeave('cover_image')" ondrop="onDrop(event,'cover_image')">
                                 <div class="img-upload-zone-icon">🖼</div>
                                 <div class="img-upload-zone-label">Upload Job Cover Image</div>
-                                <div class="img-upload-zone-sub">1854 × 848 px · PNG · JPG · WebP</div>
+                                <div class="img-upload-zone-sub">1800 × 540 px · PNG · JPG · WebP</div>
                             </div>
                             <input type="file" id="file-cover_image" accept="image/*" onchange="handleFileSelect('cover_image',this)" style="display:none">
                             <div class="img-progress" id="progress-cover_image">
@@ -893,6 +1023,63 @@ class TelegramSocialMessageController extends BaseController
                 </div><!-- /video-hero -->
             </div>
 
+            <!-- ══════════════ EMPLOYER TAB ══════════════ -->
+            <div id="tab-employer" class="tab-pane">
+                <div class="tip-blue">📨 Let the employer know their job ad is live and is being professionally marketed across our platforms — builds trust and shows the value of advertising with Wakanda Jobs.</div>
+
+                <div class="img-grid">
+                    <div class="img-slot full-width" id="slot-employer_image">
+                        <div class="img-slot-head">
+                            <span class="img-slot-icon">📨</span>
+                            <div class="img-slot-info">
+                                <span class="img-slot-label">Employer Update Image</span>
+                                <span class="img-slot-dim">1080 × 1350 · 4:5 portrait</span>
+                            </div>
+                            <button class="img-copy-btn" onclick="copySlotPrompt('employer_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
+                        </div>
+                        <div class="img-slot-body">
+                            <div id="preview-employer_image" style="display:none">
+                                <div class="img-preview-wrap" style="aspect-ratio:1080/1350">
+                                    <img id="img-employer_image" src="" alt="Employer update image">
+                                    <div class="img-preview-overlay">
+                                        <button class="img-replace-btn" onclick="triggerUpload('employer_image')">🔄 Replace</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="zone-employer_image" class="img-upload-zone" onclick="triggerUpload('employer_image')" ondragover="onDragOver(event,'employer_image')" ondragleave="onDragLeave('employer_image')" ondrop="onDrop(event,'employer_image')">
+                                <div class="img-upload-zone-icon">📨</div>
+                                <div class="img-upload-zone-label">Upload Employer Update Image</div>
+                                <div class="img-upload-zone-sub">1080 × 1350</div>
+                            </div>
+                            <input type="file" id="file-employer_image" accept="image/*" onchange="handleFileSelect('employer_image',this)" style="display:none">
+                            <div class="img-progress" id="progress-employer_image">
+                                <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-employer_image"></div></div>
+                                <div class="img-progress-label" id="label-employer_image"></div>
+                            </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-employer_image" href="#" download="employer-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <button class="img-footer-btn" onclick="copySlotPost('employer_image',this)">📋 Post Text</button>
+                            </div>
+                        </div>
+                    </div>
+                </div><!-- /img-grid -->
+
+                <div class="card">
+                    <div class="section-label">📣 Selling Message</div>
+                    <textarea id="employer-pitch-ta" readonly rows="12">{$escapedEmployerPitch}</textarea>
+                    <div class="btn-row">
+                        <button class="btn btn-purple" onclick="copyField('employer-pitch-ta',this,'📋 Copy Message')">📋 Copy Message</button>
+                    </div>
+                    {$employerEmailsHtml}
+                    {$employerNoContactHtml}
+                    <div class="btn-row">
+                        {$employerEmailBtnHtml}
+                        {$employerWhatsappBtnHtml}
+                    </div>
+                    <div id="employer-send-status" style="margin-top:10px;font-size:12.5px;font-weight:600"></div>
+                </div>
+            </div>
+
         </div><!-- /page -->
 
         <!-- ── Sticky bottom bar ── -->
@@ -914,9 +1101,17 @@ class TelegramSocialMessageController extends BaseController
             const uploadUrls      = {$uploadUrlsJson};
             const jobImages       = {$jobImagesJson};
             const companyLogoUrl  = {$companyLogoJson};
+            const companyName     = {$companyNameJson};
             const slotPrompts     = {$slotPromptsJson};
             const slotPosts       = {$slotPostsJson};
-            const csrfToken       = document.querySelector('meta[name="csrf-token"]').content;
+            const csrfToken       = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
+            const whapiSendUrl    = {$whapiSendUrlJson};
+            const whapiChannel    = {$whapiChannelJson};
+            const publerSendUrl   = {$publerSendUrlJson};
+            const sendToEmployerUrl = {$sendToEmployerUrlJson};
+            const employerPitchText = {$employerPitchJson};
+            const employerEmail    = {$employerEmailJson};
+            const employerPhone    = {$employerPhoneJson};
 
             // ── Init image previews on page load ──
             (function initImages() {
@@ -928,9 +1123,19 @@ class TelegramSocialMessageController extends BaseController
                     linkedin_image: jobImages.linkedin_image,
                     whatsapp_image: jobImages.whatsapp_image,
                     twitter_image:  jobImages.twitter_image,
+                    employer_image: jobImages.employer_image,
                 };
                 for (const [key, url] of Object.entries(slots)) {
                     if (url) showPreview(key, url);
+                }
+
+                // No dedicated employer image yet — borrow the WhatsApp tab image as the default.
+                if (!jobImages.employer_image && jobImages.whatsapp_image) {
+                    showPreview('employer_image', jobImages.whatsapp_image);
+                    const dl = document.getElementById('dl-employer_image');
+                    if (dl) { dl.style.opacity = '.35'; dl.style.pointerEvents = 'none'; }
+                    const label = document.querySelector('#slot-employer_image .img-slot-label');
+                    if (label) label.textContent = 'Employer Update Image (using WhatsApp image)';
                 }
             })();
 
@@ -994,6 +1199,25 @@ class TelegramSocialMessageController extends BaseController
                 if (wrap) wrap.style.display = 'none';
             }
 
+            function playUploadSound() {
+                try {
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    [880, 1320].forEach((freq, i) => {
+                        const osc  = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.value = freq;
+                        const start = ctx.currentTime + i * 0.12;
+                        gain.gain.setValueAtTime(0.0001, start);
+                        gain.gain.exponentialRampToValueAtTime(0.2, start + 0.02);
+                        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
+                        osc.connect(gain).connect(ctx.destination);
+                        osc.start(start);
+                        osc.stop(start + 0.2);
+                    });
+                } catch {}
+            }
+
             function doUpload(key, file) {
                 const url = uploadUrls[key];
                 if (!url) { setProgress(key, 100, 'fail', '❌ Upload not available.'); return; }
@@ -1023,7 +1247,12 @@ class TelegramSocialMessageController extends BaseController
                     if (xhr.status >= 200 && xhr.status < 300 && data.ok !== false) {
                         if (data.url) showPreview(key, data.url);
                         setProgress(key, 100, 'done', '✅ Saved!');
-                        setTimeout(() => location.reload(), 1200);
+                        if (key === 'whatsapp_image' || key === 'tiktok_image') playUploadSound();
+                        setTimeout(() => {
+                            if (key === 'whatsapp_image' && whapiSendUrl) pkAskSendToChannel();
+                            else if (key === 'tiktok_image' && publerSendUrl) pkAskSendToPubler();
+                            else location.reload();
+                        }, 1200);
                     } else {
                         const msg = data.message || ('Upload failed (' + xhr.status + ')');
                         setProgress(key, 100, 'fail', '❌ ' + msg);
@@ -1048,6 +1277,95 @@ class TelegramSocialMessageController extends BaseController
                 btn.classList.add('active');
             }
 
+
+            function pkLoadSwal() {
+                return new Promise(resolve => {
+                    if (window.Swal) { resolve(); return; }
+                    const link = document.createElement('link'); link.rel = 'stylesheet';
+                    link.href = '/vendor/core/core/base/libraries/sweetalert2/sweetalert2.min.css';
+                    document.head.appendChild(link);
+                    const s = document.createElement('script');
+                    s.src = '/vendor/core/core/base/libraries/sweetalert2/sweetalert2.min.js';
+                    s.onload = resolve; document.head.appendChild(s);
+                });
+            }
+            function pkAskSendToChannel() {
+                pkLoadSwal().then(() => {
+                    const publerNote = publerSendUrl ? '<br><small style="color:#555;font-size:11px">Also sends to Facebook &amp; LinkedIn via Publer.</small>' : '';
+                    Swal.fire({
+                        title: 'Send to WhatsApp Channel?',
+                        html: 'Image uploaded. Send this job to <strong>' + whapiChannel + '</strong> now?' + publerNote,
+                        icon: 'question', showCancelButton: true,
+                        confirmButtonColor: '#25D366', cancelButtonColor: '#6b7280',
+                        confirmButtonText: '💬 Yes, Send Now', cancelButtonText: 'No, just save', reverseButtons: true,
+                    }).then(result => {
+                        if (result.isConfirmed) {
+                            Swal.fire({ title: 'Sending…', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                            const fd = new FormData(); fd.append('_token', csrfToken);
+                            fetch(whapiSendUrl, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                                .then(r => r.json())
+                                .then(d => {
+                                    const ok = d.error !== true;
+                                    if (publerSendUrl) {
+                                        const pfd = new FormData();
+                                        pfd.append('_token', csrfToken);
+                                        pfd.append('image_field', 'whatsapp_image');
+                                        pfd.append('exclude_networks', 'tiktok');
+                                        fetch(publerSendUrl, { method: 'POST', body: pfd, headers: { 'X-Requested-With': 'XMLHttpRequest' } }).catch(() => {});
+                                    }
+                                    Swal.fire({ icon: ok ? 'success' : 'error', title: ok ? 'Sent!' : 'Failed', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload());
+                                })
+                                .catch(() => Swal.fire({ icon: 'error', title: 'Network error' }).then(() => location.reload()));
+                        } else { location.reload(); }
+                    });
+                });
+            }
+            function pkAskSendToPubler() {
+                pkLoadSwal().then(() => {
+                    Swal.fire({
+                        title: 'Post to Publer (TikTok)?',
+                        text: 'Image uploaded. Post this job to your connected TikTok account via Publer?',
+                        icon: 'question', showCancelButton: true,
+                        confirmButtonColor: '#7c3aed', cancelButtonColor: '#6b7280',
+                        confirmButtonText: '🎵 Yes, Post Now', cancelButtonText: 'No, just save', reverseButtons: true,
+                    }).then(result => {
+                        if (result.isConfirmed) {
+                            Swal.fire({ title: 'Posting to Publer…', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                            const fd = new FormData();
+                            fd.append('_token', csrfToken);
+                            fd.append('image_field', 'tiktok_image');
+                            fd.append('exclude_networks', 'facebook,linkedin,twitter,instagram');
+                            fd.append('retry_background', '1');
+                            fetch(publerSendUrl, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                                .then(r => r.json())
+                                .then(d => {
+                                    const ok = d.error !== true;
+                                    if (ok) {
+                                        Swal.fire({ icon: 'success', title: 'Posted!', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload());
+                                        return;
+                                    }
+                                    const detail = d.data && d.data.error_detail ? d.data.error_detail : d.message;
+                                    Swal.fire({
+                                        icon: 'error',
+                                        title: 'TikTok post failed',
+                                        text: d.message + '\\n\\n' + detail,
+                                        confirmButtonText: 'Copy error',
+                                        showCancelButton: true,
+                                        cancelButtonText: 'Close',
+                                    }).then(result => {
+                                        if (result.isConfirmed) {
+                                            const copyButton = document.createElement('button');
+                                            doCopy(detail, copyButton, 'Copy error');
+                                            return;
+                                        }
+                                        location.reload();
+                                    });
+                                })
+                                .catch(() => Swal.fire({ icon: 'error', title: 'Network error' }).then(() => location.reload()));
+                        } else { location.reload(); }
+                    });
+                });
+            }
             function copySlotPrompt(key, btn) {
                 const text = slotPrompts[key];
                 if (!text) return;
@@ -1055,6 +1373,37 @@ class TelegramSocialMessageController extends BaseController
             }
             function copyField(id, btn, resetLabel) {
                 doCopy(document.getElementById(id).value, btn, resetLabel);
+            }
+
+            function sendToEmployer(channel, btn) {
+                const status = document.getElementById('employer-send-status');
+                const ta = document.getElementById('employer-pitch-ta');
+                const message = ta ? ta.value : employerPitchText;
+                const original = btn.textContent;
+                btn.disabled = true;
+                btn.textContent = '⏳ Sending…';
+                if (status) { status.textContent = ''; }
+
+                const fd = new FormData();
+                fd.append('channel', channel);
+                fd.append('message', message);
+                fd.append('_token', csrfToken);
+
+                fetch(sendToEmployerUrl, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (status) {
+                            status.textContent = data.message || (data.ok ? 'Sent!' : 'Something went wrong.');
+                            status.style.color = data.ok ? '#16a34a' : '#dc2626';
+                        }
+                        btn.textContent = data.ok ? '✅ Sent' : original;
+                        btn.disabled = !!data.ok;
+                    })
+                    .catch(() => {
+                        if (status) { status.textContent = 'Network error — please try again.'; status.style.color = '#dc2626'; }
+                        btn.textContent = original;
+                        btn.disabled = false;
+                    });
             }
 
             function dismiss() {
@@ -1132,7 +1481,7 @@ class TelegramSocialMessageController extends BaseController
         $jobId   = $request->query('job_id');
         $companyId = $request->query('company_id');
 
-        $allowedTypes = ['company_logo', 'cover_image', 'tiktok_image', 'facebook_image', 'linkedin_image', 'whatsapp_image', 'twitter_image'];
+        $allowedTypes = ['company_logo', 'cover_image', 'tiktok_image', 'facebook_image', 'linkedin_image', 'whatsapp_image', 'twitter_image', 'employer_image'];
         if (! in_array($type, $allowedTypes, true)) {
             return response()->json(['ok' => false, 'message' => 'Invalid upload type.'], 422);
         }
@@ -1183,6 +1532,7 @@ class TelegramSocialMessageController extends BaseController
                 'linkedin_image' => 'job-social/linkedin',
                 'whatsapp_image' => 'job-social/whatsapp',
                 'twitter_image'  => 'job-social/twitter',
+                'employer_image' => 'job-social/employer',
                 default          => 'job-social',
             };
 
@@ -1196,6 +1546,114 @@ class TelegramSocialMessageController extends BaseController
             Log::error('Social image upload failed', ['type' => $type, 'job_id' => $jobId, 'error' => $e->getMessage()]);
             return response()->json(['ok' => false, 'message' => 'Server error: ' . $e->getMessage()], 500);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Send the "your job ad is live" pitch to the employer (email / WhatsApp)
+    // -------------------------------------------------------------------------
+
+    public function sendToEmployer(Request $request)
+    {
+        $jobId   = $request->input('job_id');
+        $channel = $request->input('channel'); // 'email' | 'whatsapp'
+        $message = trim((string) $request->input('message', ''));
+
+        if (! $jobId || ! in_array($channel, ['email', 'whatsapp'], true) || $message === '') {
+            return response()->json(['ok' => false, 'message' => 'Missing job, channel, or message.'], 422);
+        }
+
+        $job = Job::with(['company', 'country'])->find($jobId);
+        if (! $job || ! $job->company) {
+            return response()->json(['ok' => false, 'message' => 'Job or company not found.'], 404);
+        }
+
+        $company = $job->company;
+
+        if ($channel === 'email') {
+            $allEmails = collect($company->contact_emails ?? [])->filter()->values();
+            if ($allEmails->isEmpty() && $company->email) {
+                $allEmails = collect([$company->email]);
+            }
+
+            $email = $allEmails->first();
+            if (! $email) {
+                return response()->json(['ok' => false, 'message' => 'No contact email on file for this employer.'], 422);
+            }
+
+            $ccEmails = $allEmails->slice(1)->values()->all();
+
+            try {
+                Mail::raw($message, function ($mail) use ($email, $ccEmails, $job): void {
+                    $mail->to($email)
+                        ->subject('Your job ad "' . $job->name . '" is live on Wakanda Jobs! 🚀');
+
+                    if ($ccEmails) {
+                        $mail->cc($ccEmails);
+                    }
+                });
+            } catch (\Throwable $e) {
+                Log::error('Employer pitch email failed', ['job_id' => $jobId, 'error' => $e->getMessage()]);
+                return response()->json(['ok' => false, 'message' => 'Failed to send email: ' . $e->getMessage()], 500);
+            }
+
+            $message = "Email sent to {$email}.";
+            if ($ccEmails) {
+                $message .= ' CC: ' . implode(', ', $ccEmails) . '.';
+            }
+
+            return response()->json(['ok' => true, 'message' => $message]);
+        }
+
+        // WhatsApp via Whapi
+        $phone = collect($company->contact_numbers ?? [])->first() ?: $company->phone;
+        if (! $phone) {
+            return response()->json(['ok' => false, 'message' => 'No WhatsApp contact on file for this employer.'], 422);
+        }
+
+        $automation = SocialAutomation::query()
+            ->where('platform', 'whapi')->where('is_active', true)->get()
+            ->first(fn ($a) => !($a->settings['country_id'] ?? null) || (int) ($a->settings['country_id']) === (int) $job->country_id);
+
+        if (! $automation) {
+            return response()->json(['ok' => false, 'message' => 'No active WhatsApp (Whapi) automation configured.'], 422);
+        }
+
+        $settings   = $automation->settings ?? [];
+        $token      = SocialAutomation::whapiToken($automation);
+        $gatewayUrl = rtrim(trim((string) ($settings['gateway_url'] ?? '')), '/') ?: 'https://gate.whapi.cloud';
+        $jid        = preg_replace('/\D/', '', (string) $phone) . '@s.whatsapp.net';
+
+        try {
+            $ok = false;
+            $imagePath = trim((string) ($job->employer_image ?: ($job->whatsapp_image ?? '')));
+
+            if ($imagePath !== '') {
+                $imageUrl = \Botble\Media\Facades\RvMedia::getImageUrl($imagePath);
+                $resp = Http::timeout(30)->withToken($token)->post("{$gatewayUrl}/messages/image", [
+                    'to'      => $jid,
+                    'media'   => $imageUrl,
+                    'caption' => $message,
+                ]);
+                $ok = $resp->successful();
+            }
+
+            if (! $ok) {
+                $resp = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
+                    'to'   => $jid,
+                    'body' => $message,
+                ]);
+                $ok = $resp->successful();
+            }
+        } catch (\Throwable $e) {
+            Log::error('Employer pitch WhatsApp send failed', ['job_id' => $jobId, 'error' => $e->getMessage()]);
+            return response()->json(['ok' => false, 'message' => 'Failed to send WhatsApp message: ' . $e->getMessage()], 500);
+        }
+
+        if (! $ok) {
+            return response()->json(['ok' => false, 'message' => 'Whapi rejected the message. Check token and limits.'], 500);
+        }
+
+        return response()->json(['ok' => true, 'message' => "WhatsApp message sent to +{$phone}."]);
     }
 
     // -------------------------------------------------------------------------
@@ -1355,6 +1813,15 @@ class TelegramSocialMessageController extends BaseController
         ?string $step2Url,
         string $heroBadge,
         ?string $adminEditUrl,
+        ?string $whapiSendUrl = null,
+        ?string $whapiChannelName = null,
+        ?string $publerSendUrl = null,
+        ?string $employerImagePrompt = null,
+        ?string $employerPitchMessage = null,
+        ?string $employerEmail = null,
+        ?string $employerPhone = null,
+        ?string $sendToEmployerUrl = null,
+        array $employerEmails = [],
     ): string {
         $storyboardSafe    = mb_convert_encoding((string) $storyboardPrompt, 'UTF-8', 'UTF-8');
         $geminiSafe        = mb_convert_encoding((string) $geminiPrompt, 'UTF-8', 'UTF-8');
@@ -1363,15 +1830,25 @@ class TelegramSocialMessageController extends BaseController
         $facebookImageSafe = mb_convert_encoding((string) $facebookImagePrompt, 'UTF-8', 'UTF-8');
         $linkedinImageSafe = mb_convert_encoding((string) $linkedinImagePrompt, 'UTF-8', 'UTF-8');
         $twitterImageSafe  = mb_convert_encoding((string) $twitterImagePrompt, 'UTF-8', 'UTF-8');
+        $employerImageSafe = mb_convert_encoding((string) $employerImagePrompt, 'UTF-8', 'UTF-8');
+        $employerPitchSafe = mb_convert_encoding((string) $employerPitchMessage, 'UTF-8', 'UTF-8');
 
-        $aiPromptJson    = json_encode($aiPrompt, JSON_UNESCAPED_UNICODE);
-        $storyboardJson  = json_encode($storyboardSafe, JSON_UNESCAPED_UNICODE);
-        $geminiJson      = json_encode($geminiSafe, JSON_UNESCAPED_UNICODE);
-        $tiktokImageJson = json_encode($tiktokImageSafe, JSON_UNESCAPED_UNICODE);
-        $step2UrlJson    = json_encode($step2Url ?? '', JSON_UNESCAPED_UNICODE);
-        $uploadUrlsJson  = json_encode($uploadUrls, JSON_UNESCAPED_UNICODE);
-        $jobImagesJson   = json_encode($jobImages, JSON_UNESCAPED_UNICODE);
-        $companyLogoJson = json_encode($companyLogoUrl, JSON_UNESCAPED_UNICODE);
+        $aiPromptJson      = json_encode($aiPrompt, JSON_UNESCAPED_UNICODE);
+        $storyboardJson    = json_encode($storyboardSafe, JSON_UNESCAPED_UNICODE);
+        $geminiJson        = json_encode($geminiSafe, JSON_UNESCAPED_UNICODE);
+        $tiktokImageJson   = json_encode($tiktokImageSafe, JSON_UNESCAPED_UNICODE);
+        $step2UrlJson      = json_encode($step2Url ?? '', JSON_UNESCAPED_UNICODE);
+        $uploadUrlsJson    = json_encode($uploadUrls, JSON_UNESCAPED_UNICODE);
+        $jobImagesJson     = json_encode($jobImages, JSON_UNESCAPED_UNICODE);
+        $companyLogoJson   = json_encode($companyLogoUrl, JSON_UNESCAPED_UNICODE);
+        $companyNameJson   = json_encode((string) ($companyName ?? ''), JSON_UNESCAPED_UNICODE);
+        $whapiSendUrlJson  = json_encode($whapiSendUrl, JSON_UNESCAPED_UNICODE);
+        $whapiChannelJson  = json_encode($whapiChannelName ?? '', JSON_UNESCAPED_UNICODE);
+        $publerSendUrlJson = json_encode($publerSendUrl, JSON_UNESCAPED_UNICODE);
+        $sendToEmployerUrlJson = json_encode($sendToEmployerUrl, JSON_UNESCAPED_UNICODE);
+        $employerPitchJson     = json_encode($employerPitchSafe, JSON_UNESCAPED_UNICODE);
+        $employerEmailJson     = json_encode($employerEmail, JSON_UNESCAPED_UNICODE);
+        $employerPhoneJson     = json_encode($employerPhone, JSON_UNESCAPED_UNICODE);
         $csrfToken       = csrf_token();
 
         $slotPromptsJson = json_encode([
@@ -1381,14 +1858,17 @@ class TelegramSocialMessageController extends BaseController
             'facebook_image' => $facebookImageSafe,
             'linkedin_image' => $linkedinImageSafe,
             'twitter_image'  => $twitterImageSafe,
+            'employer_image' => $employerImageSafe,
         ], JSON_UNESCAPED_UNICODE);
 
+        $imgRefFn = fn(?string $url): string => $url ? "\n\n📎 Image: {$url}" : '';
         $slotPostsJson = json_encode([
-            'tiktok_image'   => $platformPosts['tiktok']   ?? '',
-            'whatsapp_image' => $platformPosts['whatsapp']  ?? '',
-            'facebook_image' => $platformPosts['facebook']  ?? '',
-            'linkedin_image' => $platformPosts['linkedin']  ?? '',
-            'twitter_image'  => $platformPosts['twitter']   ?? '',
+            'tiktok_image'   => ($platformPosts['tiktok']   ?? '') . $imgRefFn($jobImages['tiktok_image']   ?: $companyLogoUrl),
+            'whatsapp_image' => ($platformPosts['whatsapp']  ?? '') . $imgRefFn($jobImages['whatsapp_image'] ?: $companyLogoUrl),
+            'facebook_image' => ($platformPosts['facebook']  ?? '') . $imgRefFn($jobImages['facebook_image'] ?: $companyLogoUrl),
+            'linkedin_image' => ($platformPosts['linkedin']  ?? '') . $imgRefFn($jobImages['linkedin_image'] ?: $companyLogoUrl),
+            'twitter_image'  => ($platformPosts['twitter']   ?? '') . $imgRefFn($jobImages['twitter_image']  ?: $companyLogoUrl),
+            'employer_image' => $employerPitchSafe . $imgRefFn($jobImages['employer_image'] ?: $jobImages['whatsapp_image'] ?: $companyLogoUrl),
         ], JSON_UNESCAPED_UNICODE);
 
         $escapedStoryboard  = htmlspecialchars($storyboardSafe, ENT_QUOTES, 'UTF-8');
@@ -1402,6 +1882,32 @@ class TelegramSocialMessageController extends BaseController
         $heroCompanyHtml = $escapedCompany ? "<div class=\"hero-company\">🏢 {$escapedCompany}</div>" : '';
         $jobBtnHtml      = $escapedJobUrl ? "<a href=\"{$escapedJobUrl}\" target=\"_blank\" rel=\"noopener\" class=\"bb-job\">🔗 View Job</a>" : '';
         $escapedHeroBadge = htmlspecialchars($heroBadge, ENT_QUOTES, 'UTF-8');
+        $copyCompanyNameHtml = ! $companyLogoUrl && $escapedCompany
+            ? '<button type="button" class="img-copy-btn" onclick="doCopy(companyName,this,\'Copy company name\')" title="Copy company name">📋 Copy name</button>'
+            : '';
+
+        // Employer pitch tab
+        $escapedEmployerPitch = htmlspecialchars($employerPitchSafe, ENT_QUOTES, 'UTF-8');
+        $employerEmailBtnHtml = $employerEmail
+            ? '<button class="btn btn-dark" onclick="sendToEmployer(\'email\',this)">📧 Email Employer</button>'
+            : '';
+        $employerWhatsappBtnHtml = $employerPhone
+            ? '<button class="btn btn-purple" onclick="sendToEmployer(\'whatsapp\',this)">💬 WhatsApp Employer</button>'
+            : '';
+        $employerNoContactHtml = (! $employerEmail && ! $employerPhone)
+            ? '<div class="tip-amber">⚠️ No contact email or WhatsApp number on file for this employer yet.</div>'
+            : '';
+
+        $employerEmailsDisplay = $employerEmails ?: array_filter([$employerEmail]);
+        $employerEmailsHtml = '';
+        if ($employerEmailsDisplay) {
+            $emailChips = implode(' &nbsp;·&nbsp; ', array_map(
+                fn ($e) => htmlspecialchars((string) $e, ENT_QUOTES, 'UTF-8'),
+                $employerEmailsDisplay,
+            ));
+            $emailNote = count($employerEmailsDisplay) > 1 ? ' (first one used for "Email Employer")' : '';
+            $employerEmailsHtml = "<div class=\"tip-blue\">📧 Emails on file{$emailNote}: <strong>{$emailChips}</strong></div>";
+        }
 
         $wjLogo1 = 'https://www.wakandajobs.com/storage/gemini-generated-image-s1e9dgs1e9dgs1e9.png';
         $wjLogo2 = 'https://www.wakandajobs.com/storage/chatgpt-image-may-14-2026-03-00-04-pm.png';
@@ -1677,6 +2183,7 @@ JSFN;
                 <div class="tab-nav">
                     <button class="tab-btn active" onclick="switchTab('image',this)">🎨 Images</button>
                     <button class="tab-btn" onclick="switchTab('video',this)">🎬 Video</button>
+                    <button class="tab-btn" onclick="switchTab('employer',this)">📨 Employer</button>
                 </div>
             </div>
         </div>
@@ -1693,9 +2200,10 @@ JSFN;
                         <div class="img-slot-head">
                             <span class="img-slot-icon">🏢</span>
                             <div class="img-slot-info">
-                                <span class="img-slot-label">Company Logo</span>
-                                <span class="img-slot-dim">Square or landscape · PNG/WebP</span>
+                                <span class="img-slot-label">{$escapedCompany}</span>
+                                <span class="img-slot-dim">Company Logo · Square or landscape · PNG/WebP</span>
                             </div>
+                            {$copyCompanyNameHtml}
                         </div>
                         <div class="img-slot-body">
                             <div id="preview-company_logo" style="display:none">
@@ -1727,13 +2235,13 @@ JSFN;
                             <span class="img-slot-icon">🖼</span>
                             <div class="img-slot-info">
                                 <span class="img-slot-label">Job Cover Image</span>
-                                <span class="img-slot-dim">1854 × 848 px · landscape banner</span>
+                                <span class="img-slot-dim">1800 × 540 px · landscape banner</span>
                             </div>
                             <button class="img-copy-btn" onclick="copySlotPrompt('cover_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
                         </div>
                         <div class="img-slot-body">
                             <div id="preview-cover_image" style="display:none">
-                                <div class="img-preview-wrap" style="aspect-ratio:1854/848">
+                                <div class="img-preview-wrap" style="aspect-ratio:10/3">
                                     <img id="img-cover_image" src="" alt="Cover image">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('cover_image')">🔄 Replace</button>
@@ -1743,7 +2251,7 @@ JSFN;
                             <div id="zone-cover_image" class="img-upload-zone" onclick="triggerUpload('cover_image')" ondragover="onDragOver(event,'cover_image')" ondragleave="onDragLeave('cover_image')" ondrop="onDrop(event,'cover_image')">
                                 <div class="img-upload-zone-icon">🖼</div>
                                 <div class="img-upload-zone-label">Upload Job Cover Image</div>
-                                <div class="img-upload-zone-sub">1854 × 848 px · PNG · JPG · WebP</div>
+                                <div class="img-upload-zone-sub">1800 × 540 px · PNG · JPG · WebP</div>
                             </div>
                             <input type="file" id="file-cover_image" accept="image/*" onchange="handleFileSelect('cover_image',this)" style="display:none">
                             <div class="img-progress" id="progress-cover_image">
@@ -2036,6 +2544,63 @@ JSFN;
                 </div><!-- /video-hero -->
             </div>
 
+            <!-- ══════════════ EMPLOYER TAB ══════════════ -->
+            <div id="tab-employer" class="tab-pane">
+                <div class="tip-blue">📨 Let the employer know their job ad is live and is being professionally marketed across our platforms — builds trust and shows the value of advertising with Wakanda Jobs.</div>
+
+                <div class="img-grid">
+                    <div class="img-slot full-width" id="slot-employer_image">
+                        <div class="img-slot-head">
+                            <span class="img-slot-icon">📨</span>
+                            <div class="img-slot-info">
+                                <span class="img-slot-label">Employer Update Image</span>
+                                <span class="img-slot-dim">1080 × 1350 · 4:5 portrait</span>
+                            </div>
+                            <button class="img-copy-btn" onclick="copySlotPrompt('employer_image',this)" title="Copy AI prompt for this image">📋 Copy</button>
+                        </div>
+                        <div class="img-slot-body">
+                            <div id="preview-employer_image" style="display:none">
+                                <div class="img-preview-wrap" style="aspect-ratio:1080/1350">
+                                    <img id="img-employer_image" src="" alt="Employer update image">
+                                    <div class="img-preview-overlay">
+                                        <button class="img-replace-btn" onclick="triggerUpload('employer_image')">🔄 Replace</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="zone-employer_image" class="img-upload-zone" onclick="triggerUpload('employer_image')" ondragover="onDragOver(event,'employer_image')" ondragleave="onDragLeave('employer_image')" ondrop="onDrop(event,'employer_image')">
+                                <div class="img-upload-zone-icon">📨</div>
+                                <div class="img-upload-zone-label">Upload Employer Update Image</div>
+                                <div class="img-upload-zone-sub">1080 × 1350</div>
+                            </div>
+                            <input type="file" id="file-employer_image" accept="image/*" onchange="handleFileSelect('employer_image',this)" style="display:none">
+                            <div class="img-progress" id="progress-employer_image">
+                                <div class="img-progress-bar-wrap"><div class="img-progress-bar" id="bar-employer_image"></div></div>
+                                <div class="img-progress-label" id="label-employer_image"></div>
+                            </div>
+                            <div class="img-slot-footer">
+                                <a class="img-footer-btn dl" id="dl-employer_image" href="#" download="employer-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <button class="img-footer-btn" onclick="copySlotPost('employer_image',this)">📋 Post Text</button>
+                            </div>
+                        </div>
+                    </div>
+                </div><!-- /img-grid -->
+
+                <div class="card">
+                    <div class="section-label">📣 Selling Message</div>
+                    <textarea id="employer-pitch-ta" readonly rows="12">{$escapedEmployerPitch}</textarea>
+                    <div class="btn-row">
+                        <button class="btn btn-purple" onclick="copyField('employer-pitch-ta',this,'📋 Copy Message')">📋 Copy Message</button>
+                    </div>
+                    {$employerEmailsHtml}
+                    {$employerNoContactHtml}
+                    <div class="btn-row">
+                        {$employerEmailBtnHtml}
+                        {$employerWhatsappBtnHtml}
+                    </div>
+                    <div id="employer-send-status" style="margin-top:10px;font-size:12.5px;font-weight:600"></div>
+                </div>
+            </div>
+
         </div><!-- /page -->
 
         <!-- ── Sticky bottom bar ── -->
@@ -2057,9 +2622,17 @@ JSFN;
             const uploadUrls      = {$uploadUrlsJson};
             const jobImages       = {$jobImagesJson};
             const companyLogoUrl  = {$companyLogoJson};
+            const companyName     = {$companyNameJson};
             const slotPrompts     = {$slotPromptsJson};
             const slotPosts       = {$slotPostsJson};
-            const csrfToken       = document.querySelector('meta[name="csrf-token"]').content;
+            const csrfToken       = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
+            const whapiSendUrl    = {$whapiSendUrlJson};
+            const whapiChannel    = {$whapiChannelJson};
+            const publerSendUrl   = {$publerSendUrlJson};
+            const sendToEmployerUrl = {$sendToEmployerUrlJson};
+            const employerPitchText = {$employerPitchJson};
+            const employerEmail    = {$employerEmailJson};
+            const employerPhone    = {$employerPhoneJson};
 
             // ── Init image previews on page load ──
             (function initImages() {
@@ -2071,9 +2644,19 @@ JSFN;
                     linkedin_image: jobImages.linkedin_image,
                     whatsapp_image: jobImages.whatsapp_image,
                     twitter_image:  jobImages.twitter_image,
+                    employer_image: jobImages.employer_image,
                 };
                 for (const [key, url] of Object.entries(slots)) {
                     if (url) showPreview(key, url);
+                }
+
+                // No dedicated employer image yet — borrow the WhatsApp tab image as the default.
+                if (!jobImages.employer_image && jobImages.whatsapp_image) {
+                    showPreview('employer_image', jobImages.whatsapp_image);
+                    const dl = document.getElementById('dl-employer_image');
+                    if (dl) { dl.style.opacity = '.35'; dl.style.pointerEvents = 'none'; }
+                    const label = document.querySelector('#slot-employer_image .img-slot-label');
+                    if (label) label.textContent = 'Employer Update Image (using WhatsApp image)';
                 }
             })();
 
@@ -2137,6 +2720,25 @@ JSFN;
                 if (wrap) wrap.style.display = 'none';
             }
 
+            function playUploadSound() {
+                try {
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    [880, 1320].forEach((freq, i) => {
+                        const osc  = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.value = freq;
+                        const start = ctx.currentTime + i * 0.12;
+                        gain.gain.setValueAtTime(0.0001, start);
+                        gain.gain.exponentialRampToValueAtTime(0.2, start + 0.02);
+                        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
+                        osc.connect(gain).connect(ctx.destination);
+                        osc.start(start);
+                        osc.stop(start + 0.2);
+                    });
+                } catch {}
+            }
+
             function doUpload(key, file) {
                 const url = uploadUrls[key];
                 if (!url) { setProgress(key, 100, 'fail', '❌ Upload not available.'); return; }
@@ -2165,7 +2767,13 @@ JSFN;
                     if (xhr.status >= 200 && xhr.status < 300 && data.ok !== false) {
                         if (data.url) showPreview(key, data.url);
                         setProgress(key, 100, 'done', '✅ Saved!');
-                        setTimeout(() => hideProgress(key), 3000);
+                        if (key === 'whatsapp_image' || key === 'tiktok_image') playUploadSound();
+                        setTimeout(() => {
+                            hideProgress(key);
+                            if (key === 'whatsapp_image' && whapiSendUrl) pkAskSendToChannel();
+                            else if (key === 'tiktok_image' && publerSendUrl) pkAskSendToPubler();
+                            else location.reload();
+                        }, 1200);
                     } else {
                         const msg = data.message || ('Upload failed (' + xhr.status + ')');
                         setProgress(key, 100, 'fail', '❌ ' + msg);
@@ -2189,6 +2797,94 @@ JSFN;
                 btn.classList.add('active');
             }
 
+            function pkLoadSwal() {
+                return new Promise(resolve => {
+                    if (window.Swal) { resolve(); return; }
+                    const link = document.createElement('link'); link.rel = 'stylesheet';
+                    link.href = '/vendor/core/core/base/libraries/sweetalert2/sweetalert2.min.css';
+                    document.head.appendChild(link);
+                    const s = document.createElement('script');
+                    s.src = '/vendor/core/core/base/libraries/sweetalert2/sweetalert2.min.js';
+                    s.onload = resolve; document.head.appendChild(s);
+                });
+            }
+            function pkAskSendToChannel() {
+                pkLoadSwal().then(() => {
+                    const publerNote = publerSendUrl ? '<br><small style="color:#555;font-size:11px">Also sends to Facebook &amp; LinkedIn via Publer.</small>' : '';
+                    Swal.fire({
+                        title: 'Send to WhatsApp Channel?',
+                        html: 'Image uploaded. Send this job to <strong>' + whapiChannel + '</strong> now?' + publerNote,
+                        icon: 'question', showCancelButton: true,
+                        confirmButtonColor: '#25D366', cancelButtonColor: '#6b7280',
+                        confirmButtonText: '💬 Yes, Send Now', cancelButtonText: 'No, just save', reverseButtons: true,
+                    }).then(result => {
+                        if (result.isConfirmed) {
+                            Swal.fire({ title: 'Sending…', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                            const fd = new FormData(); fd.append('_token', csrfToken);
+                            fetch(whapiSendUrl, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                                .then(r => r.json())
+                                .then(d => {
+                                    const ok = d.error !== true;
+                                    if (publerSendUrl) {
+                                        const pfd = new FormData();
+                                        pfd.append('_token', csrfToken);
+                                        pfd.append('image_field', 'whatsapp_image');
+                                        pfd.append('exclude_networks', 'tiktok');
+                                        fetch(publerSendUrl, { method: 'POST', body: pfd, headers: { 'X-Requested-With': 'XMLHttpRequest' } }).catch(() => {});
+                                    }
+                                    Swal.fire({ icon: ok ? 'success' : 'error', title: ok ? 'Sent!' : 'Failed', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload());
+                                })
+                                .catch(() => Swal.fire({ icon: 'error', title: 'Network error' }).then(() => location.reload()));
+                        } else { location.reload(); }
+                    });
+                });
+            }
+            function pkAskSendToPubler() {
+                pkLoadSwal().then(() => {
+                    Swal.fire({
+                        title: 'Post to Publer (TikTok)?',
+                        text: 'Image uploaded. Post this job to your connected TikTok account via Publer?',
+                        icon: 'question', showCancelButton: true,
+                        confirmButtonColor: '#7c3aed', cancelButtonColor: '#6b7280',
+                        confirmButtonText: '🎵 Yes, Post Now', cancelButtonText: 'No, just save', reverseButtons: true,
+                    }).then(result => {
+                        if (result.isConfirmed) {
+                            Swal.fire({ title: 'Posting to Publer…', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                            const fd = new FormData();
+                            fd.append('_token', csrfToken);
+                            fd.append('image_field', 'tiktok_image');
+                            fd.append('exclude_networks', 'facebook,linkedin,twitter,instagram');
+                            fd.append('retry_background', '1');
+                            fetch(publerSendUrl, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                                .then(r => r.json())
+                                .then(d => {
+                                    const ok = d.error !== true;
+                                    if (ok) {
+                                        Swal.fire({ icon: 'success', title: 'Posted!', text: d.message, timer: 2500, showConfirmButton: false }).then(() => location.reload());
+                                        return;
+                                    }
+                                    const detail = d.data && d.data.error_detail ? d.data.error_detail : d.message;
+                                    Swal.fire({
+                                        icon: 'error',
+                                        title: 'TikTok post failed',
+                                        text: d.message + '\\n\\n' + detail,
+                                        confirmButtonText: 'Copy error',
+                                        showCancelButton: true,
+                                        cancelButtonText: 'Close',
+                                    }).then(result => {
+                                        if (result.isConfirmed) {
+                                            const copyButton = document.createElement('button');
+                                            doCopy(detail, copyButton, 'Copy error');
+                                            return;
+                                        }
+                                        location.reload();
+                                    });
+                                })
+                                .catch(() => Swal.fire({ icon: 'error', title: 'Network error' }).then(() => location.reload()));
+                        } else { location.reload(); }
+                    });
+                });
+            }
             function copySlotPrompt(key, btn) {
                 const text = slotPrompts[key];
                 if (!text) return;
@@ -2196,6 +2892,37 @@ JSFN;
             }
             function copyField(id, btn, resetLabel) {
                 doCopy(document.getElementById(id).value, btn, resetLabel);
+            }
+
+            function sendToEmployer(channel, btn) {
+                const status = document.getElementById('employer-send-status');
+                const ta = document.getElementById('employer-pitch-ta');
+                const message = ta ? ta.value : employerPitchText;
+                const original = btn.textContent;
+                btn.disabled = true;
+                btn.textContent = '⏳ Sending…';
+                if (status) { status.textContent = ''; }
+
+                const fd = new FormData();
+                fd.append('channel', channel);
+                fd.append('message', message);
+                fd.append('_token', csrfToken);
+
+                fetch(sendToEmployerUrl, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (status) {
+                            status.textContent = data.message || (data.ok ? 'Sent!' : 'Something went wrong.');
+                            status.style.color = data.ok ? '#16a34a' : '#dc2626';
+                        }
+                        btn.textContent = data.ok ? '✅ Sent' : original;
+                        btn.disabled = !!data.ok;
+                    })
+                    .catch(() => {
+                        if (status) { status.textContent = 'Network error — please try again.'; status.style.color = '#dc2626'; }
+                        btn.textContent = original;
+                        btn.disabled = false;
+                    });
             }
             {$jsDismissFn}
             function doCopy(text, btn, resetLabel) {

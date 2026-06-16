@@ -12,6 +12,7 @@ use Botble\JobBoard\Enums\SalaryTypeEnum;
 use Botble\JobBoard\Facades\JobBoardHelper;
 use Botble\JobBoard\Models\Builders\FilterJobsBuilder;
 use Botble\JobBoard\Models\Concerns\UniqueId;
+use Botble\JobBoard\Services\CompanyContactService;
 use Botble\Media\Facades\RvMedia;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -85,6 +86,7 @@ class Job extends BaseModel
         'linkedin_image',
         'whatsapp_image',
         'twitter_image',
+        'employer_image',
     ];
 
     protected $casts = [
@@ -506,6 +508,10 @@ class Job extends BaseModel
             if (! isset($job->is_organic)) {
                 $job->is_organic = empty($job->crawler_id);
             }
+        });
+
+        self::saved(function (Job $job): void {
+            app(CompanyContactService::class)->syncFromJob($job);
         });
 
         self::deleting(function (Job $job): void {

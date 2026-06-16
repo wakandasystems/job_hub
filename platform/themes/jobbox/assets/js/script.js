@@ -91,8 +91,32 @@ $(() => {
         })
 
     $(document).on('click', function (e) {
-        if (!$(e.target).is('input.input-keysearch')) {
+        if (!$(e.target).closest('.quick-search-result, .input-keysearch').length) {
             $('.form-find').find('.quick-search-result').remove()
+        }
+    })
+
+    // ── Header search overlay ─────────────────────────────────────────────────
+    function openSearchOverlay() {
+        $('#header-search-overlay').addClass('active')
+        setTimeout(function () {
+            $('#header-search-overlay .header-search-overlay__input').focus()
+        }, 80)
+    }
+
+    function closeSearchOverlay() {
+        $('#header-search-overlay').removeClass('active')
+        $('#header-search-overlay .quick-search-result').remove()
+        $('#header-search-overlay .header-search-overlay__input').val('')
+    }
+
+    $('#header-search-toggle').on('click', openSearchOverlay)
+
+    $('#header-search-overlay').on('click', '.header-search-overlay__backdrop, .header-search-overlay__close', closeSearchOverlay)
+
+    $(document).on('keydown', function (e) {
+        if (e.key === 'Escape' && $('#header-search-overlay').hasClass('active')) {
+            closeSearchOverlay()
         }
     })
 })

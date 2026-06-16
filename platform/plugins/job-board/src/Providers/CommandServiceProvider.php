@@ -12,10 +12,14 @@ use Botble\JobBoard\Console\Commands\SendMonthlyHiringSnapshotCommand;
 use Botble\JobBoard\Console\Commands\SendProfileRefreshReminderCommand;
 use Botble\JobBoard\Console\Commands\SendPushNotificationsCommand;
 use Botble\JobBoard\Console\Commands\SendSubscriptionRenewalReminderCommand;
+use Botble\JobBoard\Console\Commands\BackfillJobSearchZmLogosCommand;
 use Botble\JobBoard\Console\Commands\FixCrawledApplyEmailsCommand;
+use Botble\JobBoard\Console\Commands\SplitMultiPositionJobCommand;
 use Botble\JobBoard\Console\Commands\RefreshFreeCreditsCommand;
 use Botble\JobBoard\Console\Commands\SendCandidateAlertsCommand;
 use Botble\JobBoard\Console\Commands\CheckCandidateAlertExpiryCommand;
+use Botble\JobBoard\Console\Commands\CheckFailedJobsCommand;
+use Botble\JobBoard\Console\Commands\ArchiveOldCrawledJobsCommand;
 use Botble\JobBoard\Console\Commands\SocialPublishJobCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
@@ -40,10 +44,14 @@ class CommandServiceProvider extends ServiceProvider
             SendMonthlyHiringSnapshotCommand::class,
             SendProfileRefreshReminderCommand::class,
             SocialPublishJobCommand::class,
+            BackfillJobSearchZmLogosCommand::class,
             FixCrawledApplyEmailsCommand::class,
+            SplitMultiPositionJobCommand::class,
             RefreshFreeCreditsCommand::class,
             SendCandidateAlertsCommand::class,
             CheckCandidateAlertExpiryCommand::class,
+            CheckFailedJobsCommand::class,
+            ArchiveOldCrawledJobsCommand::class,
         ]);
 
         $this->app->afterResolving(Schedule::class, function (Schedule $schedule): void {
@@ -56,8 +64,17 @@ class CommandServiceProvider extends ServiceProvider
             $schedule->command(SendMonthlyHiringSnapshotCommand::class)->monthlyOn(1, '08:00');
             $schedule->command(SendProfileRefreshReminderCommand::class)->weeklyOn(1, '10:00');
             $schedule->command(RefreshFreeCreditsCommand::class)->monthlyOn(1, '00:30');
-            $schedule->command(SendCandidateAlertsCommand::class)->dailyAt('08:00')->withoutOverlapping();
             $schedule->command(CheckCandidateAlertExpiryCommand::class)->dailyAt('07:00')->withoutOverlapping();
+            $schedule->command(SendCandidateAlertsCommand::class, ['--hours' => 25])
+                ->dailyAt('09:00')
+                ->withoutOverlapping();
+            $schedule->command(CheckFailedJobsCommand::class)
+                ->hourly()
+                ->withoutOverlapping();
+            $schedule->command(ArchiveOldCrawledJobsCommand::class)
+                ->dailyAt('01:30')
+                ->withoutOverlapping();
+            $schedule->command('horizon:snapshot')->everyFiveMinutes();
         });
     }
 }

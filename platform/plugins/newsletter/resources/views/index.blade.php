@@ -97,6 +97,7 @@
                             @php
                                 $statusCfg = match($send->status ?? 'completed') {
                                     'running'   => ['bg-primary',   'spinner', 'Sending…'],
+                                    'paused'    => ['bg-warning',   'clock',   'Paused'],
                                     'scheduled' => ['bg-info',      'clock',   'Scheduled'],
                                     'completed' => ['bg-success',   'check',   'Completed'],
                                     'failed'    => ['bg-danger',    'x',       'Failed'],
@@ -104,7 +105,7 @@
                                     default     => ['bg-success',   'check',   'Completed'],
                                 };
                                 $isLive    = empty($send->test_to);
-                                $canResend = $isLive && in_array($send->status ?? 'completed', ['completed', 'failed', 'cancelled']);
+                                $canResend = $isLive && in_array($send->status ?? 'completed', ['completed', 'failed', 'cancelled', 'paused']);
                                 $canCancel = in_array($send->status ?? 'completed', ['scheduled', 'running']);
                             @endphp
                             <tr id="send-row-{{ $send->id }}"
@@ -120,6 +121,18 @@
                                             <span class="spinner-border spinner-border-sm me-1" style="width:.6rem;height:.6rem"></span>
                                             Sending…
                                         </span>
+                                    @elseif(($send->status ?? '') === 'paused')
+                                        @php $nextWave = $send->next_wave_at ? \Carbon\Carbon::parse($send->next_wave_at) : null; @endphp
+                                        <span class="badge bg-warning text-dark"
+                                              title="{{ $nextWave ? 'Next wave at ' . $nextWave->format('H:i') : 'Waiting for next wave' }}">
+                                            <i class="ti ti-clock-pause me-1"></i>Wave paused
+                                        </span>
+                                        @if($nextWave)
+                                            <div class="text-muted" style="font-size:10px;margin-top:2px"
+                                                 data-next-wave="{{ $nextWave->timestamp }}">
+                                                Next in {{ $nextWave->diffForHumans() }}
+                                            </div>
+                                        @endif
                                     @elseif(($send->status ?? 'completed') === 'scheduled')
                                         <span class="badge bg-info text-white" title="{{ $send->scheduled_at ? \Carbon\Carbon::parse($send->scheduled_at)->format('d M Y, H:i') : '' }}">
                                             <i class="ti ti-clock me-1"></i>Scheduled
@@ -142,6 +155,13 @@
                                         </div>
                                     @elseif(($send->status ?? 'completed') === 'scheduled')
                                         <span class="text-muted small">—</span>
+                                    @elseif(($send->status ?? '') === 'paused')
+                                        @php $pct = $send->recipient_count > 0 ? round($send->sent_count / $send->recipient_count * 100) : 0; @endphp
+                                        <div class="progress mb-1" style="height:4px;">
+                                            <div class="progress-bar bg-warning" style="width:{{ $pct }}%"></div>
+                                        </div>
+                                        <span class="fw-semibold text-warning">{{ number_format($send->sent_count) }}</span>
+                                        <span class="text-muted small d-block">of {{ number_format($send->recipient_count) }}</span>
                                     @else
                                         <span class="fw-semibold text-success">{{ number_format($send->sent_count ?? $send->recipient_count) }}</span>
                                         <span class="text-muted small d-block">of {{ number_format($send->recipient_count) }}</span>
@@ -168,7 +188,14 @@
                                 </td>
                                 <td class="text-muted small">{{ \Carbon\Carbon::parse($send->sent_at)->format('d M Y, H:i') }}</td>
                                 <td>
-                                    <div class="d-flex gap-1">
+                                    <div class="d-flex gap-1 flex-wrap">
+                                        @if(in_array($send->status ?? 'completed', ['completed', 'failed']) && empty($send->test_to))
+                                            <a href="{{ route('newsletter.send.recipients', $send->id) }}"
+                                               class="btn btn-outline-secondary btn-sm"
+                                               title="View delivery report">
+                                                <i class="ti ti-list me-1"></i>Report
+                                            </a>
+                                        @endif
                                         @if($canResend)
                                             <button class="btn btn-outline-warning btn-sm"
                                                     onclick="promptResend({{ $send->id }}, this)"
@@ -399,11 +426,11 @@ if (new URLSearchParams(location.search).has('sends_page')) {
                         : '<span class="text-muted small">—</span>';
                 }
 
-                if (d.finished || ['completed', 'failed', 'cancelled'].includes(d.status)) {
+                if (d.finished || ['completed', 'failed', 'cancelled', 'paused'].includes(d.status)) {
                     clearInterval(interval);
 
                     // Swap status badge
-                    const badgeMap = { completed: ['bg-success', 'Completed'], failed: ['bg-danger', 'Failed'], cancelled: ['bg-secondary', 'Cancelled'] };
+                    const badgeMap = { completed: ['bg-success', 'Completed'], failed: ['bg-danger', 'Failed'], cancelled: ['bg-secondary', 'Cancelled'], paused: ['bg-warning text-dark', 'Wave paused'] };
                     const [cls, lbl] = badgeMap[d.status] || ['bg-success', 'Completed'];
                     statusCell.innerHTML = '<span class="badge ' + cls + ' text-white">' + lbl + '</span>';
 

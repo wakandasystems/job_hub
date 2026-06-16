@@ -1,0 +1,6 @@
+{
+    "name": "botble/dpo-group",
+    "description": "DPO Group Payment Gateway",
+    "type": "package",
+    "require": {}
+}

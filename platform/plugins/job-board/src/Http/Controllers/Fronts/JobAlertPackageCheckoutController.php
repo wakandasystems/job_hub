@@ -9,6 +9,7 @@ use Botble\JobBoard\Models\Currency;
 use Botble\JobBoard\Models\JobAlertOrder;
 use Botble\JobBoard\Models\JobAlertPackage;
 use Botble\JobBoard\Models\JobAlertQuota;
+use Botble\JobBoard\Models\VipAlertOrder;
 use Botble\SeoHelper\Facades\SeoHelper;
 use Botble\Theme\Facades\Theme;
 use Illuminate\Http\Request;
@@ -17,31 +18,13 @@ class JobAlertPackageCheckoutController extends BaseController
 {
     public function index()
     {
-        SeoHelper::setTitle(__('Job Alert Packages'));
+        SeoHelper::setTitle(__('VIP Job Alerts'));
 
         /** @var Account $account */
-        $account  = auth('account')->user();
-        $packages = JobAlertPackage::query()->where('is_active', true)->orderBy('sort_order')->orderBy('price')->get();
-        $packagePrices = $packages
-            ->mapWithKeys(fn (JobAlertPackage $package): array => [$package->getKey() => $this->packagePricing($package)]);
+        $account = auth('account')->user();
+        $plans   = VipAlertOrder::plans();
 
-        $period   = JobAlertQuota::currentPeriod();
-        $sentFree = (int) JobAlertQuota::query()
-            ->where('account_id', $account->id)->where('period', $period)->whereNull('package_id')
-            ->value('alerts_sent');
-        $paidQuota = JobAlertQuota::query()
-            ->activePaid()
-            ->where('account_id', $account->id)->where('period', $period)
-            ->with('package')->get();
-        $freeLimit = (int) setting('job_alert_free_monthly_limit', 3);
-
-        $myOrders = JobAlertOrder::query()
-            ->with('package')
-            ->where('account_id', $account->getKey())
-            ->latest()
-            ->get();
-
-        return JobBoardHelper::scope('account.job-alert-packages', compact('account', 'packages', 'packagePrices', 'sentFree', 'paidQuota', 'freeLimit', 'period', 'myOrders'));
+        return JobBoardHelper::scope('account.job-alert-packages', compact('account', 'plans'));
     }
 
     public function checkout(JobAlertPackage $package)

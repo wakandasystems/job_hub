@@ -432,12 +432,73 @@ class JobForm extends FormAbstract
             ->setBreakFieldPoint('status')
             ->when($job && $job->getKey(), function (FormAbstract $form) use ($job): void {
                 $postKitUrl = route('jobs.post-kit', $job->getKey());
+                $job->loadMissing(['company']);
+
+                $company        = $job->company ?? null;
+                $companyId      = $company?->getKey();
+                $companyLogoUrl = ($company && !empty($company->logo))
+                    ? \Botble\Media\Facades\RvMedia::getImageUrl($company->logo)
+                    : null;
+
+                $uploadParams = array_filter(['job_id' => $job->getKey(), 'company_id' => $companyId]);
+                $makeUrl      = fn (string $type) => \Illuminate\Support\Facades\URL::temporarySignedRoute(
+                    'public.telegram-social-upload',
+                    now()->addDays(7),
+                    array_merge($uploadParams, ['type' => $type])
+                );
+                $uploadUrls = [
+                    'company_logo'   => $makeUrl('company_logo'),
+                    'cover_image'    => $makeUrl('cover_image'),
+                    'tiktok_image'   => $makeUrl('tiktok_image'),
+                    'facebook_image' => $makeUrl('facebook_image'),
+                    'linkedin_image' => $makeUrl('linkedin_image'),
+                    'whatsapp_image' => $makeUrl('whatsapp_image'),
+                    'twitter_image'  => $makeUrl('twitter_image'),
+                ];
+
+                $jobImages = [];
+                foreach (['cover_image', 'tiktok_image', 'facebook_image', 'linkedin_image', 'whatsapp_image', 'twitter_image'] as $col) {
+                    $jobImages[$col] = !empty($job->{$col})
+                        ? \Botble\Media\Facades\RvMedia::getImageUrl($job->{$col})
+                        : null;
+                }
+
+                $platformPosts = [];
+                try {
+                    $platformPosts = app(\Botble\JobBoard\Services\SocialPublisherService::class)->buildPlatformPosts($job);
+                } catch (\Throwable) {}
+
+                $slotPosts = [
+                    'tiktok_image'   => $platformPosts['tiktok']   ?? '',
+                    'facebook_image' => $platformPosts['facebook']  ?? '',
+                    'linkedin_image' => $platformPosts['linkedin']  ?? '',
+                    'whatsapp_image' => $platformPosts['whatsapp']  ?? '',
+                    'twitter_image'  => $platformPosts['twitter']   ?? '',
+                ];
+
+                $whapiAutomation = \Botble\JobBoard\Models\SocialAutomation::query()
+                    ->where('platform', 'whapi')
+                    ->where('is_active', true)
+                    ->get()
+                    ->first(function ($a) use ($job) {
+                        $cid = $a->settings['country_id'] ?? null;
+                        return !$cid || (int) $cid === (int) $job->country_id;
+                    });
+
+                $hasWhapiAutomation = (bool) $whapiAutomation;
+                $whapiSendUrl       = $hasWhapiAutomation
+                    ? route('job-board.automations.whapi-send-job', $job->getKey())
+                    : null;
+                $whapiChannelName   = $whapiAutomation?->name ?? '';
+
                 $form->addMetaBoxes([
-                    'post-kit' => [
+                    'social-images' => [
                         'title'    => 'Social Post Kit',
-                        'content'  => '<p style="font-size:13px;color:#64748b;margin-bottom:12px">Generate AI image prompts, video scripts, and platform post copy for this job.</p>'
-                            . '<a href="' . $postKitUrl . '" target="_blank" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:6px"><i class="fa fa-magic"></i> Open Post Kit</a>',
-                        'priority' => 5,
+                        'priority' => 4,
+                        'content'  => view('plugins/job-board::partials.social-images-widget', compact(
+                            'uploadUrls', 'jobImages', 'companyLogoUrl', 'slotPosts', 'postKitUrl',
+                            'hasWhapiAutomation', 'whapiSendUrl', 'whapiChannelName', 'job'
+                        ))->render(),
                     ],
                 ]);
             })

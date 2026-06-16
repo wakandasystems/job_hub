@@ -8,10 +8,12 @@ use Botble\JobBoard\Enums\JobStatusEnum;
 use Botble\JobBoard\Enums\ModerationStatusEnum;
 use Botble\JobBoard\Models\Company;
 use Botble\JobBoard\Models\Job;
+use Botble\Location\Models\Country;
 use Botble\Table\Abstracts\TableAbstract;
 use Botble\Table\Actions\Action;
 use Botble\Table\Actions\DeleteAction;
 use Botble\Table\Actions\EditAction;
+use Botble\JobBoard\BulkActions\SendToWhapiChannelBulkAction;
 use Botble\Table\BulkActions\DeleteBulkAction;
 use Botble\Table\BulkChanges\CreatedAtBulkChange;
 use Botble\Table\BulkChanges\NameBulkChange;
@@ -137,6 +139,10 @@ class JobTable extends TableAbstract
                 'unique_id',
                 'company_id',
                 'country_id',
+                'whatsapp_image',
+                'tiktok_image',
+                'linkedin_image',
+                'facebook_image',
             ])
             ->with(['company:id,name,logo', 'country:id,name,code'])
             ->latest('created_at');
@@ -225,6 +231,25 @@ class JobTable extends TableAbstract
                     'parts' => 2,
                     'short' => true,
                 ])),
+            FormattedColumn::make('whatsapp_image')
+                ->title('Social')
+                ->width(100)
+                ->alignCenter()
+                ->getValueUsing(function (FormattedColumn $column) {
+                    $item = $column->getItem();
+
+                    $icon = fn (string $fa, string $color, string $label, bool $active) =>
+                        '<span title="' . $label . '" style="font-size:1.1rem;margin:0 2px;color:' . ($active ? $color : '#ccc') . ';">'
+                        . '<i class="' . $fa . '"></i>'
+                        . ($active ? ' <i class="fas fa-check" style="font-size:.55rem;vertical-align:top;"></i>' : '')
+                        . '</span>';
+
+                    return
+                        $icon('fab fa-whatsapp',  '#25D366', 'WhatsApp image',  !empty($item->whatsapp_image))
+                        . $icon('fab fa-tiktok',   '#000',    'TikTok image',    !empty($item->tiktok_image))
+                        . $icon('fab fa-linkedin', '#0A66C2', 'LinkedIn image',  !empty($item->linkedin_image))
+                        . $icon('fab fa-facebook', '#1877F2', 'Facebook image',  !empty($item->facebook_image));
+                }),
             StatusColumn::make(),
             EnumColumn::make('moderation_status')
                 ->title(trans('plugins/job-board::job.moderation_status'))
@@ -261,6 +286,7 @@ class JobTable extends TableAbstract
     {
         return [
             DeleteBulkAction::make()->permission('jobs.destroy'),
+            SendToWhapiChannelBulkAction::make(),
         ];
     }
 
@@ -292,6 +318,11 @@ class JobTable extends TableAbstract
                 ->title(trans('plugins/job-board::forms.company'))
                 ->searchable()
                 ->choices(fn () => Company::query()->pluck('name', 'id')->all()),
+            SelectBulkChange::make()
+                ->name('country_id')
+                ->title('Country')
+                ->searchable()
+                ->choices(fn () => Country::query()->orderBy('name')->pluck('name', 'id')->all()),
         ];
     }
 
@@ -316,6 +347,10 @@ class JobTable extends TableAbstract
         string $operator,
         ?string $value
     ): EloquentRelation|EloquentBuilder|QueryBuilder {
+        if ($key == 'country_id') {
+            return $query->where('jb_jobs.country_id', $operator, $value);
+        }
+
         if ($key == 'type') {
             switch ($value) {
                 case 'expired':

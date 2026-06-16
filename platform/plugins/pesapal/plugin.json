@@ -1,0 +1,14 @@
+{
+    "id": "botble/pesapal",
+    "name": "Pesapal Payment Gateway",
+    "namespace": "Botble\\Pesapal\\",
+    "provider": "Botble\\Pesapal\\Providers\\PesapalServiceProvider",
+    "author": "Wakanda Jobs",
+    "url": "https://www.wakandajobs.com",
+    "version": "1.0.0",
+    "description": "Pesapal payment gateway integration for East and Southern Africa",
+    "minimum_core_version": "7.3.0",
+    "require": [
+        "botble/payment"
+    ]
+}

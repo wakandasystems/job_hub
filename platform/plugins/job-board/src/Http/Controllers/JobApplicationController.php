@@ -6,11 +6,13 @@ use Botble\Base\Events\UpdatedContentEvent;
 use Botble\Base\Http\Actions\DeleteResourceAction;
 use Botble\Base\Http\Controllers\BaseController;
 use Botble\Base\Supports\Breadcrumb;
+use Botble\JobBoard\Enums\JobApplicationStatusEnum;
 use Botble\JobBoard\Forms\JobApplicationForm;
 use Botble\JobBoard\Http\Requests\EditJobApplicationRequest;
 use Botble\JobBoard\Models\JobApplication;
 use Botble\JobBoard\Tables\JobApplicationTable;
 use Botble\Media\Facades\RvMedia;
+use Illuminate\Http\Request;
 
 class JobApplicationController extends BaseController
 {
@@ -46,6 +48,31 @@ class JobApplicationController extends BaseController
             ->httpResponse()
             ->setPreviousUrl(route('job-applications.index'))
             ->withUpdatedSuccessMessage();
+    }
+
+    public function markReviewed(JobApplication $jobApplication, Request $request)
+    {
+        if ($jobApplication->status->getValue() !== JobApplicationStatusEnum::CHECKED) {
+            $jobApplication->status = JobApplicationStatusEnum::CHECKED;
+            $jobApplication->save();
+
+            event(new UpdatedContentEvent(JOB_APPLICATION_MODULE_SCREEN_NAME, $request, $jobApplication));
+        }
+
+        return $this->httpResponse()->setMessage('Application marked as reviewed.');
+    }
+
+    public function markAllReviewed()
+    {
+        $count = JobApplication::query()
+            ->where('status', '!=', JobApplicationStatusEnum::CHECKED)
+            ->update(['status' => JobApplicationStatusEnum::CHECKED]);
+
+        $message = $count === 1
+            ? '1 application marked as reviewed.'
+            : sprintf('%s applications marked as reviewed.', number_format($count));
+
+        return $this->httpResponse()->setMessage($message);
     }
 
     public function destroy(JobApplication $jobApplication)

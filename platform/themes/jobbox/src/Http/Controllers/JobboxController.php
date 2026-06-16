@@ -230,17 +230,41 @@ class JobboxController extends PublicController
 
     public function ajaxQuickSearchJobs(Request $request, BaseHttpResponse $response): BaseHttpResponse
     {
-        $validated = $request->validate([
-            'job_categories' => ['nullable', 'string'],
-            'c' => ['nullable', 'string'],
-            'country_id' => ['nullable', 'integer'],
-            'location' => ['nullable', 'string'],
-            'keyword' => ['nullable', 'string'],
-        ]);
+        $keyword = trim((string) $request->input('keyword', ''));
 
-        $jobs = app(JobInterface::class)->getJobs($validated, [
-            'take' => 10,
-        ]);
+        if (strlen($keyword) < 2) {
+            return $response->setError();
+        }
+
+        $conditions = JobBoardHelper::getJobDisplayQueryConditions();
+
+        // FULLTEXT search on job name — fast on 30k+ rows.
+        $booleanTerm = '+' . implode('* +', array_filter(array_map('trim', explode(' ', $keyword)))) . '*';
+
+        $jobs = Job::select('jb_jobs.*')
+            ->where($conditions)
+            ->notExpired()
+            ->notClosed()
+            ->whereRaw('MATCH(jb_jobs.name) AGAINST(? IN BOOLEAN MODE)', [$booleanTerm])
+            ->with(['company', 'company.slugable', 'slugable'])
+            ->orderByDesc('is_featured')
+            ->orderByDesc('created_at')
+            ->take(10)
+            ->get();
+
+        // Fallback to LIKE if FULLTEXT returned nothing (e.g. stop-words, short tokens).
+        if ($jobs->isEmpty()) {
+            $jobs = Job::select('jb_jobs.*')
+                ->where($conditions)
+                ->notExpired()
+                ->notClosed()
+                ->where('jb_jobs.name', 'LIKE', '%' . $keyword . '%')
+                ->with(['company', 'company.slugable', 'slugable'])
+                ->orderByDesc('is_featured')
+                ->orderByDesc('created_at')
+                ->take(10)
+                ->get();
+        }
 
         if ($jobs->isEmpty()) {
             return $response->setError();

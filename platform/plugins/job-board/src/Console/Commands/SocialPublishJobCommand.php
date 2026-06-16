@@ -23,10 +23,13 @@ class SocialPublishJobCommand extends Command
         $results = $publisher->publishJob($job);
 
         foreach ($results as $r) {
+            $automation = $r['automation'] ?? 'Social automation';
+            $platform = $r['platform'] ?? 'unknown';
+
             if ($r['success']) {
-                $this->components->info("{$r['automation']} ({$r['platform']}): posted successfully.");
+                $this->components->info("{$automation} ({$platform}): posted successfully.");
             } else {
-                $this->components->warn("{$r['automation']} ({$r['platform']}): failed — " . ($r['error'] ?? 'unknown'));
+                $this->components->warn("{$automation} ({$platform}): failed — " . ($r['error'] ?? 'unknown'));
             }
         }
 

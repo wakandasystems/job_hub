@@ -7,11 +7,16 @@ use Botble\JobBoard\Http\Controllers\CreditOrderController;
 use Botble\JobBoard\Http\Controllers\AccountExperienceController;
 use Botble\JobBoard\Http\Controllers\CareerServiceOrderController;
 use Botble\JobBoard\Http\Controllers\EmployerSubscriptionController;
+use Botble\JobBoard\Http\Controllers\AdOrderController;
+use Botble\JobBoard\Http\Controllers\AdPlacementController;
+use Botble\JobBoard\Http\Controllers\AdPricingTierController;
 use Botble\JobBoard\Http\Controllers\FeaturedOrderController;
 use Botble\JobBoard\Http\Controllers\FeaturedPackageController;
 use Botble\JobBoard\Http\Controllers\JobAlertOrderController;
+use Botble\JobBoard\Http\Controllers\VipAlertOrderController;
 use Botble\JobBoard\Http\Controllers\JobAlertPackageController;
 use Botble\JobBoard\Http\Controllers\Settings\CareerServiceSettingController;
+use Botble\JobBoard\Http\Controllers\Settings\VipAlertPlanSettingController;
 use Botble\JobBoard\Http\Controllers\CouponController;
 use Botble\JobBoard\Http\Controllers\CustomFieldController;
 use Botble\JobBoard\Http\Controllers\ExportAccountController;
@@ -64,6 +69,24 @@ AdminHelper::registerRoutes(function (): void {
         Route::post('{featuredOrder}/reject', [FeaturedOrderController::class, 'reject'])->name('reject');
     });
 
+    Route::group(['prefix' => 'ad-placements', 'as' => 'ad-placements.', 'middleware' => 'auth'], function (): void {
+        Route::resource('', AdPlacementController::class)
+            ->parameters(['' => 'adPlacement'])
+            ->except('show');
+    });
+
+    Route::group(['prefix' => 'ad-orders', 'as' => 'ad-orders.', 'middleware' => 'auth'], function (): void {
+        Route::get('', [AdOrderController::class, 'index'])->name('index');
+        Route::post('{adOrder}/approve', [AdOrderController::class, 'approve'])->name('approve');
+        Route::post('{adOrder}/reject', [AdOrderController::class, 'reject'])->name('reject');
+    });
+
+    Route::group(['prefix' => 'ad-pricing-tiers', 'as' => 'ad-pricing-tiers.', 'middleware' => 'auth'], function (): void {
+        Route::resource('', AdPricingTierController::class)
+            ->parameters(['' => 'adPricingTier'])
+            ->except('show');
+    });
+
     Route::group(['prefix' => 'employer-subscriptions', 'as' => 'employer-subscriptions.', 'middleware' => 'auth'], function (): void {
         Route::get('', [EmployerSubscriptionController::class, 'index'])->name('index');
         Route::post('{employerSubscription}/activate', [EmployerSubscriptionController::class, 'activate'])->name('activate');
@@ -73,6 +96,8 @@ AdminHelper::registerRoutes(function (): void {
     Route::group(['prefix' => 'job-board/settings', 'as' => 'job-board.settings.', 'middleware' => 'auth'], function (): void {
         Route::get('career-services', [CareerServiceSettingController::class, 'edit'])->name('career-services');
         Route::put('career-services', [CareerServiceSettingController::class, 'update'])->name('career-services.update');
+        Route::get('vip-alert-plans', [VipAlertPlanSettingController::class, 'edit'])->name('vip-alert-plans');
+        Route::put('vip-alert-plans', [VipAlertPlanSettingController::class, 'update'])->name('vip-alert-plans.update');
     });
 
     Route::group(['prefix' => 'job-board/candidate-alerts', 'as' => 'job-board.candidate-alerts.', 'middleware' => 'auth'], function (): void {
@@ -87,6 +112,8 @@ AdminHelper::registerRoutes(function (): void {
         Route::post('{candidateAlert}/send-now', [CandidateAlertController::class, 'sendNow'])->name('send-now')->wherePrimaryKey('candidateAlert');
         Route::post('{candidateAlert}/send-welcome', [CandidateAlertController::class, 'sendWelcome'])->name('send-welcome')->wherePrimaryKey('candidateAlert');
         Route::post('analyze-cv', [CandidateAlertController::class, 'analyzeCv'])->name('analyze-cv');
+        Route::post('preview-filters', [CandidateAlertController::class, 'previewFilters'])->name('preview-filters');
+        Route::post('send-discount-newsletter', [CandidateAlertController::class, 'sendDiscountNewsletter'])->name('send-discount-newsletter');
         Route::get('check-phone', [CandidateAlertController::class, 'checkPhone'])->name('check-phone');
         Route::get('location/states', [CandidateAlertController::class, 'locationStates'])->name('location.states');
         Route::get('location/cities', [CandidateAlertController::class, 'locationCities'])->name('location.cities');
@@ -96,6 +123,12 @@ AdminHelper::registerRoutes(function (): void {
         Route::get('', [JobAlertOrderController::class, 'index'])->name('index');
         Route::post('{jobAlertOrder}/approve', [JobAlertOrderController::class, 'approve'])->name('approve');
         Route::post('{jobAlertOrder}/reject', [JobAlertOrderController::class, 'reject'])->name('reject');
+    });
+
+    Route::group(['prefix' => 'vip-alert-orders', 'as' => 'vip-alert-orders.', 'middleware' => 'auth'], function (): void {
+        Route::get('', [VipAlertOrderController::class, 'index'])->name('index');
+        Route::post('{vipAlertOrder}/approve', [VipAlertOrderController::class, 'approve'])->name('approve');
+        Route::post('{vipAlertOrder}/reject', [VipAlertOrderController::class, 'reject'])->name('reject');
     });
 
     Route::prefix('credit-orders')->name('credit-orders.')->middleware('auth')->group(function (): void {
@@ -229,6 +262,12 @@ AdminHelper::registerRoutes(function (): void {
                 'permission' => 'job-board.automations.index',
             ]);
 
+            Route::post('actions/whapi-token', [
+                'as'         => 'whapi-token',
+                'uses'       => 'SocialAutomationController@saveWhapiToken',
+                'permission' => 'job-board.automations.index',
+            ]);
+
             Route::put('{automation}', [
                 'as'         => 'update',
                 'uses'       => 'SocialAutomationController@update',
@@ -244,6 +283,18 @@ AdminHelper::registerRoutes(function (): void {
             Route::post('{automation}/toggle', [
                 'as'         => 'toggle',
                 'uses'       => 'SocialAutomationController@toggle',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::post('{automation}/send-jobs', [
+                'as'         => 'send-jobs',
+                'uses'       => 'SocialAutomationController@sendJobs',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::post('{automation}/duplicate', [
+                'as'         => 'duplicate',
+                'uses'       => 'SocialAutomationController@duplicate',
                 'permission' => 'job-board.automations.index',
             ])->wherePrimaryKey();
 
@@ -265,11 +316,177 @@ AdminHelper::registerRoutes(function (): void {
                 'permission' => 'job-board.automations.index',
             ]);
 
+            Route::post('actions/whapi-fetch-channels', [
+                'as'         => 'whapi-fetch-channels',
+                'uses'       => 'SocialAutomationController@fetchWhapiChannels',
+                'permission' => 'job-board.automations.index',
+            ]);
+
             Route::post('actions/whapi-send-job/{job}', [
                 'as'         => 'whapi-send-job',
                 'uses'       => 'SocialAutomationController@whapiSendJob',
                 'permission' => 'job-board.automations.index',
             ])->wherePrimaryKey();
+
+            Route::post('actions/publer-fetch-accounts', [
+                'as'         => 'publer-fetch-accounts',
+                'uses'       => 'SocialAutomationController@fetchPublerAccounts',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::get('actions/search-jobs', [
+                'as'         => 'search-jobs',
+                'uses'       => 'SocialAutomationController@searchJobs',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('actions/publer-send-job/{job}', [
+                'as'         => 'publer-send-job',
+                'uses'       => 'SocialAutomationController@publerSendJob',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::post('{automation}/publer-send-jobs', [
+                'as'         => 'publer-send-jobs',
+                'uses'       => 'SocialAutomationController@publerSendPeriodJobs',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::post('{automation}/publer-test-job', [
+                'as'         => 'publer-test-job',
+                'uses'       => 'SocialAutomationController@publerTestJob',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::get('broadcast', [
+                'as'         => 'broadcast',
+                'uses'       => 'SocialBroadcastController@index',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::get('broadcast/employer-contacts', [
+                'as'         => 'broadcast-employer-contacts',
+                'uses'       => 'SocialBroadcastController@employerContacts',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('broadcast/upload-image', [
+                'as'         => 'broadcast-upload-image',
+                'uses'       => 'SocialBroadcastController@uploadImage',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('broadcast/send', [
+                'as'         => 'broadcast-send',
+                'uses'       => 'SocialBroadcastController@send',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('broadcast/{broadcast}/cancel', [
+                'as'         => 'broadcast-cancel',
+                'uses'       => 'SocialBroadcastController@cancel',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::post('broadcast/{broadcast}/retry', [
+                'as'         => 'broadcast-retry',
+                'uses'       => 'SocialBroadcastController@retry',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::delete('broadcast/{broadcast}', [
+                'as'         => 'broadcast-destroy',
+                'uses'       => 'SocialBroadcastController@destroy',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+        });
+
+        Route::group(['prefix' => 'publer', 'as' => 'job-board.publer.'], function (): void {
+            Route::get('/', [
+                'as'         => 'index',
+                'uses'       => 'PublerController@index',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('fetch-accounts', [
+                'as'         => 'fetch-accounts',
+                'uses'       => 'PublerController@fetchAccounts',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('upsert', [
+                'as'         => 'upsert',
+                'uses'       => 'PublerController@upsert',
+                'permission' => 'job-board.automations.index',
+            ]);
+
+            Route::post('{mapping}/toggle', [
+                'as'         => 'toggle',
+                'uses'       => 'PublerController@toggle',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::post('{mapping}/test', [
+                'as'         => 'test',
+                'uses'       => 'PublerController@testPost',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::delete('{mapping}', [
+                'as'         => 'destroy',
+                'uses'       => 'PublerController@destroy',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::post('{mapping}/image-settings', [
+                'as'         => 'image-settings',
+                'uses'       => 'PublerController@saveImageSettings',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::get('{mapping}/preview-image', [
+                'as'         => 'preview-image',
+                'uses'       => 'PublerController@previewImage',
+                'permission' => 'job-board.automations.index',
+            ])->wherePrimaryKey();
+
+            Route::group(['prefix' => 'category-templates', 'as' => 'category-templates.'], function (): void {
+                Route::get('/', [
+                    'as'         => 'index',
+                    'uses'       => 'PublerCategoryTemplateController@index',
+                    'permission' => 'job-board.automations.index',
+                ]);
+
+                Route::post('save', [
+                    'as'         => 'save',
+                    'uses'       => 'PublerCategoryTemplateController@save',
+                    'permission' => 'job-board.automations.index',
+                ]);
+
+                Route::post('{template}/save', [
+                    'as'         => 'update',
+                    'uses'       => 'PublerCategoryTemplateController@save',
+                    'permission' => 'job-board.automations.index',
+                ])->wherePrimaryKey();
+
+                Route::post('{template}/toggle', [
+                    'as'         => 'toggle',
+                    'uses'       => 'PublerCategoryTemplateController@toggle',
+                    'permission' => 'job-board.automations.index',
+                ])->wherePrimaryKey();
+
+                Route::delete('{template}', [
+                    'as'         => 'destroy',
+                    'uses'       => 'PublerCategoryTemplateController@destroy',
+                    'permission' => 'job-board.automations.index',
+                ])->wherePrimaryKey();
+
+                Route::get('{template}/preview-image', [
+                    'as'         => 'preview-image',
+                    'uses'       => 'PublerCategoryTemplateController@previewImage',
+                    'permission' => 'job-board.automations.index',
+                ])->wherePrimaryKey();
+            });
         });
 
         Route::group(['prefix' => 'agents', 'as' => 'job-board.crawlers.'], function (): void {
@@ -492,6 +709,18 @@ AdminHelper::registerRoutes(function (): void {
             Route::resource('', 'JobApplicationController')
                 ->except(['create', 'store'])
                 ->parameters(['' => 'job-application']);
+
+            Route::post('mark-all-reviewed', [
+                'as' => 'mark-all-reviewed',
+                'uses' => 'JobApplicationController@markAllReviewed',
+                'permission' => 'job-applications.edit',
+            ]);
+
+            Route::post('{jobApplication}/mark-reviewed', [
+                'as' => 'mark-reviewed',
+                'uses' => 'JobApplicationController@markReviewed',
+                'permission' => 'job-applications.edit',
+            ])->wherePrimaryKey('jobApplication');
 
             Route::get('download-cv/{application}', [
                 'as' => 'download-cv',

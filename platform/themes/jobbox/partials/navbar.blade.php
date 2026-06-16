@@ -46,6 +46,11 @@
                         <ul class="header-menu list-inline d-flex align-items-center mb-0 user-header-dropdown">
                             {!! apply_filters('theme-header-right-nav', null) !!}
                             <li class="list-inline-item">
+                                <button type="button" id="header-search-toggle" class="header-search-toggle" aria-label="{{ __('Search') }}">
+                                    <i class="fi-rr-search"></i>
+                                </button>
+                            </li>
+                            <li class="list-inline-item">
                                 {!! Theme::partial('country-switcher') !!}
                             </li>
                             @if (auth('account')->check() && $account = auth('account')->user())
@@ -56,35 +61,23 @@
                                         <span class="text-left fw-medium icon-down" title="{{ __('Hi, :name', ['name' => $name = Str::limit($account->name, 15)]) }}">{{ __('Hi, :name', ['name' => $name]) }} </span>
                                     </a>
                                     <ul class="dropdown-menu dropdown-menu-end user-dropdown-menu" aria-labelledby="userdropdown">
-                                        @if ($account->isEmployer())
-                                            <li><a class="dropdown-item" href="{{ route('public.account.dashboard') }}">{{ __('Employer Dashboard') }}</a></li>
-                                        @else
-                                            <li><a class="dropdown-item" href="{{ route('public.account.settings') }}">{{ __('My Profile') }}</a></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.security') }}">{{ __('Security') }}</a></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.overview') }}">{{ __('Overview') }}</a></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.experiences.index') }}">{{ __('Experiences') }}</a></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.educations.index') }}">{{ __('Educations') }}</a></li>
-                                            <li><hr class="dropdown-divider my-1"></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.jobs.saved') }}">{{ __('Saved Jobs') }}</a></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.jobs.applied-jobs') }}">{{ __('Applied Jobs') }}</a></li>
-                                            <li><hr class="dropdown-divider my-1"></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.career-services') }}">{{ __('Career Services') }}</a></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.job-alerts.index') }}">{{ __('Job Alerts') }}</a></li>
-                                            <li><a class="dropdown-item" href="{{ route('public.account.job-alert.packages.index') }}">{{ __('Alert Packages') }}</a></li>
-                                        @endif
-                                        <li><hr class="dropdown-divider my-1"></li>
-                                        <li>
-                                            <a class="dropdown-item text-danger" onclick="event.preventDefault(); document.getElementById('logout-form').submit();" href="#">{{ __('Logout') }}</a>
-                                            <form id="logout-form" action="{{ route('public.account.logout') }}" method="POST" style="display: none;">
-                                                @csrf
-                                            </form>
-                                        </li>
+                                        @include(Theme::getThemeNamespace('partials.account-menu-items'), [
+                                            'account' => $account,
+                                            'linkClass' => 'dropdown-item',
+                                            'logoutFormId' => 'desktop-logout-form',
+                                        ])
                                     </ul>
+                                    <form id="desktop-logout-form" action="{{ route('public.account.logout') }}" method="POST" style="display: none;">
+                                        @csrf
+                                    </form>
                                 </li>
                             @endif
                         </ul>
                     @else
                         <div class="block-signin">
+                            <button type="button" id="header-search-toggle" class="header-search-toggle" aria-label="{{ __('Search') }}">
+                                <i class="fi-rr-search"></i>
+                            </button>
                             {!! Theme::partial('country-switcher') !!}
                             <a class="btn btn-default btn-shadow ml-30 hover-up" href="{{ route('public.account.login') }}"><x-core::icon name="ti ti-user-shield" class="me-1" />{{ __('Sign In') }}</a>
                         </div>
@@ -100,7 +93,7 @@
     </div>
     <div class="mobile-header-wrapper-inner">
         <div class="mobile-header-content-area">
-            <div class="perfect-scroll">
+            <div>
                 <div class="mobile-search mobile-header-border mb-30">
                     <form action="#">
                         <input type="text" placeholder="{{ __('Search...') }}">
@@ -125,20 +118,17 @@
                 </div>
                 @if (is_plugin_active('job-board'))
                     @auth('account')
+                        @php($mobileAccount = auth('account')->user())
                         <div class="mobile-account">
                             <h6 class="mb-10">{{ __('Your Account') }}</h6>
                             <ul class="mobile-menu font-heading">
-                                @if (auth('account')->user()->isEmployer())
-                                    <li><a href="{{ route('public.account.dashboard') }}">{{ __('Employer Dashboard') }}</a></li>
-                                @else
-                                    <li><a href="{{ route('public.account.jobs.saved') }}">{{ __('Saved Jobs') }}</a></li>
-                                    <li><a href="{{ route('public.account.jobs.applied-jobs') }}">{{ __('Applied Jobs') }}</a></li>
-                                @endif
-                                <li><a href="{{ route('public.account.settings') }}">{{ __('Account Settings') }}</a></li>
-                                <li><a href="{{ route('public.account.logout') }}" onclick="event.preventDefault(); document.getElementById('logout-form').submit()">{{ __('Sign Out') }}</a></li>
+                                @include(Theme::getThemeNamespace('partials.account-menu-items'), [
+                                    'account' => $mobileAccount,
+                                    'logoutFormId' => 'mobile-logout-form',
+                                ])
                             </ul>
                         </div>
-                        <form id="logout-form" action="{{ route('public.account.logout') }}" method="post">
+                        <form id="mobile-logout-form" action="{{ route('public.account.logout') }}" method="post" style="display: none;">
                             @csrf
                         </form>
                     @else
@@ -152,6 +142,30 @@
                 @endif
                 <div class="site-copyright">{!! BaseHelper::clean(theme_option('copyright')) !!}</div>
             </div>
+        </div>
+    </div>
+</div>
+
+{{-- Search overlay --}}
+<div id="header-search-overlay" class="header-search-overlay" role="dialog" aria-modal="true" aria-label="{{ __('Search') }}">
+    <div class="header-search-overlay__backdrop"></div>
+    <div class="header-search-overlay__box">
+        <div class="form-find position-relative">
+            <form method="GET" action="{{ JobBoardHelper::getJobsPageURL() }}" data-quick-search-url="{{ route('public.ajax.quick-search-jobs') }}">
+                <div class="header-search-overlay__inner">
+                    <i class="fi-rr-search header-search-overlay__icon"></i>
+                    <input
+                        class="input-keysearch header-search-overlay__input"
+                        name="keyword"
+                        type="text"
+                        placeholder="{{ __('Search jobs, companies, locations...') }}"
+                        autocomplete="off"
+                    >
+                    <button type="button" class="header-search-overlay__close" aria-label="{{ __('Close') }}">
+                        <i class="fi-rr-cross-small"></i>
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 </div>

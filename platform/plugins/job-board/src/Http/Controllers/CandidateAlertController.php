@@ -14,6 +14,7 @@ use Botble\JobBoard\Services\CvFilterAnalyzerService;
 use Botble\JobBoard\Services\CvScoringService;
 use Botble\JobBoard\Tables\CandidateAlertTable;
 use Botble\Media\Facades\RvMedia;
+use Botble\Newsletter\Jobs\DispatchNewsletterBatchJob;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -67,10 +68,11 @@ class CandidateAlertController
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'candidate_name'  => ['required', 'string', 'max:100'],
-            'candidate_phone' => ['required', 'string', 'max:30'],
-            'candidate_email' => ['nullable', 'email', 'max:150'],
-            'duration_days'   => ['required', 'in:7,14,30'],
+            'candidate_name'    => ['required', 'string', 'max:100'],
+            'candidate_phone'   => ['required', 'string', 'max:30'],
+            'candidate_phone_2' => ['nullable', 'string', 'max:30'],
+            'candidate_email'   => ['nullable', 'email', 'max:150'],
+            'duration_days'   => ['required', 'in:7,30,60'],
             'filters'         => ['nullable', 'array'],
             'notes'           => ['nullable', 'string', 'max:1000'],
             'cv_file'         => ['nullable', 'file', 'mimes:pdf,doc,docx,txt', 'max:10240'],
@@ -96,9 +98,10 @@ class CandidateAlertController
 
         try {
             $alert = CandidateAlert::create([
-                'label'           => $data['label'],
-                'candidate_name'  => $data['candidate_name'],
-                'candidate_phone' => $data['candidate_phone'],
+                'label'           => $label,
+                'candidate_name'    => $data['candidate_name'],
+                'candidate_phone'   => $data['candidate_phone'],
+                'candidate_phone_2' => $data['candidate_phone_2'] ?? null,
                 'candidate_email' => $data['candidate_email'] ?? null,
                 'filters'         => $this->cleanFilters($data['filters'] ?? []),
                 'duration_days'   => $duration,
@@ -125,13 +128,14 @@ class CandidateAlertController
     public function update(CandidateAlert $candidateAlert, Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'candidate_name'  => ['required', 'string', 'max:100'],
-            'candidate_phone' => ['required', 'string', 'max:30'],
-            'candidate_email' => ['nullable', 'email', 'max:150'],
+            'candidate_name'    => ['required', 'string', 'max:100'],
+            'candidate_phone'   => ['required', 'string', 'max:30'],
+            'candidate_phone_2' => ['nullable', 'string', 'max:30'],
+            'candidate_email'   => ['nullable', 'email', 'max:150'],
             'filters'         => ['nullable', 'array'],
             'notes'           => ['nullable', 'string', 'max:1000'],
             'cv_file'         => ['nullable', 'file', 'mimes:pdf,doc,docx,txt', 'max:10240'],
-            'duration_days'   => ['nullable', 'in:7,14,30'],
+            'duration_days'   => ['nullable', 'in:7,30,60'],
             'extend_from'     => ['nullable', 'in:today,original'],
         ]);
 
@@ -153,7 +157,8 @@ class CandidateAlertController
         $updatePayload = [
             'label'           => $label,
             'candidate_name'  => $data['candidate_name'],
-            'candidate_phone' => $data['candidate_phone'],
+            'candidate_phone'   => $data['candidate_phone'],
+            'candidate_phone_2' => $data['candidate_phone_2'] ?? null,
             'candidate_email' => $data['candidate_email'] ?? null,
             'filters'         => $newFilters,
             'notes'           => $data['notes'] ?? null,
@@ -398,31 +403,29 @@ class CandidateAlertController
 
     public function sendNow(CandidateAlert $candidateAlert, Request $request): JsonResponse
     {
-        set_time_limit(60); // each call handles ≤ BATCH jobs; 60 s is ample per batch
-
-        $forceResend = $request->boolean('force_resend');
-        $jobIds      = $request->input('job_ids');
-
-        if ($jobIds) {
-            $jobs = Job::whereIn('id', (array) $jobIds)
-                ->where('status', JobStatusEnum::PUBLISHED)
-                ->with(['company', 'slugable', 'jobTypes', 'currency'])
-                ->get();
-        } else {
-            $jobs = $this->getMatchingJobs($candidateAlert, skipAlreadySent: ! $forceResend);
-        }
-
         [$token, $gatewayUrl] = $this->getWhapiCredentials();
 
         if (! $token) {
-            return response()->json(['error' => 'No active Whapi automation configured. Add a Whapi automation on the Automations page first.'], 422);
+            return response()->json(['error' => 'No active Whapi automation configured.'], 422);
         }
 
-        $sentJobIds = ! $forceResend ? $candidateAlert->logs()->pluck('job_id')->toArray() : [];
-        $sent = $failed = 0;
+        $jobIds = array_filter(array_map('intval', (array) $request->input('job_ids', [])));
+
+        if (! $jobIds) {
+            return response()->json(['error' => 'No jobs specified.'], 422);
+        }
+
+        $forceResend = (bool) $request->input('force_resend', false);
+
+        $jobs = Job::query()
+            ->whereIn('id', $jobIds)
+            ->with(['company', 'slugable', 'jobTypes', 'currency'])
+            ->get();
+
+        $sentCount = 0;
 
         foreach ($jobs as $job) {
-            if (! $forceResend && in_array($job->id, $sentJobIds)) {
+            if (! $forceResend && $candidateAlert->logs()->where('job_id', $job->id)->where('status', 'sent')->exists()) {
                 continue;
             }
 
@@ -432,16 +435,167 @@ class CandidateAlertController
                 'candidate_alert_id' => $candidateAlert->id,
                 'job_id'             => $job->id,
                 'status'             => $ok ? 'sent' : 'failed',
-                'error_message'      => $ok ? null : 'HTTP send failed',
+                'error_message'      => $ok ? null : 'Manual send failed',
                 'sent_at'            => now(),
             ]);
 
-            $ok ? $sent++ : $failed++;
+            if ($ok) {
+                $sentCount++;
+            }
         }
 
-        $msg = "Sent {$sent} job(s)" . ($failed ? ", {$failed} failed." : '.');
+        if ($sentCount === 0) {
+            return response()->json(['error' => 'Failed to send job(s) via WhatsApp.'], 422);
+        }
 
-        return response()->json(['message' => $msg, 'sent' => $sent, 'failed' => $failed]);
+        return response()->json(['message' => "Sent {$sentCount} job(s)."]);
+    }
+
+    public function previewFilters(Request $request): JsonResponse
+    {
+        $filters = $this->cleanFilters($request->input('filters', []));
+
+        $mock          = new CandidateAlert();
+        $mock->filters = $filters;
+
+        $jobs = $this->getMatchingJobs($mock);
+
+        // Load categories for match-reason analysis (not in default eager-loads)
+        if (! empty($filters['category_ids'])) {
+            $jobs->loadMissing('categories');
+        }
+
+        $data = $jobs->take(200)->map(fn (Job $job) => [
+            'id'            => $job->id,
+            'name'          => $job->name,
+            'company'       => $job->company?->name ?? '',
+            'location'      => $this->jobLocation($job),
+            'country'       => $job->country?->name ?? '',
+            'created'       => $job->created_at?->format('d M Y'),
+            'match_reasons' => $this->getMatchReasons($job, $filters),
+        ]);
+
+        return response()->json(['data' => $data, 'total' => $jobs->count()]);
+    }
+
+    private function getMatchReasons(Job $job, array $filters): array
+    {
+        $reasons = [];
+
+        // Keywords — check name, stripped description, and address
+        $keywords = array_values(array_filter(array_map('trim', (array) ($filters['keywords'] ?? []))));
+        foreach ($keywords as $kw) {
+            $kwPat = '/\b' . preg_quote($kw, '/') . '\b/iu';
+            if (preg_match($kwPat, $job->name)) {
+                $reasons[] = ['type' => 'keyword', 'keyword' => $kw, 'field' => 'Job Title',    'snippet' => $this->kwSnippet($job->name, $kw)];
+            }
+            $desc = trim(preg_replace('/\s+/', ' ', strip_tags($job->description ?? '')));
+            if ($desc !== '' && preg_match($kwPat, $desc)) {
+                $reasons[] = ['type' => 'keyword', 'keyword' => $kw, 'field' => 'Description', 'snippet' => $this->kwSnippet($desc, $kw)];
+            }
+            if ($job->address && preg_match($kwPat, $job->address)) {
+                $reasons[] = ['type' => 'keyword', 'keyword' => $kw, 'field' => 'Address',     'snippet' => $this->kwSnippet($job->address, $kw)];
+            }
+        }
+
+        // Company keywords
+        foreach ((array) ($filters['company_keywords'] ?? []) as $ck) {
+            if ($ck !== '' && $job->company && stripos($job->company->name, $ck) !== false) {
+                $reasons[] = ['type' => 'company', 'keyword' => $ck, 'field' => 'Company', 'snippet' => $job->company->name];
+            }
+        }
+
+        // Job types
+        if (! empty($filters['job_type_ids'])) {
+            $ids     = array_map('intval', (array) $filters['job_type_ids']);
+            $matched = $job->jobTypes->whereIn('id', $ids);
+            foreach ($matched as $jt) {
+                $reasons[] = ['type' => 'job_type', 'keyword' => null, 'field' => 'Job Type', 'snippet' => $jt->name];
+            }
+            if ($matched->isEmpty() && $job->jobTypes->isEmpty()) {
+                $reasons[] = ['type' => 'job_type', 'keyword' => null, 'field' => 'Job Type', 'snippet' => 'No job type set — crawled job included by default'];
+            }
+        }
+
+        // Categories
+        if (! empty($filters['category_ids'])) {
+            $ids     = array_map('intval', (array) $filters['category_ids']);
+            $cats    = $job->relationLoaded('categories') ? $job->categories : collect();
+            $matched = $cats->whereIn('id', $ids);
+            foreach ($matched as $cat) {
+                $reasons[] = ['type' => 'category', 'keyword' => null, 'field' => 'Category', 'snippet' => $cat->name];
+            }
+            if ($matched->isEmpty() && $cats->isEmpty()) {
+                $reasons[] = ['type' => 'category', 'keyword' => null, 'field' => 'Category', 'snippet' => 'No category set — crawled job included by default'];
+            }
+        }
+
+        // Country
+        if (! empty($filters['country_ids']) && $job->country_id) {
+            if (in_array($job->country_id, array_map('intval', (array) $filters['country_ids']))) {
+                $reasons[] = ['type' => 'country', 'keyword' => null, 'field' => 'Country', 'snippet' => $job->country?->name ?? 'Matched'];
+            }
+        }
+
+        // Location keyword (address free-text)
+        if (! empty($filters['location_keyword']) && $job->address) {
+            $loc = $filters['location_keyword'];
+            if (stripos($job->address, $loc) !== false) {
+                $reasons[] = ['type' => 'location', 'keyword' => $loc, 'field' => 'Location / Address', 'snippet' => $this->kwSnippet($job->address, $loc)];
+            }
+        }
+
+        return $reasons;
+    }
+
+    private function kwSnippet(string $text, string $keyword, int $context = 55): string
+    {
+        $text = trim(preg_replace('/\s+/', ' ', $text));
+        $pos  = stripos($text, $keyword);
+        if ($pos === false) {
+            return mb_substr($text, 0, 100) . (mb_strlen($text) > 100 ? '…' : '');
+        }
+        $start   = max(0, $pos - $context);
+        $end     = min(mb_strlen($text), $pos + mb_strlen($keyword) + $context);
+        $snippet = mb_substr($text, $start, $end - $start);
+        if ($start > 0)                 $snippet = '…' . $snippet;
+        if ($end < mb_strlen($text))    $snippet .= '…';
+        return $snippet;
+    }
+
+    public function sendDiscountNewsletter(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'subject' => ['required', 'string', 'max:255'],
+            'body'    => ['required', 'string'],
+        ]);
+
+        $subscriberCount = DB::table('newsletters')->where('status', 'subscribed')->count();
+
+        if ($subscriberCount === 0) {
+            return response()->json(['error' => 'No subscribed newsletter contacts found.'], 422);
+        }
+
+        $sendId = (int) DB::table('newsletter_sends')->insertGetId([
+            'subject'          => $data['subject'],
+            'body'             => $data['body'],
+            'image_url'        => null,
+            'pdf_path'         => null,
+            'status'           => 'scheduled',
+            'recipient_count'  => 0,
+            'sent_count'       => 0,
+            'failed_count'     => 0,
+            'dedup_minutes'    => 0,
+            'created_at'       => now(),
+            'updated_at'       => now(),
+        ]);
+
+        DispatchNewsletterBatchJob::dispatch($sendId)->onQueue('emails');
+
+        return response()->json([
+            'message' => "Discount campaign queued for {$subscriberCount} subscriber(s). It will send in the background.",
+            'send_id' => $sendId,
+        ]);
     }
 
     // -------------------------------------------------------------------------
@@ -489,9 +643,10 @@ class CandidateAlertController
         if ($keywords) {
             $query->where(function ($q) use ($keywords) {
                 foreach ($keywords as $kw) {
-                    $q->orWhere('jb_jobs.name', 'like', "%{$kw}%")
-                      ->orWhere('jb_jobs.description', 'like', "%{$kw}%")
-                      ->orWhere('jb_jobs.address', 'like', "%{$kw}%");
+                    $pat = '\\b' . preg_quote(strtolower($kw), '/') . '\\b';
+                    $q->orWhereRaw('LOWER(jb_jobs.name) REGEXP ?', [$pat])
+                      ->orWhereRaw('LOWER(jb_jobs.description) REGEXP ?', [$pat])
+                      ->orWhereRaw('LOWER(jb_jobs.address) REGEXP ?', [$pat]);
                 }
             });
         }
@@ -587,29 +742,40 @@ class CandidateAlertController
         $msg .= "\n👉 *Apply:* {$jobUrl}\n\n";
         $msg .= "_Wakanda Jobs VIP Alert — wakandajobs.com_";
 
-        try {
-            $imgField = trim((string) ($job->whatsapp_image ?? ''));
-            if ($imgField !== '') {
-                $imageUrl = RvMedia::getImageUrl($imgField);
-                $response = Http::timeout(30)->withToken($token)->post("{$gatewayUrl}/messages/image", [
-                    'to'      => $alert->recipientJid(),
-                    'media'   => $imageUrl,
-                    'caption' => $msg,
-                ]);
-                if ($response->successful()) {
-                    return true;
+        $imgField = trim((string) ($job->whatsapp_image ?? ''));
+        $imageUrl = $imgField !== '' ? RvMedia::getImageUrl($imgField) : null;
+
+        $sentToAny = false;
+
+        foreach ($alert->recipientJids() as $jid) {
+            try {
+                if ($imageUrl) {
+                    $response = Http::timeout(30)->withToken($token)->post("{$gatewayUrl}/messages/image", [
+                        'to'      => $jid,
+                        'media'   => $imageUrl,
+                        'caption' => $msg,
+                    ]);
+
+                    if ($response->successful()) {
+                        $sentToAny = true;
+                        continue;
+                    }
                 }
+
+                $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
+                    'to'   => $jid,
+                    'body' => $msg,
+                ]);
+
+                if ($response->successful()) {
+                    $sentToAny = true;
+                }
+            } catch (Throwable) {
+                // try next number
             }
-
-            $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
-                'to'   => $alert->recipientJid(),
-                'body' => $msg,
-            ]);
-
-            return $response->successful();
-        } catch (Throwable) {
-            return false;
         }
+
+        return $sentToAny;
     }
 
     private function sendWelcomeMessage(CandidateAlert $alert): void
@@ -632,12 +798,14 @@ class CandidateAlertController
         $msg .= "Sit back and let us find your next opportunity! 🚀\n\n";
         $msg .= "_Wakanda Jobs — wakandajobs.com_";
 
-        try {
-            Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
-                'to'   => $alert->recipientJid(),
-                'body' => $msg,
-            ]);
-        } catch (Throwable) {}
+        foreach ($alert->recipientJids() as $jid) {
+            try {
+                Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
+                    'to'   => $jid,
+                    'body' => $msg,
+                ]);
+            } catch (Throwable) {}
+        }
     }
 
     private function sendFilterUpdateMessage(CandidateAlert $alert): void
@@ -653,12 +821,14 @@ class CandidateAlertController
         $msg .= "You will now receive jobs matching these updated criteria.\n\n";
         $msg .= "_Wakanda Jobs — wakandajobs.com_";
 
-        try {
-            Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
-                'to'   => $alert->recipientJid(),
-                'body' => $msg,
-            ]);
-        } catch (Throwable) {}
+        foreach ($alert->recipientJids() as $jid) {
+            try {
+                Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
+                    'to'   => $jid,
+                    'body' => $msg,
+                ]);
+            } catch (Throwable) {}
+        }
     }
 
     private function buildFilterDescription(CandidateAlert $alert): string
@@ -754,7 +924,7 @@ class CandidateAlertController
         if (! $automation) return [null, null];
 
         $settings   = $automation->settings ?? [];
-        $token      = trim((string) ($settings['token'] ?? ''));
+        $token      = SocialAutomation::whapiToken($automation);
         $gatewayUrl = rtrim(trim((string) ($settings['gateway_url'] ?? '')), '/') ?: 'https://gate.whapi.cloud';
 
         return $token ? [$token, $gatewayUrl] : [null, null];

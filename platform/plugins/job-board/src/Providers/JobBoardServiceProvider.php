@@ -443,6 +443,30 @@ class JobBoardServiceProvider extends ServiceProvider
                     'permissions' => ['job-board.automations.index'],
                 ])
                 ->registerItem([
+                    'id' => 'cms-plugins-job-board-automations-all',
+                    'priority' => 1,
+                    'parent_id' => 'cms-plugins-job-board-automations',
+                    'name' => 'Config',
+                    'url' => route('job-board.automations.index'),
+                    'permissions' => ['job-board.automations.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-publer',
+                    'priority' => 2,
+                    'parent_id' => 'cms-plugins-job-board-automations',
+                    'name' => 'Publer',
+                    'url' => route('job-board.publer.index'),
+                    'permissions' => ['job-board.automations.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-broadcast',
+                    'priority' => 3,
+                    'parent_id' => 'cms-plugins-job-board-automations',
+                    'name' => 'Broadcast',
+                    'url' => route('job-board.automations.broadcast'),
+                    'permissions' => ['job-board.automations.index'],
+                ])
+                ->registerItem([
                     'id' => 'cms-plugins-job-board-agents',
                     'priority' => 7,
                     'parent_id' => 'cms-plugins-job-board-main',
@@ -487,6 +511,24 @@ class JobBoardServiceProvider extends ServiceProvider
                     'permissions' => ['job-alert-orders.index'],
                 ])
                 ->registerItem([
+                    'id'          => 'cms-plugins-job-board-vip-alert-orders',
+                    'priority'    => 7,
+                    'parent_id'   => 'cms-plugins-job-board-main',
+                    'name'        => 'VIP Alert Orders',
+                    'icon'        => 'ti ti-star-filled',
+                    'url'         => route('vip-alert-orders.index'),
+                    'permissions' => ['vip-alert-orders.index'],
+                ])
+                ->registerItem([
+                    'id'          => 'cms-plugins-job-board-vip-alert-plans',
+                    'priority'    => 7,
+                    'parent_id'   => 'cms-plugins-job-board-main',
+                    'name'        => 'VIP Alert Plans',
+                    'icon'        => 'ti ti-settings-dollar',
+                    'url'         => route('job-board.settings.vip-alert-plans'),
+                    'permissions' => ['vip-alert-orders.index'],
+                ])
+                ->registerItem([
                     'id'          => 'cms-plugins-job-board-candidate-alerts',
                     'priority'    => 7,
                     'parent_id'   => 'cms-plugins-job-board-main',
@@ -521,6 +563,33 @@ class JobBoardServiceProvider extends ServiceProvider
                     'icon' => 'ti ti-star-half',
                     'url' => route('featured-packages.index'),
                     'permissions' => ['featured-packages.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-ad-placements',
+                    'priority' => 3,
+                    'parent_id' => 'cms-plugins-ads',
+                    'name' => 'Ad Pricing',
+                    'icon' => 'ti ti-currency-dollar',
+                    'url' => route('ad-placements.index'),
+                    'permissions' => ['ad-placements.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-ad-orders',
+                    'priority' => 3,
+                    'parent_id' => 'cms-plugins-ads',
+                    'name' => 'Ad Requests',
+                    'icon' => 'ti ti-receipt',
+                    'url' => route('ad-orders.index'),
+                    'permissions' => ['ad-orders.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-ad-pricing-tiers',
+                    'priority' => 3,
+                    'parent_id' => 'cms-plugins-ads',
+                    'name' => 'Pricing Tiers',
+                    'icon' => 'ti ti-world',
+                    'url' => route('ad-pricing-tiers.index'),
+                    'permissions' => ['ad-pricing-tiers.index'],
                 ])
                 ->registerItem([
                     'id' => 'cms-plugins-job-board-employer-subscriptions',
@@ -808,6 +877,14 @@ class JobBoardServiceProvider extends ServiceProvider
                         'name' => 'Feature a Job',
                         'url' => fn () => route('public.account.featured-jobs.index'),
                         'icon' => 'ti ti-star',
+                    ])
+                    ->registerItem([
+                        'id' => 'cms-account-advertise',
+                        'priority' => 76,
+                        'parent_id' => null,
+                        'name' => 'Advertise',
+                        'url' => fn () => route('public.account.ads.index'),
+                        'icon' => 'ti ti-ad',
                     ])
                     ->registerItem([
                         'id' => 'cms-account-subscription',
@@ -1162,7 +1239,7 @@ class JobBoardServiceProvider extends ServiceProvider
                     'guard' => 'account',
                     'model' => Account::class,
                     'login_url' => route('public.account.login'),
-                    'redirect_url' => route('public.account.choose-type'),
+                    'redirect_url' => route('public.account.dashboard'),
                 ]);
             }
 

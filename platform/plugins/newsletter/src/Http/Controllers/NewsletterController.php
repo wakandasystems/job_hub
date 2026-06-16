@@ -5,13 +5,16 @@ namespace Botble\Newsletter\Http\Controllers;
 use Botble\Base\Http\Actions\DeleteResourceAction;
 use Botble\Base\Http\Controllers\BaseController;
 use Botble\Base\Supports\Breadcrumb;
+use Botble\JobBoard\Supports\EmployerContactAudience;
 use Botble\Newsletter\Jobs\DispatchNewsletterBatchJob;
 use Botble\Newsletter\Jobs\SendNewsletterEmailJob;
 use Botble\Newsletter\Models\Newsletter;
 use Botble\Newsletter\Tables\NewsletterTable;
 use Illuminate\Bus\Batch;
+use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 
@@ -48,6 +51,7 @@ class NewsletterController extends BaseController
         $this->pageTitle('Send Newsletter');
 
         $subscriberCount = DB::table('newsletters')->where('status', 'subscribed')->count();
+        $employerCount = app(EmployerContactAudience::class)->emails()->count();
 
         // Latest non-test send that had failures — used to show inline Resend button
         $lastFailedSend = DB::table('newsletter_sends')
@@ -57,7 +61,7 @@ class NewsletterController extends BaseController
             ->orderByDesc('sent_at')
             ->first(['id', 'subject', 'failed_count', 'recipient_count']);
 
-        return view('plugins/newsletter::send', compact('subscriberCount', 'lastFailedSend'));
+        return view('plugins/newsletter::send', compact('subscriberCount', 'employerCount', 'lastFailedSend'));
     }
 
     public function sendPost(Request $request): JsonResponse
@@ -69,6 +73,7 @@ class NewsletterController extends BaseController
             'image_url'     => ['nullable', 'url', 'max:500'],
             'pdf'           => ['nullable', 'file', 'mimes:pdf', 'max:10240'],
             'test_to'       => ['nullable', 'email', 'max:180'],
+            'audience'      => ['required', 'in:subscribers,employers'],
             'dedup_minutes' => ['nullable', 'integer', 'in:0,30,60,360,1440'],
             'scheduled_at'  => ['nullable', 'date', 'after:now'],
         ]);
@@ -96,6 +101,36 @@ class NewsletterController extends BaseController
         $scheduledAt  = ! empty($validated['scheduled_at']) ? $validated['scheduled_at'] : null;
         $isTest       = ! empty($validated['test_to']);
 
+        // ── Duplicate detection (non-test, non-scheduled sends only) ──
+        if (! $isTest && ! $scheduledAt) {
+            $existing = DB::table('newsletter_sends')
+                ->whereNull('test_to')
+                ->whereIn('status', ['completed', 'running'])
+                ->where('audience', $validated['audience'])
+                ->where('subject', $validated['subject'])
+                ->where('body', $validated['message'])
+                ->orderByDesc('sent_at')
+                ->first(['id', 'subject', 'sent_at', 'sent_count', 'recipient_count']);
+
+            if ($existing) {
+                $newCount = $validated['audience'] === 'subscribers'
+                    ? DB::table('newsletters')
+                        ->where('status', 'subscribed')
+                        ->where('created_at', '>', $existing->sent_at)
+                        ->count()
+                    : 0;
+
+                return response()->json([
+                    'duplicate'            => true,
+                    'send_id'              => $existing->id,
+                    'sent_at'              => $existing->sent_at,
+                    'sent_count'           => (int) $existing->sent_count,
+                    'recipient_count'      => (int) $existing->recipient_count,
+                    'new_subscriber_count' => $newCount,
+                ], 409);
+            }
+        }
+
         // ── Build subscriber list ──
         if ($isTest) {
             $subscribers = collect([(object) [
@@ -104,9 +139,14 @@ class NewsletterController extends BaseController
                 'name'  => 'Test',
             ]]);
         } else {
-            $query = DB::table('newsletters')
-                ->where('status', 'subscribed')
-                ->select('id', 'email', 'name');
+            if ($validated['audience'] === 'employers') {
+                $subscribers = app(EmployerContactAudience::class)->emails();
+            } else {
+                $subscribers = DB::table('newsletters')
+                    ->where('status', 'subscribed')
+                    ->select('id', 'email', 'name')
+                    ->get();
+            }
 
             if ($dedupMinutes > 0 && ! $scheduledAt) {
                 $recentEmails = DB::table('newsletter_send_recipients')
@@ -117,11 +157,11 @@ class NewsletterController extends BaseController
                     ->all();
 
                 if (! empty($recentEmails)) {
-                    $query->whereNotIn(DB::raw('LOWER(email)'), $recentEmails);
+                    $subscribers = $subscribers
+                        ->reject(fn ($subscriber) => in_array(strtolower($subscriber->email), $recentEmails, true))
+                        ->values();
                 }
             }
-
-            $subscribers = $query->get();
         }
 
         if ($subscribers->isEmpty()) {
@@ -141,6 +181,7 @@ class NewsletterController extends BaseController
             'sent_count'       => 0,
             'failed_count'     => 0,
             'test_to'          => $validated['test_to'] ?? null,
+            'audience'         => $validated['audience'],
             'status'           => $status,
             'dedup_minutes'    => $dedupMinutes,
             'scheduled_at'     => $scheduledAt,
@@ -163,7 +204,7 @@ class NewsletterController extends BaseController
         // ── Immediate send: dispatch batch now ──
         $jobs = $subscribers->map(fn ($s) => new SendNewsletterEmailJob(
             sendId:       $sendId,
-            subscriberId: (int) $s->id,
+            subscriberId: $s->id ? (int) $s->id : null,
             email:        $s->email,
             name:         $s->name,
             subject:      $validated['subject'],
@@ -196,6 +237,69 @@ class NewsletterController extends BaseController
             'batch_id'  => $batch->id,
             'scheduled' => false,
             'total'     => $subscribers->count(),
+        ]);
+    }
+
+    public function employerContacts(Request $request, EmployerContactAudience $audience): JsonResponse
+    {
+        $perPage = 20;
+        $page = max(1, $request->integer('page', 1));
+        $contacts = $audience->emails();
+        $total = $contacts->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min($page, $lastPage);
+
+        return response()->json([
+            'data' => $contacts
+                ->slice(($page - 1) * $perPage, $perPage)
+                ->values()
+                ->map(fn ($contact) => [
+                    'name' => $contact->name,
+                    'email' => $contact->email,
+                    'country_code' => $contact->country_code,
+                    'country_name' => $contact->country_name,
+                    'edit_url' => $contact->edit_url,
+                ]),
+            'meta' => [
+                'current_page' => $page,
+                'last_page' => $lastPage,
+                'per_page' => $perPage,
+                'total' => $total,
+                'from' => $total ? (($page - 1) * $perPage) + 1 : 0,
+                'to' => min($page * $perPage, $total),
+            ],
+        ]);
+    }
+
+    public function subscriberContacts(Request $request): JsonResponse
+    {
+        $perPage = 20;
+        $page = max(1, $request->integer('page', 1));
+        $query = Newsletter::query()
+            ->where('status', 'subscribed')
+            ->orderByDesc('id');
+        $total = $query->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min($page, $lastPage);
+
+        return response()->json([
+            'data' => $query
+                ->skip(($page - 1) * $perPage)
+                ->take($perPage)
+                ->get(['id', 'name', 'email', 'created_at'])
+                ->map(fn (Newsletter $subscriber) => [
+                    'name' => $subscriber->name,
+                    'email' => $subscriber->email,
+                    'subscribed_at' => $subscriber->created_at?->format('M j, Y'),
+                ]),
+            'meta' => [
+                'current_page' => $page,
+                'last_page' => $lastPage,
+                'per_page' => $perPage,
+                'total' => $total,
+                'from' => $total ? (($page - 1) * $perPage) + 1 : 0,
+                'to' => min($page * $perPage, $total),
+            ],
         ]);
     }
 
@@ -233,7 +337,7 @@ class NewsletterController extends BaseController
         ]);
     }
 
-    public function resend(int $sendId): JsonResponse
+    public function resend(int $sendId, Request $request): JsonResponse
     {
         $send = DB::table('newsletter_sends')->find($sendId);
 
@@ -241,23 +345,41 @@ class NewsletterController extends BaseController
             return response()->json(['error' => 'Send not found.'], 404);
         }
 
-        // Emails that were successfully delivered in the original send
-        $sentEmails = DB::table('newsletter_send_recipients')
-            ->where('newsletter_send_id', $sendId)
-            ->where('status', 'sent')
-            ->pluck('email')
-            ->map(fn ($e) => strtolower($e))
-            ->all();
+        $newOnly = $request->boolean('new_only');
+        $audience = $send->audience ?? 'subscribers';
 
-        $subscribers = DB::table('newsletters')
-            ->where('status', 'subscribed')
-            ->select('id', 'email', 'name')
-            ->get()
-            ->filter(fn ($s) => ! in_array(strtolower($s->email), $sentEmails))
-            ->values();
+        if ($newOnly && $audience === 'subscribers') {
+            // Only subscribers who joined after this send was dispatched
+            $subscribers = DB::table('newsletters')
+                ->where('status', 'subscribed')
+                ->where('created_at', '>', $send->sent_at)
+                ->select('id', 'email', 'name')
+                ->get();
+        } else {
+            // Anyone not already successfully delivered in the original send
+            $sentEmails = DB::table('newsletter_send_recipients')
+                ->where('newsletter_send_id', $sendId)
+                ->where('status', 'sent')
+                ->pluck('email')
+                ->map(fn ($e) => strtolower($e))
+                ->all();
+
+            $subscribers = ($audience === 'employers'
+                ? app(EmployerContactAudience::class)->emails()
+                : DB::table('newsletters')
+                    ->where('status', 'subscribed')
+                    ->select('id', 'email', 'name')
+                    ->get())
+                ->filter(fn ($s) => ! in_array(strtolower($s->email), $sentEmails))
+                ->values();
+        }
 
         if ($subscribers->isEmpty()) {
-            return response()->json(['error' => 'Everyone already received this newsletter — nothing to resend.'], 422);
+            $error = $newOnly
+                ? 'No new subscribers have joined since this newsletter was sent.'
+                : 'Everyone already received this newsletter — nothing to resend.';
+
+            return response()->json(['error' => $error], 422);
         }
 
         $body = $send->body ?? '';
@@ -271,6 +393,7 @@ class NewsletterController extends BaseController
             'sent_count'      => 0,
             'failed_count'    => 0,
             'test_to'         => null,
+            'audience'        => $audience,
             'status'          => 'running',
             'dedup_minutes'   => 0,
             'scheduled_at'    => null,
@@ -280,7 +403,7 @@ class NewsletterController extends BaseController
         try {
             $jobs = $subscribers->map(fn ($s) => new SendNewsletterEmailJob(
                 sendId:       $newSendId,
-                subscriberId: (int) $s->id,
+                subscriberId: $s->id ? (int) $s->id : null,
                 email:        $s->email,
                 name:         $s->name,
                 subject:      $send->subject,
@@ -342,6 +465,81 @@ class NewsletterController extends BaseController
         DB::table('newsletter_sends')->where('id', $sendId)->update(['status' => 'cancelled']);
 
         return response()->json(['ok' => true]);
+    }
+
+    public function recipients(int $sendId, Request $request): View|Response
+    {
+        $send = DB::table('newsletter_sends')->find($sendId);
+
+        if (! $send) {
+            abort(404);
+        }
+
+        if ($request->get('export') === 'csv') {
+            $rows = DB::table('newsletter_send_recipients')
+                ->where('newsletter_send_id', $sendId)
+                ->where('status', 'failed')
+                ->orderBy('email')
+                ->get(['email', 'name', 'error_message', 'created_at']);
+
+            $csv = "Email,Name,Error,Date\n";
+            foreach ($rows as $r) {
+                $csv .= '"' . str_replace('"', '""', $r->email ?? '') . '",';
+                $csv .= '"' . str_replace('"', '""', $r->name ?? '') . '",';
+                $csv .= '"' . str_replace('"', '""', $r->error_message ?? '') . '",';
+                $csv .= '"' . ($r->created_at ?? '') . '"' . "\n";
+            }
+
+            return response($csv, 200, [
+                'Content-Type'        => 'text/csv',
+                'Content-Disposition' => 'attachment; filename="newsletter-' . $sendId . '-failed.csv"',
+            ]);
+        }
+
+        $status     = $request->get('status', 'all');
+        $query      = DB::table('newsletter_send_recipients')->where('newsletter_send_id', $sendId);
+
+        if ($status === 'failed') {
+            $query->where('status', 'failed');
+        } elseif ($status === 'sent') {
+            $query->where('status', 'sent');
+        }
+
+        $recipients = $query->orderByRaw("status = 'failed' DESC")->orderBy('email')->paginate(50)->withQueryString();
+
+        $counts = DB::table('newsletter_send_recipients')
+            ->where('newsletter_send_id', $sendId)
+            ->selectRaw("status, count(*) as cnt")
+            ->groupBy('status')
+            ->pluck('cnt', 'status');
+
+        $blockedEmails = DB::table('newsletter_blocked_emails')
+            ->pluck('email')
+            ->map(fn ($e) => strtolower($e))
+            ->flip()
+            ->all();
+
+        return view('plugins/newsletter::recipients', compact('send', 'recipients', 'status', 'counts', 'blockedEmails'));
+    }
+
+    public function blockEmail(Request $request): JsonResponse
+    {
+        $email = strtolower(trim($request->input('email', '')));
+
+        if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return response()->json(['error' => true, 'message' => 'Invalid email address.'], 422);
+        }
+
+        $exists = DB::table('newsletter_blocked_emails')->where('email', $email)->exists();
+
+        if (! $exists) {
+            DB::table('newsletter_blocked_emails')->insert([
+                'email'      => $email,
+                'created_at' => now(),
+            ]);
+        }
+
+        return response()->json(['error' => false, 'message' => "'{$email}' has been blocked and will never receive emails again."]);
     }
 
     public function destroy(Newsletter $newsletter)

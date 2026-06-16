@@ -54,7 +54,7 @@
                                 <li><a @class(['btn btn-border recruitment-icon mb-20', 'active' => $url === route('public.account.educations.index')]) href="{{ route('public.account.educations.index') }}" >{{ __('Educations') }}</a></li>
                                 <li><a @class(['btn btn-border recruitment-icon mb-20', 'active' => $url === route('public.account.career-services')]) href="{{ route('public.account.career-services') }}">{{ __('Career Services') }}</a></li>
                                 <li><a @class(['btn btn-border recruitment-icon mb-20', 'active' => str_starts_with($url, route('public.account.job-alerts.index'))]) href="{{ route('public.account.job-alerts.index') }}">{{ __('Job Alerts') }}</a></li>
-                                <li><a @class(['btn btn-border recruitment-icon mb-20', 'active' => str_starts_with($url, route('public.account.job-alert.packages.index'))]) href="{{ route('public.account.job-alert.packages.index') }}">{{ __('Alert Packages') }}</a></li>
+                                <li><a @class(['btn btn-border recruitment-icon mb-20', 'active' => str_starts_with($url, route('public.account.job-alert.packages.index'))]) href="{{ route('public.account.job-alert.packages.index') }}">{{ __('VIP Alerts') }}</a></li>
                            @endif
                         </ul>
                     </div>

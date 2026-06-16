@@ -345,6 +345,15 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
                 Route::get('{order}/pending', ['as' => 'pending', 'uses' => 'pending']);
             });
 
+            Route::controller('AdOrderCheckoutController')->prefix('ads')->name('ads.')->group(function (): void {
+                Route::get('', ['as' => 'index', 'uses' => 'index']);
+                Route::post('{placement}/request', ['as' => 'store', 'uses' => 'store']);
+                Route::get('{order}/checkout', ['as' => 'checkout', 'uses' => 'checkout']);
+                Route::get('{order}/callback', ['as' => 'callback', 'uses' => 'callback']);
+                Route::get('{order}/thanks', ['as' => 'thanks', 'uses' => 'thanks']);
+                Route::get('{order}/pending', ['as' => 'pending', 'uses' => 'pending']);
+            });
+
             Route::group([
                 'prefix' => 'jobs',
                 'as' => 'jobs.',

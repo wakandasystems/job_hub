@@ -146,6 +146,15 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middlew
     Route::group(['prefix' => 'payments'], function (): void {
         Route::post('checkout', 'CheckoutController@postCheckout')->name('payments.checkout');
     });
+
+    Route::group(['prefix' => 'vip-alerts', 'as' => 'public.vip-alerts.'], function (): void {
+        Route::get('', 'VipAlertCheckoutController@plans')->name('plans');
+        Route::get('checkout/{plan}', 'VipAlertCheckoutController@checkout')->name('checkout');
+        Route::post('checkout/{plan}', 'VipAlertCheckoutController@prepareCheckout')->name('prepare-checkout');
+        Route::get('pay/{token}', 'VipAlertCheckoutController@pay')->name('pay');
+        Route::get('callback/{token}', 'VipAlertCheckoutController@callback')->name('callback');
+        Route::get('pending/{token}', 'VipAlertCheckoutController@pending')->name('pending');
+    });
 });
 
 Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middleware' => ['web', 'core'], 'prefix' => 'push'], function (): void {
@@ -183,6 +192,11 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers', 'middleware' =>
     Route::post('telegram/social-message/upload', [
         'as' => 'public.telegram-social-upload',
         'uses' => 'TelegramSocialMessageController@upload',
+    ])->middleware('signed');
+
+    Route::post('telegram/social-message/send-to-employer', [
+        'as' => 'public.telegram-social-send-to-employer',
+        'uses' => 'TelegramSocialMessageController@sendToEmployer',
     ])->middleware('signed');
 
     Route::get('telegram/crawler-error/copy', [
