@@ -1314,6 +1314,7 @@ class HookServiceProvider extends ServiceProvider
         Job::deleted($clearFilterCache);
 
         $this->injectBlogPostImagePromptWidget();
+        $this->injectBlogCountdownScript();
     }
 
     public function registerMenuOptions(): void
@@ -1927,5 +1928,36 @@ class HookServiceProvider extends ServiceProvider
 
             return $form;
         }, 240, 3);
+    }
+
+    public function injectBlogCountdownScript(): void
+    {
+        add_filter('core_layout_after_content', function ($html) {
+            if (\Illuminate\Support\Facades\Route::currentRouteName() !== 'posts.index') {
+                return $html;
+            }
+
+            return $html . '<script>
+(function () {
+    function updateBlogCountdowns() {
+        document.querySelectorAll("[data-blog-countdown]").forEach(function (el) {
+            var diff = parseInt(el.getAttribute("data-blog-countdown"), 10) * 1000 - Date.now();
+            if (diff <= 0) {
+                el.innerHTML = "⚡ Soon…";
+                el.style.color = "#16a34a";
+                return;
+            }
+            var d = Math.floor(diff / 86400000);
+            var h = Math.floor((diff % 86400000) / 3600000);
+            var m = Math.floor((diff % 3600000) / 60000);
+            var s = Math.floor((diff % 60000) / 1000);
+            el.textContent = "⏱ " + (d > 0 ? d + "d " : "") + h + "h " + m + "m " + s + "s";
+        });
+    }
+    setInterval(updateBlogCountdowns, 1000);
+    updateBlogCountdowns();
+})();
+</script>';
+        });
     }
 }

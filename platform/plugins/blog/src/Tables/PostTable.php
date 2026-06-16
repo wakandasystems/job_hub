@@ -89,6 +89,23 @@ class PostTable extends TableAbstract
                         return number_format($column->getItem()->views);
                     }),
                 CreatedAtColumn::make(),
+                FormattedColumn::make('publish_at')
+                    ->title('Publishes In')
+                    ->width(130)
+                    ->orderable(false)
+                    ->searchable(false)
+                    ->renderUsing(function (FormattedColumn $column) {
+                        $post = $column->getItem();
+                        if ($post->getRawOriginal('status') !== 'draft' || ! $post->publish_at) {
+                            return null;
+                        }
+                        $ts = \Carbon\Carbon::parse($post->publish_at)->timestamp;
+                        if ($ts <= now()->timestamp) {
+                            return '<span style="font-size:11px;color:#16a34a;font-weight:600">⚡ Soon...</span>';
+                        }
+
+                        return '<span data-blog-countdown="' . $ts . '" style="font-size:11px;color:#d97706;font-weight:600">⏱ ...</span>';
+                    }),
                 StatusColumn::make(),
             ])
             ->addBulkActions([
@@ -123,6 +140,7 @@ class PostTable extends TableAbstract
                         'author_id',
                         'author_type',
                         'views',
+                        'publish_at',
                     ]);
             })
             ->onAjax(function (self $table) {
