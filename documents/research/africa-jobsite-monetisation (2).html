@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Africa Job Site — Monetisation Playbook</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --ink: #0e0c08;
+    --cream: #f5f0e8;
+    --gold: #c9912a;
+    --gold-light: #e8b84b;
+    --rust: #b84a2a;
+    --forest: #1a3d2b;
+    --sage: #3d6b52;
+    --sand: #ddd3be;
+    --muted: #7a7060;
+    --card-bg: #fffdf8;
+    --border: rgba(201,145,42,0.25);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--cream);
+    color: var(--ink);
+    line-height: 1.65;
+  }
+
+  /* ── HEADER ── */
+  header {
+    background: var(--forest);
+    padding: 60px 40px 50px;
+    position: relative;
+    overflow: hidden;
+  }
+  header::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 40px,
+      rgba(201,145,42,0.06) 40px,
+      rgba(201,145,42,0.06) 41px
+    );
+  }
+  header::after {
+    content: 'AFRICA';
+    position: absolute;
+    right: -20px; bottom: -40px;
+    font-family: 'Playfair Display', serif;
+    font-size: 200px;
+    font-weight: 900;
+    color: rgba(255,255,255,0.03);
+    line-height: 1;
+    pointer-events: none;
+    user-select: none;
+  }
+  .header-inner { max-width: 900px; margin: 0 auto; position: relative; }
+  .eyebrow {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    color: var(--gold);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  header h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(32px, 5vw, 58px);
+    font-weight: 900;
+    color: #fff;
+    line-height: 1.1;
+    margin-bottom: 18px;
+  }
+  header h1 span { color: var(--gold-light); }
+  header p {
+    color: rgba(255,255,255,0.65);
+    font-size: 15px;
+    max-width: 540px;
+    font-weight: 300;
+  }
+
+  /* ── NAV PILLS ── */
+  .nav-strip {
+    background: var(--ink);
+    padding: 0 40px;
+    overflow-x: auto;
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid var(--gold);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .nav-strip::-webkit-scrollbar { height: 3px; }
+  .nav-pill {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+    padding: 14px 20px;
+    cursor: pointer;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.2s;
+    text-decoration: none;
+  }
+  .nav-pill:hover, .nav-pill.active {
+    color: var(--gold-light);
+    border-bottom-color: var(--gold-light);
+  }
+
+  /* ── LAYOUT ── */
+  main { max-width: 960px; margin: 0 auto; padding: 60px 24px 100px; }
+
+  /* ── SECTION HEADERS ── */
+  .section-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 32px;
+    margin-top: 64px;
+  }
+  .section-label:first-child { margin-top: 0; }
+  .section-num {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--gold);
+    letter-spacing: 0.15em;
+    background: rgba(201,145,42,0.12);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    border-radius: 3px;
+  }
+  .section-title {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(22px, 3vw, 30px);
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .section-intro {
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 28px;
+    max-width: 680px;
+    font-weight: 300;
+  }
+
+  /* ── REVENUE CARDS ── */
+  .revenue-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--gold);
+    border-radius: 6px;
+    padding: 28px 32px;
+    margin-bottom: 20px;
+    cursor: pointer;
+    transition: box-shadow 0.2s, transform 0.2s;
+  }
+  .revenue-card:hover {
+    box-shadow: 0 6px 24px rgba(0,0,0,0.08);
+    transform: translateY(-1px);
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 0;
+  }
+  .card-title-row { flex: 1; }
+  .card-name {
+    font-family: 'Playfair Display', serif;
+    font-size: 19px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .card-tagline {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 300;
+  }
+  .card-badges {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    padding: 3px 9px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+  .badge-potential { background: rgba(26,61,43,0.1); color: var(--forest); }
+  .badge-effort { background: rgba(184,74,42,0.1); color: var(--rust); }
+  .badge-timeline { background: rgba(201,145,42,0.12); color: #8a6010; }
+
+  .card-body {
+    display: none;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    animation: fadeSlide 0.25s ease;
+  }
+  .card-body.open { display: block; }
+  @keyframes fadeSlide {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .steps-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--gold);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .steps { list-style: none; counter-reset: steps; }
+  .steps li {
+    counter-increment: steps;
+    display: flex;
+    gap: 14px;
+    margin-bottom: 14px;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .steps li::before {
+    content: counter(steps);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    background: var(--forest);
+    color: var(--gold-light);
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .steps li strong { color: var(--forest); font-weight: 600; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  @media (max-width: 600px) { .two-col { grid-template-columns: 1fr; } }
+
+  .mini-box {
+    background: var(--cream);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .mini-box strong {
+    display: block;
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .mini-box .big-num {
+    font-family: 'Playfair Display', serif;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--forest);
+  }
+
+  /* ── INSIGHT BOX ── */
+  .insight {
+    background: var(--forest);
+    color: rgba(255,255,255,0.85);
+    border-radius: 6px;
+    padding: 20px 24px;
+    font-size: 13.5px;
+    line-height: 1.65;
+    margin-top: 14px;
+  }
+  .insight strong { color: var(--gold-light); font-weight: 600; }
+
+  /* ── REGIONAL TABLE ── */
+  .region-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .region-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px 22px;
+    border-top: 3px solid var(--gold);
+  }
+  .region-card.hot { border-top-color: var(--rust); }
+  .region-card.warm { border-top-color: var(--sage); }
+  .region-card.cold { border-top-color: var(--sand); border-top-width: 3px; }
+  .region-name {
+    font-family: 'Playfair Display', serif;
+    font-size: 17px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .region-verdict {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 2px;
+    display: inline-block;
+    margin-bottom: 10px;
+  }
+  .verdict-yes { background: rgba(26,61,43,0.1); color: var(--forest); }
+  .verdict-maybe { background: rgba(201,145,42,0.12); color: #8a6010; }
+  .verdict-no { background: rgba(184,74,42,0.1); color: var(--rust); }
+  .region-why { font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+
+  /* ── PRIORITY STACK ── */
+  .priority-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    margin-bottom: 8px;
+  }
+  .priority-rank {
+    font-family: 'Playfair Display', serif;
+    font-size: 28px;
+    font-weight: 900;
+    color: var(--gold);
+    width: 36px;
+    flex-shrink: 0;
+  }
+  .priority-text strong { display: block; font-size: 15px; font-weight: 600; }
+  .priority-text span { font-size: 12px; color: var(--muted); }
+
+  /* ── TOGGLE CARET ── */
+  .caret {
+    display: inline-block;
+    margin-left: 8px;
+    transition: transform 0.2s;
+    font-size: 12px;
+    color: var(--gold);
+  }
+  .revenue-card.open .caret { transform: rotate(180deg); }
+
+  hr.divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 48px 0 0;
+  }
+
+  footer {
+    text-align: center;
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    padding: 32px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="eyebrow">Monetisation Playbook · 2025–2026</div>
+    <h1>Your Africa Job Site<br/><span>Revenue Strategy</span></h1>
+    <p>End-to-end breakdown of every income stream — from Lusaka to Lagos — with honest regional expansion advice.</p>
+  </div>
+</header>
+
+<nav class="nav-strip">
+  <a class="nav-pill" href="#streams">Revenue Streams</a>
+  <a class="nav-pill" href="#priority">Priority Order</a>
+  <a class="nav-pill" href="#regions">Africa Regions</a>
+  <a class="nav-pill" href="#global">Global Expansion</a>
+  <a class="nav-pill" href="#verdict">Bottom Line</a>
+</nav>
+
+<main>
+
+  <!-- ═══════════════════════════════ REVENUE STREAMS ═══════════════════════════════ -->
+  <section id="streams">
+    <div class="section-label">
+      <span class="section-num">01</span>
+      <h2 class="section-title">Revenue Streams</h2>
+    </div>
+    <p class="section-intro">Click any stream to expand the full end-to-end monetisation steps, realistic numbers, and the Africa-specific insight you need.</p>
+
+    <!-- 1. Featured / Sponsored Job Posts -->
+    <div class="revenue-card" onclick="toggle(this)">
+      <div class="card-header">
+        <div class="card-title-row">
+          <div class="card-name">Featured & Sponsored Job Posts <span class="caret">▼</span></div>
+          <div class="card-tagline">Employers pay a premium to appear at the top of search results</div>
+        </div>
+        <div class="card-badges">
+          <span class="badge badge-potential">💰💰💰 High Potential</span>
+          <span class="badge badge-effort">Low Complexity</span>
+          <span class="badge badge-timeline">Revenue from Day 1</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="steps-label">End-to-End Steps</div>
+        <ol class="steps">
+          <li><strong>Build a free tier first.</strong> Allow employers to post 1–2 free jobs. This seeds the listings database and attracts job seekers — your most critical asset.</li>
+          <li><strong>Define your paid tiers.</strong> E.g. Free (1 post, standard listing) → Basic (5 posts/month, $20–$40) → Featured (pinned to top + bold + logo, $15–$30 per post add-on) → Premium (unlimited + analytics + candidate alerts, $80–$150/mo).</li>
+          <li><strong>Build the upgrade flow.</strong> When a free employer clicks "post a job," show tier comparison. After posting free, send an email: "Get 5× more applicants — feature your job for $20."</li>
+          <li><strong>Implement featured placement logic.</strong> Pinned cards at top of category/location results, marked "Featured" or "Promoted." Rotate fairly among featured posts.</li>
+          <li><strong>Onboard your first 10 employers manually.</strong> Cold-call HR managers in your city. Offer 3 months free on the paid tier in exchange for a testimonial.</li>
+          <li><strong>Automate billing.</strong> Use Paystack (Zambia, Nigeria, Ghana, Kenya) or Flutterwave. Both accept mobile money, card, and bank transfer — critical for Africa.</li>
+          <li><strong>Measure and upsell.</strong> Show employers their post's views and application count inside a dashboard. Upsell: "Boost this post to get 3× more visibility."</li>
+        </ol>
+        <div class="two-col">
+          <div class="mini-box"><strong>Realistic pricing (ZMW)</strong><div class="big-num">K150–K800</div>per featured post or per month</div>
+          <div class="mini-box"><strong>Break-even employers needed</strong><div class="big-num">~30</div>paying Basic tier = ~$900/mo</div>
+        </div>
+        <div class="insight">
+          <strong>Africa insight:</strong> Many SMEs won't pay with a credit card. Integrate Airtel Money / MTN MoMo from day one. In Zambia specifically, offer invoice-and-EFT for corporates — they rarely self-serve on cards.
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Employer Subscriptions -->
+    <div class="revenue-card" onclick="toggle(this)">
+      <div class="card-header">
+        <div class="card-title-row">
+          <div class="card-name">Employer Subscription Plans <span class="caret">▼</span></div>
+          <div class="card-tagline">Recurring monthly/annual revenue from companies that hire regularly</div>
+        </div>
+        <div class="card-badges">
+          <span class="badge badge-potential">💰💰💰 High Potential</span>
+          <span class="badge badge-effort">Medium Complexity</span>
+          <span class="badge badge-timeline">Month 2–4</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="steps-label">End-to-End Steps</div>
+        <ol class="steps">
+          <li><strong>Map hiring frequency segments.</strong> Small business (1–2 hires/year) vs. mid-market (5–20 hires/year) vs. enterprise (50+ hires/year). Each needs a different plan.</li>
+          <li><strong>Design 3 subscription tiers.</strong> Starter (~$29/mo): 3 active posts + basic applicant management. Growth (~$79/mo): unlimited posts + CV search + shortlisting tools. Enterprise (custom, $200+/mo): white-label portal, ATS integrations, dedicated account manager.</li>
+          <li><strong>Build an employer dashboard.</strong> Job post management, applicant inbox, status tracking (Applied → Shortlisted → Interviewed → Offered). This is the stickiness that keeps subscriptions alive.</li>
+          <li><strong>Offer annual discount.</strong> "Pay for 10 months, get 2 free." Annual plans dramatically improve cash flow and reduce churn.</li>
+          <li><strong>Sales motion for enterprise.</strong> Direct outreach to HR directors at banks, telecoms, NGOs, mining companies. These are your anchor clients. Offer a 30-day free trial with onboarding call.</li>
+          <li><strong>Invoice management.</strong> Large corporates in Africa expect a purchase order process. Build a simple invoicing module or use Wave/Zoho for this.</li>
+          <li><strong>Retain with value emails.</strong> Monthly: "You received 47 applications this month. Here's your hiring snapshot." This makes the subscription feel tangible.</li>
+        </ol>
+        <div class="two-col">
+          <div class="mini-box"><strong>ARR target (Year 1)</strong><div class="big-num">$18K</div>from 20 mid-tier subscribers</div>
+          <div class="mini-box"><strong>Ideal anchor clients</strong><div class="big-num">Banks · NGOs · Telecoms</div></div>
+        </div>
+        <div class="insight">
+          <strong>Africa insight:</strong> Recruitment agencies are a huge untapped segment. In Zambia, SA, and Kenya there are hundreds of agencies placing workers. Offer them a "recruiter plan" — multiple employer profiles, bulk posting, branded shortlists.
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. CV / Talent Database -->
+    <div class="revenue-card" onclick="toggle(this)">
+      <div class="card-header">
+        <div class="card-title-row">
+          <div class="card-name">CV / Talent Database Access <span class="caret">▼</span></div>
+          <div class="card-tagline">Sell employers searchable access to your candidate pool</div>
+        </div>
+        <div class="card-badges">
+          <span class="badge badge-potential">💰💰💰💰 Very High</span>
+          <span class="badge badge-effort">High Complexity</span>
+          <span class="badge badge-timeline">Month 4–8</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="steps-label">End-to-End Steps</div>
+        <ol class="steps">
+          <li><strong>Build candidate profiles at registration.</strong> Skills, experience, location, desired salary, education, languages, availability. The richer the profile, the more valuable the database.</li>
+          <li><strong>Add "Open to Work" toggle.</strong> Candidates mark themselves as actively looking. Employers want to filter for these first. This is your premium signal.</li>
+          <li><strong>Build employer search UI.</strong> Filters: location, years of experience, skills, education level, industry, salary expectation, availability. Boolean keyword search across CVs.</li>
+          <li><strong>Gate the search behind a paywall.</strong> Free employers see blurred contact info. Paid subscribers get full profiles + one-click contact. Charge $50–$200/month for database access or per-contact reveals ($5–$15 each).</li>
+          <li><strong>Privacy and consent.</strong> In your sign-up flow, get explicit consent: "Your profile may be shared with employers on our platform." Comply with local data protection laws (Zambia's Data Protection Act, POPIA in SA, GDPR for any EU users).</li>
+          <li><strong>Keep the database fresh.</strong> Email candidates every 90 days: "Are you still job hunting? Update your profile to stay visible." Remove stale profiles. Quality matters more than quantity.</li>
+          <li><strong>Offer candidate alerts to employers.</strong> "Get notified when a Python developer in Nairobi joins the platform." This drives ongoing subscription value.</li>
+        </ol>
+        <div class="two-col">
+          <div class="mini-box"><strong>Price per CV reveal</strong><div class="big-num">$5–$15</div>or $100–$200/mo unlimited</div>
+          <div class="mini-box"><strong>At scale (5K candidates)</strong><div class="big-num">$3K–8K/mo</div>from search subscriptions</div>
+        </div>
+        <div class="insight">
+          <strong>Africa insight:</strong> This is your most defensible asset long-term. LinkedIn is weak in Zambia, Zimbabwe, and most of francophone Africa. A well-curated local talent database with verified skills is genuinely scarce and employers will pay for it.
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Display Advertising -->
+    <div class="revenue-card" onclick="toggle(this)">
+      <div class="card-header">
+        <div class="card-title-row">
+          <div class="card-name">Display Advertising <span class="caret">▼</span></div>
+          <div class="card-tagline">Google AdSense, direct banner ads, and sponsored content</div>
+        </div>
+        <div class="card-badges">
+          <span class="badge badge-potential">💰 Lower Potential</span>
+          <span class="badge badge-effort">Low Complexity</span>
+          <span class="badge badge-timeline">Month 1+</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="steps-label">End-to-End Steps</div>
+        <ol class="steps">
+          <li><strong>Start with Google AdSense.</strong> Apply once you have meaningful traffic (500+ daily visitors). Paste the script, ads appear automatically. Revenue is low in Africa (CPMs of $0.10–$0.80) but requires zero effort.</li>
+          <li><strong>Sell direct banner ads.</strong> Approach companies whose products match your audience: banks (youth accounts, loans), universities (part-time MBA), telecoms, professional training institutes, insurance companies. Direct CPMs in Africa: $2–$8.</li>
+          <li><strong>Create a media kit.</strong> One-page PDF: monthly visitors, demographics (age, city, industry), ad sizes available, pricing. This is essential before any direct ad conversation.</li>
+          <li><strong>Add sponsored newsletter slots.</strong> If you send a weekly "Jobs Digest" email, sell a sponsor slot ($200–$800 per send) to a single brand. One sponsor per email keeps it clean.</li>
+          <li><strong>Employer brand content.</strong> Sell "Meet the Employer" featured articles — $300–$800 per piece — where a company tells candidates why they're a great place to work. This serves dual purpose: ad revenue + employer relations.</li>
+          <li><strong>Rate limiting.</strong> Don't over-ad your site. Job seekers will leave. Max 2–3 ad positions per page. Prioritise UX over ad revenue at early stage.</li>
+        </ol>
+        <div class="two-col">
+          <div class="mini-box"><strong>AdSense (50K monthly visitors)</strong><div class="big-num">$150–$400/mo</div></div>
+          <div class="mini-box"><strong>Direct ads (same traffic)</strong><div class="big-num">$800–$2,500/mo</div></div>
+        </div>
+        <div class="insight">
+          <strong>Africa insight:</strong> AdSense CPMs in Zambia are very low (~$0.15). Don't rely on it as a primary stream. Direct ad sales to relevant local brands is 5–10× more lucrative for the same traffic.
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. Resume Writing / Career Services -->
+    <div class="revenue-card" onclick="toggle(this)">
+      <div class="card-header">
+        <div class="card-title-row">
+          <div class="card-name">Career Services Marketplace <span class="caret">▼</span></div>
+          <div class="card-tagline">CV writing, interview coaching, career counselling — sold to job seekers</div>
+        </div>
+        <div class="card-badges">
+          <span class="badge badge-potential">💰💰 Medium Potential</span>
+          <span class="badge badge-effort">Medium Complexity</span>
+          <span class="badge badge-timeline">Month 3–6</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="steps-label">End-to-End Steps</div>
+        <ol class="steps">
+          <li><strong>Source freelance career coaches.</strong> Recruit 3–5 vetted HR professionals or career coaches in each market. Vet them with a test CV review. They deliver the service; you take a 20–30% commission.</li>
+          <li><strong>Define service packages.</strong> Basic CV Review ($10–$15) → Professional CV Rewrite ($25–$45) → LinkedIn Profile Optimisation ($20–$35) → Cover Letter ($10) → Interview Coaching 1hr call ($30–$60) → Bundle (CV + Cover Letter + LinkedIn, $60–$90).</li>
+          <li><strong>Build the order flow.</strong> Job seeker selects service → pays online → platform assigns to coach → coach delivers in 48–72hrs → job seeker rates it. Simple ticketing system is enough initially.</li>
+          <li><strong>Trigger at the right moment.</strong> When a candidate uploads a CV, show: "Get your CV professionally reviewed for $12." This is the highest-intent moment.</li>
+          <li><strong>Add AI CV scoring first.</strong> Before the human service, offer a free AI-powered CV score (0–100). If score is low, upsell the human review. This generates leads for the paid service.</li>
+          <li><strong>Expand to courses.</strong> Partner with local training providers (coding bootcamps, accounting institutes) for a referral fee ($10–$50 per enrolment). You become a career development platform, not just a job board.</li>
+        </ol>
+        <div class="two-col">
+          <div class="mini-box"><strong>Revenue per order (net)</strong><div class="big-num">$6–$20</div>after coach commission</div>
+          <div class="mini-box"><strong>At 100 orders/month</strong><div class="big-num">$600–$2K/mo</div></div>
+        </div>
+        <div class="insight">
+          <strong>Africa insight:</strong> CV quality across the region is genuinely poor and candidates know it. There is real willingness to pay for help. Keep prices accessible — $10–$25 is the sweet spot in Zambia and Zimbabwe. Nairobi and Lagos can bear $30–$60.
+        </div>
+      </div>
+    </div>
+
+    <!-- 6. Recruiter / Headhunting -->
+    <div class="revenue-card" onclick="toggle(this)">
+      <div class="card-header">
+        <div class="card-title-row">
+          <div class="card-name">Managed Recruitment / Headhunting <span class="caret">▼</span></div>
+          <div class="card-tagline">Your platform actively sources and places candidates — high-ticket B2B revenue</div>
+        </div>
+        <div class="card-badges">
+          <span class="badge badge-potential">💰💰💰💰 Very High</span>
+          <span class="badge badge-effort">Very High Complexity</span>
+          <span class="badge badge-timeline">Month 6–12</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="steps-label">End-to-End Steps</div>
+        <ol class="steps">
+          <li><strong>Start with one vertical.</strong> Pick the sector you know best — mining, fintech, NGO, banking — and offer a full headhunting service for senior roles ($40K+ salary). This limits scope and builds deep expertise.</li>
+          <li><strong>Price on success fee.</strong> Standard industry rate: 15–25% of the candidate's first year salary. A $50K placed candidate = $7,500–$12,500 fee. A few placements per quarter = significant revenue.</li>
+          <li><strong>Leverage your talent database.</strong> Your CV database is your edge over traditional recruiters. You can find candidates faster because they're already in your system.</li>
+          <li><strong>Deliver a shortlist.</strong> Employer gets 3–5 pre-screened, interviewed candidates. You do the initial screening calls, skills assessment, and reference checks. They get warm candidates, not raw applications.</li>
+          <li><strong>Offer replacement guarantee.</strong> If the placed candidate leaves within 90 days, you'll find a replacement free of charge. This eliminates employer risk and closes deals faster.</li>
+          <li><strong>Build a small internal team.</strong> One senior recruiter can manage 10–15 active mandates. This is a people business — quality of your team = quality of placements = reputation.</li>
+        </ol>
+        <div class="two-col">
+          <div class="mini-box"><strong>Revenue per placement</strong><div class="big-num">$3K–$15K</div>depending on role seniority</div>
+          <div class="mini-box"><strong>At 3 placements/month</strong><div class="big-num">$9K–$45K/mo</div></div>
+        </div>
+        <div class="insight">
+          <strong>Africa insight:</strong> This is the highest-margin stream but requires significant human capital. Only pursue this once you have 5,000+ quality candidates in your database. Start it as a side offering and gradually grow it. The brand trust from your job board makes this much easier to win.
+        </div>
+      </div>
+    </div>
+
+    <!-- 7. Salary Data & Reports -->
+    <div class="revenue-card" onclick="toggle(this)">
+      <div class="card-header">
+        <div class="card-title-row">
+          <div class="card-name">Salary Data & Market Reports <span class="caret">▼</span></div>
+          <div class="card-tagline">Sell aggregated, anonymised compensation benchmarks to HR teams and businesses</div>
+        </div>
+        <div class="card-badges">
+          <span class="badge badge-potential">💰💰 Medium Potential</span>
+          <span class="badge badge-effort">Medium Complexity</span>
+          <span class="badge badge-timeline">Month 8–18</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="steps-label">End-to-End Steps</div>
+        <ol class="steps">
+          <li><strong>Collect salary data at scale.</strong> Ask job seekers their current/expected salary at registration. Ask employers for budget range on job posts. This data aggregates naturally as your platform grows.</li>
+          <li><strong>Build a free salary checker tool.</strong> "What should a Software Developer in Lusaka earn?" Users get a free range (e.g. K8,000–K18,000/mo). This drives traffic and builds the brand as a data authority.</li>
+          <li><strong>Package paid reports.</strong> Annual Zambia Salary Survey ($200–$500 per report) or per-sector report (Mining, Banking, Tech). HR managers buy these for compensation benchmarking.</li>
+          <li><strong>Partner with HR associations.</strong> In each market, reach out to the local HR institute or employers' federation. Co-brand and co-sell the report. They provide credibility; you provide data.</li>
+          <li><strong>Sell API access to the data.</strong> Banks, insurance companies, payroll SaaS firms, and consultancies will pay a monthly subscription for API access to live salary benchmarks.</li>
+        </ol>
+        <div class="two-col">
+          <div class="mini-box"><strong>Report sales (at scale)</strong><div class="big-num">$5K–$30K/yr</div>per market</div>
+          <div class="mini-box"><strong>Requires minimum data</strong><div class="big-num">2,000+</div>salary data points</div>
+        </div>
+        <div class="insight">
+          <strong>Africa insight:</strong> Salary data in Zambia, Zimbabwe, and much of SSA is genuinely opaque. HR teams at mid-market companies have no benchmarks and will pay for reliable data. This is a slow burn but becomes very defensible once you have 2+ years of data.
+        </div>
+      </div>
+    </div>
+
+    <!-- 8. Training & Courses Affiliate -->
+    <div class="revenue-card" onclick="toggle(this)">
+      <div class="card-header">
+        <div class="card-title-row">
+          <div class="card-name">Training Affiliate & Skills Marketplace <span class="caret">▼</span></div>
+          <div class="card-tagline">Earn referral fees by connecting job seekers with courses and certifications</div>
+        </div>
+        <div class="card-badges">
+          <span class="badge badge-potential">💰💰 Medium Potential</span>
+          <span class="badge badge-effort">Low Complexity</span>
+          <span class="badge badge-timeline">Month 2–4</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="steps-label">End-to-End Steps</div>
+        <ol class="steps">
+          <li><strong>Identify skills gaps from your data.</strong> Look at the most-posted jobs on your site. What skills are employers demanding most? That's your training opportunity map.</li>
+          <li><strong>Partner with Coursera, Udemy, ALX Africa, Moringa School, etc.</strong> These platforms have affiliate programs paying 10–30% commission per enrolment. Sign up and get your referral links.</li>
+          <li><strong>Build a "Skills Gap" feature.</strong> When a candidate's CV skills don't match a job they applied for, show: "This job requires Python. Take this 6-week course." Link to your affiliate partner.</li>
+          <li><strong>Partner with local training providers.</strong> In-person and blended learning providers (e.g. Zambia Institute of Banking, local coding schools) will negotiate a flat referral fee per student sent.</li>
+          <li><strong>Create a "Career Pathways" section.</strong> "Want to become an accountant? Here's the path: Diploma → ACCA → Jobs that match." Each step links to a course partner. High SEO value + affiliate income.</li>
+        </ol>
+        <div class="two-col">
+          <div class="mini-box"><strong>Commission per enrolment</strong><div class="big-num">$5–$80</div>depending on course value</div>
+          <div class="mini-box"><strong>At 50 referrals/month</strong><div class="big-num">$500–$2K/mo</div></div>
+        </div>
+        <div class="insight">
+          <strong>Africa insight:</strong> ALX Africa, Coursera, and Andela have active affiliate/partner programs targeting Africa. These are easy wins. Long-term, consider creating your own short micro-courses (sold for $10–$30) on CV writing, interview skills, Excel basics — things your audience needs and will pay for.
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ═══════════════════════════════ PRIORITY ORDER ═══════════════════════════════ -->
+  <hr class="divider" />
+  <section id="priority">
+    <div class="section-label" style="margin-top:48px">
+      <span class="section-num">02</span>
+      <h2 class="section-title">What to Build First</h2>
+    </div>
+    <p class="section-intro">Don't try to launch everything at once. Here is the right sequencing for an Africa-focused job site building from zero.</p>
+
+    <div class="priority-row"><span class="priority-rank">1</span><div class="priority-text"><strong>Free Job Posts → Featured Upgrades</strong><span>Lowest technical barrier, immediate revenue signal. Validates employer willingness to pay in your market.</span></div></div>
+    <div class="priority-row"><span class="priority-rank">2</span><div class="priority-text"><strong>Training Affiliates (ALX, Coursera)</strong><span>Zero infrastructure. Sign up, add links, earn passive commission from day one.</span></div></div>
+    <div class="priority-row"><span class="priority-rank">3</span><div class="priority-text"><strong>Employer Subscriptions</strong><span>Once you have 20+ active employers, convert them to monthly plans. Add an employer dashboard.</span></div></div>
+    <div class="priority-row"><span class="priority-rank">4</span><div class="priority-text"><strong>CV / Talent Database</strong><span>Build this as you accumulate candidates. Monetise once you have 1,000+ quality profiles.</span></div></div>
+    <div class="priority-row"><span class="priority-rank">5</span><div class="priority-text"><strong>Career Services (CV Writing, Coaching)</strong><span>Bring in freelance coaches. Start with CV review at $10–$15 — high-demand, low friction.</span></div></div>
+    <div class="priority-row"><span class="priority-rank">6</span><div class="priority-text"><strong>Direct Advertising</strong><span>Once you hit 20K+ monthly users, sell direct banner and newsletter sponsorships.</span></div></div>
+    <div class="priority-row"><span class="priority-rank">7</span><div class="priority-text"><strong>Salary Reports</strong><span>Two-year play. Collect data from launch; productise into paid reports once sample size is sufficient.</span></div></div>
+    <div class="priority-row"><span class="priority-rank">8</span><div class="priority-text"><strong>Managed Recruitment / Headhunting</strong><span>Highest revenue ceiling, highest effort. Launch this once brand and talent database are established.</span></div></div>
+  </section>
+
+  <!-- ═══════════════════════════════ AFRICA REGIONS ═══════════════════════════════ -->
+  <hr class="divider" />
+  <section id="regions">
+    <div class="section-label" style="margin-top:48px">
+      <span class="section-num">03</span>
+      <h2 class="section-title">Africa Regional Expansion</h2>
+    </div>
+    <p class="section-intro">Zambia is your base. Here is where to expand next — and which markets are worth the complexity.</p>
+
+    <div class="region-grid">
+      <div class="region-card hot">
+        <div class="region-name">🇿🇦 South Africa</div>
+        <span class="region-verdict verdict-yes">Expand First</span>
+        <div class="region-why">Largest formal job market on the continent. High internet penetration, card payments accepted, large corporate employer base. Strong competition (PNet, CareerJunction, Indeed SA) but room for niche or regional differentiation. High CPMs for ads. English-speaking. Prioritise this.</div>
+      </div>
+      <div class="region-card hot">
+        <div class="region-name">🇳🇬 Nigeria</div>
+        <span class="region-verdict verdict-yes">High Priority</span>
+        <div class="region-why">Largest population, booming tech and finance sector. Jobberman dominant but far from saturated. Mobile-first market — Paystack and Flutterwave both Nigerian, so payments are solved. Lagos alone justifies a standalone strategy.</div>
+      </div>
+      <div class="region-card hot">
+        <div class="region-name">🇰🇪 Kenya</div>
+        <span class="region-verdict verdict-yes">High Priority</span>
+        <div class="region-why">Most sophisticated tech talent market in East Africa. M-Pesa integration for payments is essential. BrighterMonday is the dominant player but CV-database and headhunting angles are underserved. Strong NGO sector generates year-round demand.</div>
+      </div>
+      <div class="region-card warm">
+        <div class="region-name">🇬🇭 Ghana</div>
+        <span class="region-verdict verdict-maybe">Worth It</span>
+        <div class="region-why">English-speaking, growing fintech hub, politically stable. Smaller market than Nigeria but less competitive. Jobberman Ghana is present but weak outside Accra. Mobile money (MTN MoMo) is the payment method to integrate.</div>
+      </div>
+      <div class="region-card warm">
+        <div class="region-name">🇿🇼 Zimbabwe</div>
+        <span class="region-verdict verdict-maybe">Adjacency Play</span>
+        <div class="region-why">Natural extension from Zambia — same corridor as your TrakPass work. Strong informal sector, brain drain challenge (many Zimbabweans seek regional jobs — your platform can serve this cross-border flow). Payment complexity: USD cash dominates; Ecocash available.</div>
+      </div>
+      <div class="region-card warm">
+        <div class="region-name">🇹🇿 Tanzania · 🇺🇬 Uganda</div>
+        <span class="region-verdict verdict-maybe">Medium Term</span>
+        <div class="region-why">Large Swahili-speaking markets. Growing formal sectors. Mobile money penetration is very high. Less competitive than Kenya. Good candidates for expansion in year 2–3 once East Africa is on your roadmap.</div>
+      </div>
+      <div class="region-card cold">
+        <div class="region-name">🇪🇹 Ethiopia · 🇸🇳 Senegal · Francophone</div>
+        <span class="region-verdict verdict-no">Defer</span>
+        <div class="region-why">French-language markets require full localisation. Payment infrastructure more complex. Ethiopia is massive but internet access still limited outside Addis. Revisit after you have 3–4 anglophone markets running profitably.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════ GLOBAL EXPANSION ═══════════════════════════════ -->
+  <hr class="divider" />
+  <section id="global">
+    <div class="section-label" style="margin-top:48px">
+      <span class="section-num">04</span>
+      <h2 class="section-title">Should You Go Global?</h2>
+    </div>
+    <p class="section-intro">Honest assessment of whether Europe, UK, Australia, and other regions are worth pursuing.</p>
+
+    <div class="region-grid">
+      <div class="region-card cold">
+        <div class="region-name">🇬🇧 United Kingdom</div>
+        <span class="region-verdict verdict-no">Do Not Enter</span>
+        <div class="region-why">Reed, Totaljobs, Indeed, LinkedIn dominate with millions in marketing budgets. GDPR compliance is expensive. Employer acquisition costs are very high. You have no competitive advantage here. The only exception: a niche specifically serving African diaspora professionals in the UK seeking opportunities back home.</div>
+      </div>
+      <div class="region-card cold">
+        <div class="region-name">🇪🇺 Europe</div>
+        <span class="region-verdict verdict-no">Do Not Enter</span>
+        <div class="region-why">Heavily regulated (GDPR, local employment laws), fragmented by language, and saturated with well-funded competitors. Unless you build a specific "Africa-to-Europe talent" product (e.g. helping EU firms hire African remote workers), this market is not worth entering.</div>
+      </div>
+      <div class="region-card cold">
+        <div class="region-name">🇦🇺 Australia</div>
+        <span class="region-verdict verdict-no">Not Relevant</span>
+        <div class="region-why">SEEK dominates absolutely. No connection to your core market or brand. The cost of building employer trust from scratch in Australia is prohibitive. Skip entirely.</div>
+      </div>
+      <div class="region-card warm">
+        <div class="region-name">🌍 African Diaspora (UK · EU · USA)</div>
+        <span class="region-verdict verdict-maybe">One Exception</span>
+        <div class="region-why"><strong>This is interesting.</strong> There are millions of African professionals in the UK, USA, and EU who want to return home or stay connected to the job market. A "Returnee Jobs" or "Remote Work for Africa" product targeting diaspora could be a powerful niche. Low competition, emotional resonance, strong network effects.</div>
+      </div>
+      <div class="region-card warm">
+        <div class="region-name">🇦🇪 UAE / Middle East</div>
+        <span class="region-verdict verdict-maybe">Worth Exploring</span>
+        <div class="region-why">Large African expat workforce (especially from Kenya, Uganda, Ethiopia, Zimbabwe) in the Gulf. You could serve African professionals seeking Gulf opportunities and Gulf employers seeking African talent. A niche but real market with thin competition.</div>
+      </div>
+    </div>
+
+    <div class="insight" style="margin-top:0">
+      <strong>The short answer on global expansion:</strong> Don't do it early. Your competitive advantage is African market knowledge, African payment integrations, and local employer relationships. You will be outgunned in Europe and Australia by incumbents with 10–20 year head starts and marketing budgets that dwarf your entire revenue. Dominate Africa first. If you hit $1M ARR in Africa, revisit the diaspora and Gulf angles — those are the only geographies where your African origin is actually an advantage.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════ VERDICT ═══════════════════════════════ -->
+  <hr class="divider" />
+  <section id="verdict">
+    <div class="section-label" style="margin-top:48px">
+      <span class="section-num">05</span>
+      <h2 class="section-title">The Bottom Line</h2>
+    </div>
+
+    <div class="insight">
+      <strong>Year 1 Target:</strong> Zambia + Zimbabwe + 1 other (SA or Kenya). Focus on featured posts, employer subscriptions, and training affiliates. Realistic ARR: <strong>$25K–$60K</strong> if you execute well.<br/><br/>
+      <strong>Year 2–3 Target:</strong> 4–6 African markets. Add CV database monetisation and career services. Realistic ARR: <strong>$120K–$400K</strong>.<br/><br/>
+      <strong>Key moat:</strong> Your talent database. Every job seeker who registers makes your platform more valuable to employers. This compounds. LinkedIn has never seriously invested in southern or central Africa — that is your window.<br/><br/>
+      <strong>Critical early action:</strong> Integrate Paystack or Flutterwave from day one. Mobile money is non-negotiable. If you can only accept Visa/Mastercard, you will miss 60–70% of your potential employer market in Zambia and Zimbabwe.
+    </div>
+  </section>
+
+</main>
+
+<footer>Built as a strategic guide · Africa Job Site Monetisation Playbook · 2025–2026</footer>
+
+<script>
+  function toggle(card) {
+    const body = card.querySelector('.card-body');
+    const isOpen = body.classList.contains('open');
+    document.querySelectorAll('.card-body.open').forEach(b => b.classList.remove('open'));
+    document.querySelectorAll('.revenue-card.open').forEach(c => c.classList.remove('open'));
+    if (!isOpen) {
+      body.classList.add('open');
+      card.classList.add('open');
+    }
+  }
+
+  // Active nav pill on scroll
+  const sections = document.querySelectorAll('section[id]');
+  const pills = document.querySelectorAll('.nav-pill');
+  window.addEventListener('scroll', () => {
+    let current = '';
+    sections.forEach(s => {
+      if (window.scrollY >= s.offsetTop - 120) current = s.id;
+    });
+    pills.forEach(p => {
+      p.classList.toggle('active', p.getAttribute('href') === '#' + current);
+    });
+  });
+</script>
+</body>
+</html>

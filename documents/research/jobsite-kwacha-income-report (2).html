@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Job Site Income Report — ZMW Estimates</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg: #0b0f0e;
+  --surface: #111815;
+  --card: #161d1a;
+  --border: rgba(255,255,255,0.07);
+  --gold: #e6b84a;
+  --gold-dim: rgba(230,184,74,0.15);
+  --green: #4caf7d;
+  --green-dim: rgba(76,175,125,0.12);
+  --red: #e06060;
+  --red-dim: rgba(224,96,96,0.12);
+  --amber: #e09440;
+  --amber-dim: rgba(224,148,64,0.12);
+  --text: #e8e4dc;
+  --muted: #6b7570;
+  --faint: #2a3330;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Outfit', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── HERO ── */
+.hero {
+  background: linear-gradient(135deg, #0d1a14 0%, #0b0f0e 60%);
+  border-bottom: 1px solid var(--border);
+  padding: 52px 40px 44px;
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: 'K';
+  position: absolute;
+  right: -30px; top: -40px;
+  font-family: 'Syne', sans-serif;
+  font-size: 320px;
+  font-weight: 800;
+  color: rgba(230,184,74,0.04);
+  line-height: 1;
+  pointer-events: none;
+}
+.hero-inner { max-width: 980px; margin: 0 auto; }
+.hero-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--gold);
+  text-transform: uppercase;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hero-tag::before {
+  content: '';
+  width: 28px; height: 1px;
+  background: var(--gold);
+}
+.hero h1 {
+  font-family: 'Syne', sans-serif;
+  font-size: clamp(28px, 4.5vw, 52px);
+  font-weight: 800;
+  line-height: 1.1;
+  margin-bottom: 14px;
+  color: #fff;
+}
+.hero h1 span { color: var(--gold); }
+.hero-sub {
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 300;
+  max-width: 560px;
+}
+.rate-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+  background: var(--gold-dim);
+  border: 1px solid rgba(230,184,74,0.3);
+  border-radius: 4px;
+  padding: 7px 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--gold);
+  letter-spacing: 0.08em;
+}
+
+/* ── LAYOUT ── */
+main { max-width: 980px; margin: 0 auto; padding: 40px 24px 80px; }
+
+/* ── SUMMARY STRIP ── */
+.summary-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 48px;
+}
+@media(max-width:600px){ .summary-strip { grid-template-columns: 1fr; } }
+.sum-box {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 20px 22px;
+  position: relative;
+  overflow: hidden;
+}
+.sum-box::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+}
+.sum-box.y1::after { background: var(--amber); }
+.sum-box.y2::after { background: var(--green); }
+.sum-box.y3::after { background: var(--gold); }
+.sum-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.sum-val {
+  font-family: 'Syne', sans-serif;
+  font-size: clamp(22px, 3vw, 30px);
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.sum-box.y1 .sum-val { color: var(--amber); }
+.sum-box.y2 .sum-val { color: var(--green); }
+.sum-box.y3 .sum-val { color: var(--gold); }
+.sum-sub { font-size: 11px; color: var(--muted); }
+
+/* ── SECTION HEAD ── */
+.sec-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  margin-top: 52px;
+}
+.sec-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--gold);
+  letter-spacing: 0.15em;
+  background: var(--gold-dim);
+  border: 1px solid rgba(230,184,74,0.2);
+  padding: 3px 9px;
+  border-radius: 3px;
+}
+.sec-title {
+  font-family: 'Syne', sans-serif;
+  font-size: clamp(18px, 2.5vw, 24px);
+  font-weight: 700;
+  color: #fff;
+}
+
+/* ── STREAM TABLE ── */
+.stream-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card);
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+.stream-table thead tr {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.stream-table th {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 500;
+}
+.stream-table th:not(:first-child) { text-align: right; }
+.stream-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  vertical-align: middle;
+  color: var(--text);
+}
+.stream-table td:not(:first-child) { text-align: right; }
+.stream-table tr:last-child td { border-bottom: none; }
+.stream-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+.stream-name { font-weight: 600; font-size: 13.5px; color: #fff; }
+.stream-note { font-size: 11px; color: var(--muted); margin-top: 2px; font-weight: 300; }
+
+.kwacha { font-family: 'JetBrains Mono', monospace; }
+.kwacha.low { color: var(--amber); }
+.kwacha.mid { color: var(--green); }
+.kwacha.high { color: var(--gold); }
+
+.total-row td {
+  background: rgba(230,184,74,0.06) !important;
+  border-top: 1px solid rgba(230,184,74,0.2) !important;
+  font-weight: 600;
+  font-family: 'Syne', sans-serif;
+  font-size: 14px;
+}
+
+/* ── DETAIL CARDS ── */
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  margin-top: 20px;
+}
+.detail-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 20px 22px;
+  transition: border-color 0.2s;
+}
+.detail-card:hover { border-color: rgba(230,184,74,0.25); }
+.detail-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+.detail-name {
+  font-family: 'Syne', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.2;
+}
+.tier-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tier-now { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(224,148,64,0.25); }
+.tier-soon { background: var(--green-dim); color: var(--green); border: 1px solid rgba(76,175,125,0.25); }
+.tier-later { background: rgba(107,117,112,0.15); color: var(--muted); border: 1px solid rgba(107,117,112,0.2); }
+.tier-big { background: var(--gold-dim); color: var(--gold); border: 1px solid rgba(230,184,74,0.25); }
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: 12.5px;
+}
+.detail-row:last-child { border-bottom: none; }
+.detail-row .dl { color: var(--muted); font-weight: 300; }
+.detail-row .dr {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+}
+.dr.gold { color: var(--gold); }
+.dr.green { color: var(--green); }
+.dr.amber { color: var(--amber); }
+
+/* ── ASSUMPTIONS BOX ── */
+.assumptions {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--gold);
+  border-radius: 6px;
+  padding: 20px 24px;
+  margin-top: 48px;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.assumptions strong { color: var(--gold); font-weight: 600; display: block; margin-bottom: 8px; }
+.assumptions ul { padding-left: 18px; }
+.assumptions li { margin-bottom: 4px; }
+
+/* ── PHASE BAR ── */
+.phase-section { margin-top: 52px; }
+.phase-row {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px 20px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+.phase-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+.phase-dot.p1 { background: var(--amber); }
+.phase-dot.p2 { background: var(--green); }
+.phase-dot.p3 { background: var(--gold); }
+.phase-body strong { display: block; font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+.phase-body span { font-size: 12px; color: var(--muted); }
+.phase-kmw {
+  margin-left: auto;
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: 18px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.phase-kmw.p1 { color: var(--amber); }
+.phase-kmw.p2 { color: var(--green); }
+.phase-kmw.p3 { color: var(--gold); }
+
+footer {
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  padding: 32px 24px;
+  border-top: 1px solid var(--border);
+  text-transform: uppercase;
+}
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-inner">
+    <div class="hero-tag">Africa Job Site · Financial Projections</div>
+    <h1>Potential Income<br/><span>in Zambian Kwacha</span></h1>
+    <p class="hero-sub">Conservative, realistic, and optimistic estimates across all 8 revenue streams — Zambia-first, Africa-ready.</p>
+    <div class="rate-pill">📌 Exchange rate used: $1 USD = K19.00 ZMW (May 2026 mid-market)</div>
+  </div>
+</div>
+
+<main>
+
+  <!-- SUMMARY TOTALS -->
+  <div class="summary-strip">
+    <div class="sum-box y1">
+      <div class="sum-label">Year 1 — Conservative</div>
+      <div class="sum-val">K475,000</div>
+      <div class="sum-sub">~$25K USD · Getting traction</div>
+    </div>
+    <div class="sum-box y2">
+      <div class="sum-label">Year 2 — Realistic Growth</div>
+      <div class="sum-val">K2,280,000</div>
+      <div class="sum-sub">~$120K USD · Multi-market running</div>
+    </div>
+    <div class="sum-box y3">
+      <div class="sum-label">Year 3 — Strong Execution</div>
+      <div class="sum-val">K7,600,000</div>
+      <div class="sum-sub">~$400K USD · Established platform</div>
+    </div>
+  </div>
+
+  <!-- MASTER TABLE -->
+  <div class="sec-head">
+    <span class="sec-num">01</span>
+    <h2 class="sec-title">All Streams · Monthly Income Summary (ZMW)</h2>
+  </div>
+
+  <div style="overflow-x:auto;">
+  <table class="stream-table">
+    <thead>
+      <tr>
+        <th style="min-width:200px">Revenue Stream</th>
+        <th>Start Month</th>
+        <th>Conservative /mo</th>
+        <th>Realistic /mo</th>
+        <th>Strong /mo</th>
+        <th>Annual (Realistic)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><div class="stream-name">Featured Job Posts</div><div class="stream-note">Employer pay-per-post upgrades</div></td>
+        <td><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--amber)">Month 1</span></td>
+        <td><span class="kwacha low">K2,850</span></td>
+        <td><span class="kwacha mid">K9,500</span></td>
+        <td><span class="kwacha high">K28,500</span></td>
+        <td><span class="kwacha mid">K114,000</span></td>
+      </tr>
+      <tr>
+        <td><div class="stream-name">Employer Subscriptions</div><div class="stream-note">Monthly plans — Starter to Enterprise</div></td>
+        <td><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--amber)">Month 3</span></td>
+        <td><span class="kwacha low">K9,500</span></td>
+        <td><span class="kwacha mid">K28,500</span></td>
+        <td><span class="kwacha high">K76,000</span></td>
+        <td><span class="kwacha mid">K342,000</span></td>
+      </tr>
+      <tr>
+        <td><div class="stream-name">CV / Talent Database</div><div class="stream-note">Employer search access & candidate reveals</div></td>
+        <td><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--green)">Month 6</span></td>
+        <td><span class="kwacha low">K4,750</span></td>
+        <td><span class="kwacha mid">K28,500</span></td>
+        <td><span class="kwacha high">K114,000</span></td>
+        <td><span class="kwacha mid">K342,000</span></td>
+      </tr>
+      <tr>
+        <td><div class="stream-name">Training Affiliates</div><div class="stream-note">ALX, Coursera, local institutes</div></td>
+        <td><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--amber)">Month 1</span></td>
+        <td><span class="kwacha low">K950</span></td>
+        <td><span class="kwacha mid">K9,500</span></td>
+        <td><span class="kwacha high">K28,500</span></td>
+        <td><span class="kwacha mid">K114,000</span></td>
+      </tr>
+      <tr>
+        <td><div class="stream-name">Career Services</div><div class="stream-note">CV writing, coaching, interview prep</div></td>
+        <td><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--green)">Month 4</span></td>
+        <td><span class="kwacha low">K2,850</span></td>
+        <td><span class="kwacha mid">K19,000</span></td>
+        <td><span class="kwacha high">K47,500</span></td>
+        <td><span class="kwacha mid">K228,000</span></td>
+      </tr>
+      <tr>
+        <td><div class="stream-name">Display Advertising</div><div class="stream-note">AdSense + direct banner/newsletter sponsors</div></td>
+        <td><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--green)">Month 4</span></td>
+        <td><span class="kwacha low">K1,425</span></td>
+        <td><span class="kwacha mid">K9,500</span></td>
+        <td><span class="kwacha high">K38,000</span></td>
+        <td><span class="kwacha mid">K114,000</span></td>
+      </tr>
+      <tr>
+        <td><div class="stream-name">Salary Reports & Data</div><div class="stream-note">Annual surveys, API access</div></td>
+        <td><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted)">Month 12</span></td>
+        <td><span class="kwacha low">K950</span></td>
+        <td><span class="kwacha mid">K9,500</span></td>
+        <td><span class="kwacha high">K47,500</span></td>
+        <td><span class="kwacha mid">K114,000</span></td>
+      </tr>
+      <tr>
+        <td><div class="stream-name">Managed Recruitment</div><div class="stream-note">Headhunting & executive placement</div></td>
+        <td><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted)">Month 9</span></td>
+        <td><span class="kwacha low">K0</span></td>
+        <td><span class="kwacha mid">K57,000</span></td>
+        <td><span class="kwacha high">K285,000</span></td>
+        <td><span class="kwacha mid">K684,000</span></td>
+      </tr>
+      <tr class="total-row">
+        <td>TOTAL MONTHLY (Realistic)</td>
+        <td>—</td>
+        <td><span class="kwacha" style="color:var(--amber)">K23,275</span></td>
+        <td><span class="kwacha" style="color:var(--green)">K171,000</span></td>
+        <td><span class="kwacha" style="color:var(--gold)">K665,000</span></td>
+        <td><span class="kwacha" style="color:var(--green)">K2,052,000</span></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- DEEP DIVE CARDS -->
+  <div class="sec-head">
+    <span class="sec-num">02</span>
+    <h2 class="sec-title">Stream Breakdown — How the Numbers Work</h2>
+  </div>
+
+  <div class="detail-grid">
+
+    <div class="detail-card">
+      <div class="detail-top">
+        <div class="detail-name">Featured Job Posts</div>
+        <span class="tier-badge tier-now">Start Now</span>
+      </div>
+      <div class="detail-row"><span class="dl">Price per featured post</span><span class="dr amber">K285–K570</span></div>
+      <div class="detail-row"><span class="dl">Conservative (5 posts/mo)</span><span class="dr amber">K2,850/mo</span></div>
+      <div class="detail-row"><span class="dl">Realistic (25–35 posts/mo)</span><span class="dr green">K9,500/mo</span></div>
+      <div class="detail-row"><span class="dl">Strong (80–100 posts/mo)</span><span class="dr gold">K28,500/mo</span></div>
+      <div class="detail-row"><span class="dl">Realistic Annual</span><span class="dr green">K114,000/yr</span></div>
+    </div>
+
+    <div class="detail-card">
+      <div class="detail-top">
+        <div class="detail-name">Employer Subscriptions</div>
+        <span class="tier-badge tier-now">Start Now</span>
+      </div>
+      <div class="detail-row"><span class="dl">Starter plan (K550/mo)</span><span class="dr amber">K550</span></div>
+      <div class="detail-row"><span class="dl">Growth plan (K1,500/mo)</span><span class="dr amber">K1,500</span></div>
+      <div class="detail-row"><span class="dl">Enterprise (K3,800+/mo)</span><span class="dr gold">K3,800+</span></div>
+      <div class="detail-row"><span class="dl">Realistic (15 subs mixed)</span><span class="dr green">K28,500/mo</span></div>
+      <div class="detail-row"><span class="dl">Realistic Annual</span><span class="dr green">K342,000/yr</span></div>
+    </div>
+
+    <div class="detail-card">
+      <div class="detail-top">
+        <div class="detail-name">CV / Talent Database</div>
+        <span class="tier-badge tier-soon">Month 6</span>
+      </div>
+      <div class="detail-row"><span class="dl">Per-reveal price</span><span class="dr amber">K95–K285</span></div>
+      <div class="detail-row"><span class="dl">Unlimited access /mo</span><span class="dr amber">K1,900–K3,800</span></div>
+      <div class="detail-row"><span class="dl">Conservative (5 clients)</span><span class="dr amber">K4,750/mo</span></div>
+      <div class="detail-row"><span class="dl">Realistic (10–15 clients)</span><span class="dr green">K28,500/mo</span></div>
+      <div class="detail-row"><span class="dl">Realistic Annual</span><span class="dr green">K342,000/yr</span></div>
+    </div>
+
+    <div class="detail-card">
+      <div class="detail-top">
+        <div class="detail-name">Training Affiliates</div>
+        <span class="tier-badge tier-now">Start Now</span>
+      </div>
+      <div class="detail-row"><span class="dl">Commission per enrolment</span><span class="dr amber">K95–K1,520</span></div>
+      <div class="detail-row"><span class="dl">Conservative (5 referrals/mo)</span><span class="dr amber">K950/mo</span></div>
+      <div class="detail-row"><span class="dl">Realistic (50 referrals/mo)</span><span class="dr green">K9,500/mo</span></div>
+      <div class="detail-row"><span class="dl">Strong (100–200/mo)</span><span class="dr gold">K28,500/mo</span></div>
+      <div class="detail-row"><span class="dl">Realistic Annual</span><span class="dr green">K114,000/yr</span></div>
+    </div>
+
+    <div class="detail-card">
+      <div class="detail-top">
+        <div class="detail-name">Career Services</div>
+        <span class="tier-badge tier-soon">Month 4</span>
+      </div>
+      <div class="detail-row"><span class="dl">Basic CV review (net)</span><span class="dr amber">K114–K190</span></div>
+      <div class="detail-row"><span class="dl">Full CV rewrite (net)</span><span class="dr amber">K285–K475</span></div>
+      <div class="detail-row"><span class="dl">Interview coaching (net)</span><span class="dr amber">K380–K760</span></div>
+      <div class="detail-row"><span class="dl">Realistic (80 orders/mo)</span><span class="dr green">K19,000/mo</span></div>
+      <div class="detail-row"><span class="dl">Realistic Annual</span><span class="dr green">K228,000/yr</span></div>
+    </div>
+
+    <div class="detail-card">
+      <div class="detail-top">
+        <div class="detail-name">Display Advertising</div>
+        <span class="tier-badge tier-soon">Month 4</span>
+      </div>
+      <div class="detail-row"><span class="dl">AdSense (50K visitors/mo)</span><span class="dr amber">K2,850–K7,600</span></div>
+      <div class="detail-row"><span class="dl">Direct banner (monthly)</span><span class="dr amber">K3,800–K19,000</span></div>
+      <div class="detail-row"><span class="dl">Newsletter sponsor (per send)</span><span class="dr green">K3,800–K15,200</span></div>
+      <div class="detail-row"><span class="dl">Realistic blended total</span><span class="dr green">K9,500/mo</span></div>
+      <div class="detail-row"><span class="dl">Realistic Annual</span><span class="dr green">K114,000/yr</span></div>
+    </div>
+
+    <div class="detail-card">
+      <div class="detail-top">
+        <div class="detail-name">Salary Reports & Data</div>
+        <span class="tier-badge tier-later">Month 12+</span>
+      </div>
+      <div class="detail-row"><span class="dl">Report price (per copy)</span><span class="dr amber">K3,800–K9,500</span></div>
+      <div class="detail-row"><span class="dl">API access (monthly)</span><span class="dr amber">K1,900–K5,700</span></div>
+      <div class="detail-row"><span class="dl">Annual report sales</span><span class="dr green">K95,000–K285,000</span></div>
+      <div class="detail-row"><span class="dl">Realistic monthly avg</span><span class="dr green">K9,500/mo</span></div>
+      <div class="detail-row"><span class="dl">Realistic Annual</span><span class="dr green">K114,000/yr</span></div>
+    </div>
+
+    <div class="detail-card">
+      <div class="detail-top">
+        <div class="detail-name">Managed Recruitment</div>
+        <span class="tier-badge tier-big">Highest Ceiling</span>
+      </div>
+      <div class="detail-row"><span class="dl">Fee per junior placement</span><span class="dr amber">K57,000–K95,000</span></div>
+      <div class="detail-row"><span class="dl">Fee per senior placement</span><span class="dr gold">K142,500–K285,000</span></div>
+      <div class="detail-row"><span class="dl">Conservative (1 place/mo)</span><span class="dr amber">K57,000/mo</span></div>
+      <div class="detail-row"><span class="dl">Strong (5–10 places/mo)</span><span class="dr gold">K285,000+/mo</span></div>
+      <div class="detail-row"><span class="dl">Realistic Annual</span><span class="dr green">K684,000/yr</span></div>
+    </div>
+
+  </div>
+
+  <!-- PHASE VIEW -->
+  <div class="phase-section">
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <h2 class="sec-title">Revenue by Phase — Annual ZMW Targets</h2>
+    </div>
+
+    <div class="phase-row">
+      <div class="phase-dot p1"></div>
+      <div class="phase-body">
+        <strong>Phase 1 · Year 1 — Zambia Launch</strong>
+        <span>Featured posts + Training affiliates + early subscriptions. Getting your first 20–30 paying employers. ~K39,000/mo by month 12.</span>
+      </div>
+      <div class="phase-kmw p1">K475,000/yr</div>
+    </div>
+
+    <div class="phase-row">
+      <div class="phase-dot p2"></div>
+      <div class="phase-body">
+        <strong>Phase 2 · Year 2 — Zambia + SA + Zimbabwe</strong>
+        <span>All 8 streams active. CV database monetised. Career services running. Multi-market employer base. ~K190,000/mo by year-end.</span>
+      </div>
+      <div class="phase-kmw p2">K2,280,000/yr</div>
+    </div>
+
+    <div class="phase-row">
+      <div class="phase-dot p3"></div>
+      <div class="phase-body">
+        <strong>Phase 3 · Year 3 — 4–6 African Markets</strong>
+        <span>Recruitment arm generating big placement fees. Salary reports sold to corporates. Strong subscription base across multiple countries. ~K633,000/mo.</span>
+      </div>
+      <div class="phase-kmw p3">K7,600,000/yr</div>
+    </div>
+  </div>
+
+  <!-- ASSUMPTIONS -->
+  <div class="assumptions">
+    <strong>📋 Key Assumptions Underpinning These Numbers</strong>
+    <ul>
+      <li>Exchange rate of <strong>$1 = K19.00</strong> (May 2026 mid-market rate). Kwacha has strengthened in 2025–26; this is a realistic near-term rate.</li>
+      <li><strong>Zambia-first pricing</strong> used for Year 1. Prices are calibrated to local employer purchasing power — not imported USD pricing.</li>
+      <li>Year 1 assumes <strong>Zambia only</strong>. Year 2 adds SA and Zimbabwe. Year 3 adds Nigeria or Kenya + 1–2 others.</li>
+      <li><strong>Conservative</strong> = minimal traction, 5–10 paying employers, low traffic. <strong>Realistic</strong> = steady execution, 30–50 employers, 20K+ monthly visitors. <strong>Strong</strong> = high execution, 100+ employers, 80K+ monthly visitors.</li>
+      <li>Managed Recruitment figures assume 15–20% success fee on placed salaries. Junior role = K380,000 salary → K57,000–K76,000 fee. Senior = K1.5M salary → K225,000–K300,000 fee.</li>
+      <li>These are <strong>gross revenue estimates</strong>, not profit. Deduct hosting (~K1,900/mo), payment gateway fees (~3%), staff, and marketing costs to arrive at net.</li>
+      <li>No advertising spend assumed. Growth via SEO, direct employer outreach, and word of mouth — realistic for a bootstrapped start.</li>
+    </ul>
+  </div>
+
+</main>
+
+<footer>Africa Job Site · Income Projection Report · May 2026 · Rate: $1 = K19.00 ZMW</footer>
+
+</body>
+</html>
