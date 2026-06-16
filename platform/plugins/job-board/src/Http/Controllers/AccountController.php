@@ -33,7 +33,16 @@ class AccountController extends BaseController
     {
         $this->pageTitle(trans('plugins/job-board::account.name'));
 
-        return $dataTable->renderTable();
+        $stats = [
+            'total' => Account::count(),
+            'this_month' => Account::whereYear('created_at', now()->year)
+                ->whereMonth('created_at', now()->month)
+                ->count(),
+            'verified' => Account::whereNotNull('confirmed_at')->count(),
+            'unverified' => Account::whereNull('confirmed_at')->count(),
+        ];
+
+        return $dataTable->renderTable(compact('stats'));
     }
 
     public function create()

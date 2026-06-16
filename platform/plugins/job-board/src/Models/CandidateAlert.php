@@ -13,6 +13,7 @@ class CandidateAlert extends BaseModel
         'label',
         'candidate_name',
         'candidate_phone',
+        'candidate_phone_2',
         'candidate_email',
         'filters',
         'duration_days',
@@ -64,6 +65,25 @@ class CandidateAlert extends BaseModel
     public function recipientJid(): string
     {
         return preg_replace('/\D/', '', $this->candidate_phone) . '@s.whatsapp.net';
+    }
+
+    /**
+     * All WhatsApp JIDs alerts should be sent to (primary + optional second number).
+     */
+    public function recipientJids(): array
+    {
+        $jids = [];
+
+        foreach ([$this->candidate_phone, $this->candidate_phone_2] as $phone) {
+            $phone = trim((string) $phone);
+            if ($phone === '') {
+                continue;
+            }
+
+            $jids[] = preg_replace('/\D/', '', $phone) . '@s.whatsapp.net';
+        }
+
+        return array_values(array_unique($jids));
     }
 
     public function scopeActive($query)

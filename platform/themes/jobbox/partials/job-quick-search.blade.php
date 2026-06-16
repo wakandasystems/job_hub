@@ -8,24 +8,20 @@
             $companyLogo = $job->company->logo;
         @endphp
 
-        <div class="quick-search-result__item">
+        <a href="{{ $job->url }}" class="quick-search-result__item">
             @if($defaultCompanyLogo || $companyLogo)
                 <div class="quick-search-result__item__image">
-                    <a href="{{ $job->company->url }}">
-                        {{ RvMedia::image($companyLogo ?: $defaultCompanyLogo, $job->company->name, 'thumb') }}
-                    </a>
+                    {{ RvMedia::image($companyLogo ?: $defaultCompanyLogo, $job->company->name, 'thumb') }}
                 </div>
             @endif
 
             <div class="quick-search-result__item__content text-truncate">
-                <h3 class="quick-search-result__item__content__title text-truncate">
-                    <a href="{{ $job->url }}">{{ $job->name }}</a>
-                </h3>
+                <h3 class="quick-search-result__item__content__title text-truncate">{{ $job->name }}</h3>
                 <div class="quick-search-result__item__content__location">
                     <i class="fa fa-map-marker"></i>
                     {{ $job->location }}
                 </div>
             </div>
-        </div>
+        </a>
     @endforeach
 </div>

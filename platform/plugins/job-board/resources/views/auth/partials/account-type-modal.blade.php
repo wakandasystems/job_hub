@@ -36,7 +36,15 @@
 document.addEventListener("DOMContentLoaded", function() {
     const form = document.querySelector("form[action*=\"register\"]");
     const submitButton = form?.querySelector("button[type=\"submit\"]");
-    const modal = new bootstrap.Modal(document.getElementById("accountTypeModal"));
+    const modalElement = document.getElementById("accountTypeModal");
+
+    // Move the modal to be a direct child of <body>. The form column has
+    // `position: relative; z-index: 1` (see _login-register.scss), which
+    // creates a stacking context that traps this modal's z-index below the
+    // .modal-backdrop Bootstrap appends to <body>, hiding it behind the overlay.
+    document.body.appendChild(modalElement);
+
+    const modal = new bootstrap.Modal(modalElement);
 
     if (form && submitButton) {
         form.addEventListener("submit", function(e) {
@@ -70,6 +78,12 @@ document.addEventListener("DOMContentLoaded", function() {
             } else {
                 employerIcon.classList.add("d-none");
                 jobseekerIcon.classList.remove("d-none");
+            }
+
+            // Close any open SweetAlert2 popup (e.g. the VIP alert promo) so it
+            // doesn't sit on top of this modal (its z-index is higher than Bootstrap's).
+            if (window.Swal && typeof Swal.close === "function") {
+                Swal.close();
             }
 
             modal.show();

@@ -77,6 +77,18 @@
             </div>
 
             <div class="col-md-6">
+                <label class="form-label fw-semibold">
+                    <i class="fab fa-whatsapp me-1" style="color:#25D366"></i>
+                    Second WhatsApp Number <span class="text-muted small">(optional)</span>
+                </label>
+                <input type="text" name="candidate_phone_2"
+                    class="form-control"
+                    value="{{ old('candidate_phone_2', $alert?->candidate_phone_2) }}"
+                    placeholder="+260977000000">
+                <div class="form-text">If set, alerts are also sent to this number via WhatsApp.</div>
+            </div>
+
+            <div class="col-md-6">
                 <label class="form-label fw-semibold">Email <span class="text-muted small">(optional)</span></label>
                 <input type="email" name="candidate_email" class="form-control"
                     value="{{ old('candidate_email', $alert?->candidate_email) }}"

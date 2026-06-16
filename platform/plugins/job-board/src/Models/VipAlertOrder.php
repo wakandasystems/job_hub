@@ -155,12 +155,14 @@ class VipAlertOrder extends BaseModel
         $msg .= "Sit back and let us find your next opportunity! 🚀\n\n";
         $msg .= "_Wakanda Jobs — wakandajobs.com_";
 
-        try {
-            Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
-                'to'   => $alert->recipientJid(),
-                'body' => $msg,
-            ]);
-        } catch (Throwable) {
+        foreach ($alert->recipientJids() as $jid) {
+            try {
+                Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
+                    'to'   => $jid,
+                    'body' => $msg,
+                ]);
+            } catch (Throwable) {
+            }
         }
     }
 }

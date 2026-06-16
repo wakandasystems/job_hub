@@ -89,7 +89,7 @@ class CheckCandidateAlertExpiryCommand extends Command
         $msg   .= "Reply *RENEW* or contact us today to stay ahead of new opportunities! 🚀\n\n";
         $msg   .= "_Wakanda Jobs — wakandajobs.com_";
 
-        $this->dispatchWhatsApp($token, $gatewayUrl, $alert->recipientJid(), $msg);
+        $this->dispatchWhatsAppToAlert($token, $gatewayUrl, $alert, $msg);
     }
 
     private function sendSameDayReminder(string $token, string $gatewayUrl, CandidateAlert $alert): void
@@ -106,7 +106,7 @@ class CheckCandidateAlertExpiryCommand extends Command
         $msg   .= "Reply *RENEW* and we'll sort you out instantly! ✅\n\n";
         $msg   .= "_Wakanda Jobs — wakandajobs.com_";
 
-        $this->dispatchWhatsApp($token, $gatewayUrl, $alert->recipientJid(), $msg);
+        $this->dispatchWhatsAppToAlert($token, $gatewayUrl, $alert, $msg);
     }
 
     private function sendExpiryNotice(string $token, string $gatewayUrl, CandidateAlert $alert): void
@@ -122,7 +122,7 @@ class CheckCandidateAlertExpiryCommand extends Command
         $msg .= "Reply *RENEW* or visit *wakandajobs.com* to get back on track! 🚀\n\n";
         $msg .= "_Wakanda Jobs — wakandajobs.com_";
 
-        $this->dispatchWhatsApp($token, $gatewayUrl, $alert->recipientJid(), $msg);
+        $this->dispatchWhatsAppToAlert($token, $gatewayUrl, $alert, $msg);
     }
 
     private function sendAdminExpiredNotice(string $token, string $gatewayUrl, CandidateAlert $alert): void
@@ -159,6 +159,13 @@ class CheckCandidateAlertExpiryCommand extends Command
                 'body' => $body,
             ]);
         } catch (Throwable) {}
+    }
+
+    private function dispatchWhatsAppToAlert(string $token, string $gatewayUrl, CandidateAlert $alert, string $body): void
+    {
+        foreach ($alert->recipientJids() as $jid) {
+            $this->dispatchWhatsApp($token, $gatewayUrl, $jid, $body);
+        }
     }
 
     private function getWhapiCredentials(): array

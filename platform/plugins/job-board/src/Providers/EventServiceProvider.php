@@ -18,6 +18,7 @@ use Botble\JobBoard\Listeners\SaveFavoriteTagAndSkillsListener;
 use Botble\JobBoard\Listeners\SendJobAlertListener;
 use Botble\JobBoard\Listeners\SendNewsletterJobAlertListener;
 use Botble\JobBoard\Listeners\SendPushNotificationListener;
+use Botble\JobBoard\Listeners\SendVipCandidateAlertsListener;
 use Botble\JobBoard\Listeners\SocialPublishListener;
 use Botble\JobBoard\Listeners\SubscribedPackageListener;
 use Botble\JobBoard\Listeners\UpdatedContentListener;
@@ -40,6 +41,7 @@ class EventServiceProvider extends ServiceProvider
             SendNewsletterJobAlertListener::class,
             SocialPublishListener::class,
             SendPushNotificationListener::class,
+            SendVipCandidateAlertsListener::class,
         ],
         EmployerPostedJobEvent::class => [
             EmployerPostedJobListener::class,

@@ -28,6 +28,7 @@ class AccountTable extends TableAbstract
     {
         $this
             ->model(Account::class)
+            ->setView('plugins/job-board::accounts.table-view')
             ->addActions([
                 EditAction::make()->route('accounts.edit'),
                 DeleteAction::make()->route('accounts.destroy'),

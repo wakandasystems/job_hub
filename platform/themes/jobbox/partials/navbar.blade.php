@@ -46,6 +46,11 @@
                         <ul class="header-menu list-inline d-flex align-items-center mb-0 user-header-dropdown">
                             {!! apply_filters('theme-header-right-nav', null) !!}
                             <li class="list-inline-item">
+                                <button type="button" id="header-search-toggle" class="header-search-toggle" aria-label="{{ __('Search') }}">
+                                    <i class="fi-rr-search"></i>
+                                </button>
+                            </li>
+                            <li class="list-inline-item">
                                 {!! Theme::partial('country-switcher') !!}
                             </li>
                             @if (auth('account')->check() && $account = auth('account')->user())
@@ -70,6 +75,9 @@
                         </ul>
                     @else
                         <div class="block-signin">
+                            <button type="button" id="header-search-toggle" class="header-search-toggle" aria-label="{{ __('Search') }}">
+                                <i class="fi-rr-search"></i>
+                            </button>
                             {!! Theme::partial('country-switcher') !!}
                             <a class="btn btn-default btn-shadow ml-30 hover-up" href="{{ route('public.account.login') }}"><x-core::icon name="ti ti-user-shield" class="me-1" />{{ __('Sign In') }}</a>
                         </div>
@@ -134,6 +142,30 @@
                 @endif
                 <div class="site-copyright">{!! BaseHelper::clean(theme_option('copyright')) !!}</div>
             </div>
+        </div>
+    </div>
+</div>
+
+{{-- Search overlay --}}
+<div id="header-search-overlay" class="header-search-overlay" role="dialog" aria-modal="true" aria-label="{{ __('Search') }}">
+    <div class="header-search-overlay__backdrop"></div>
+    <div class="header-search-overlay__box">
+        <div class="form-find position-relative">
+            <form method="GET" action="{{ JobBoardHelper::getJobsPageURL() }}" data-quick-search-url="{{ route('public.ajax.quick-search-jobs') }}">
+                <div class="header-search-overlay__inner">
+                    <i class="fi-rr-search header-search-overlay__icon"></i>
+                    <input
+                        class="input-keysearch header-search-overlay__input"
+                        name="keyword"
+                        type="text"
+                        placeholder="{{ __('Search jobs, companies, locations...') }}"
+                        autocomplete="off"
+                    >
+                    <button type="button" class="header-search-overlay__close" aria-label="{{ __('Close') }}">
+                        <i class="fi-rr-cross-small"></i>
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 </div>

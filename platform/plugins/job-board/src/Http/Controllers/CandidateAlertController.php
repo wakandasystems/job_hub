@@ -68,9 +68,10 @@ class CandidateAlertController
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'candidate_name'  => ['required', 'string', 'max:100'],
-            'candidate_phone' => ['required', 'string', 'max:30'],
-            'candidate_email' => ['nullable', 'email', 'max:150'],
+            'candidate_name'    => ['required', 'string', 'max:100'],
+            'candidate_phone'   => ['required', 'string', 'max:30'],
+            'candidate_phone_2' => ['nullable', 'string', 'max:30'],
+            'candidate_email'   => ['nullable', 'email', 'max:150'],
             'duration_days'   => ['required', 'in:7,30,60'],
             'filters'         => ['nullable', 'array'],
             'notes'           => ['nullable', 'string', 'max:1000'],
@@ -98,8 +99,9 @@ class CandidateAlertController
         try {
             $alert = CandidateAlert::create([
                 'label'           => $label,
-                'candidate_name'  => $data['candidate_name'],
-                'candidate_phone' => $data['candidate_phone'],
+                'candidate_name'    => $data['candidate_name'],
+                'candidate_phone'   => $data['candidate_phone'],
+                'candidate_phone_2' => $data['candidate_phone_2'] ?? null,
                 'candidate_email' => $data['candidate_email'] ?? null,
                 'filters'         => $this->cleanFilters($data['filters'] ?? []),
                 'duration_days'   => $duration,
@@ -126,9 +128,10 @@ class CandidateAlertController
     public function update(CandidateAlert $candidateAlert, Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'candidate_name'  => ['required', 'string', 'max:100'],
-            'candidate_phone' => ['required', 'string', 'max:30'],
-            'candidate_email' => ['nullable', 'email', 'max:150'],
+            'candidate_name'    => ['required', 'string', 'max:100'],
+            'candidate_phone'   => ['required', 'string', 'max:30'],
+            'candidate_phone_2' => ['nullable', 'string', 'max:30'],
+            'candidate_email'   => ['nullable', 'email', 'max:150'],
             'filters'         => ['nullable', 'array'],
             'notes'           => ['nullable', 'string', 'max:1000'],
             'cv_file'         => ['nullable', 'file', 'mimes:pdf,doc,docx,txt', 'max:10240'],
@@ -154,7 +157,8 @@ class CandidateAlertController
         $updatePayload = [
             'label'           => $label,
             'candidate_name'  => $data['candidate_name'],
-            'candidate_phone' => $data['candidate_phone'],
+            'candidate_phone'   => $data['candidate_phone'],
+            'candidate_phone_2' => $data['candidate_phone_2'] ?? null,
             'candidate_email' => $data['candidate_email'] ?? null,
             'filters'         => $newFilters,
             'notes'           => $data['notes'] ?? null,
@@ -399,9 +403,52 @@ class CandidateAlertController
 
     public function sendNow(CandidateAlert $candidateAlert, Request $request): JsonResponse
     {
-        return response()->json([
-            'error' => 'Individual WhatsApp sends are disabled. Subscribers receive one paced daily digest.',
-        ], 422);
+        [$token, $gatewayUrl] = $this->getWhapiCredentials();
+
+        if (! $token) {
+            return response()->json(['error' => 'No active Whapi automation configured.'], 422);
+        }
+
+        $jobIds = array_filter(array_map('intval', (array) $request->input('job_ids', [])));
+
+        if (! $jobIds) {
+            return response()->json(['error' => 'No jobs specified.'], 422);
+        }
+
+        $forceResend = (bool) $request->input('force_resend', false);
+
+        $jobs = Job::query()
+            ->whereIn('id', $jobIds)
+            ->with(['company', 'slugable', 'jobTypes', 'currency'])
+            ->get();
+
+        $sentCount = 0;
+
+        foreach ($jobs as $job) {
+            if (! $forceResend && $candidateAlert->logs()->where('job_id', $job->id)->where('status', 'sent')->exists()) {
+                continue;
+            }
+
+            $ok = $this->sendJobMessage($token, $gatewayUrl, $candidateAlert, $job);
+
+            CandidateAlertLog::create([
+                'candidate_alert_id' => $candidateAlert->id,
+                'job_id'             => $job->id,
+                'status'             => $ok ? 'sent' : 'failed',
+                'error_message'      => $ok ? null : 'Manual send failed',
+                'sent_at'            => now(),
+            ]);
+
+            if ($ok) {
+                $sentCount++;
+            }
+        }
+
+        if ($sentCount === 0) {
+            return response()->json(['error' => 'Failed to send job(s) via WhatsApp.'], 422);
+        }
+
+        return response()->json(['message' => "Sent {$sentCount} job(s)."]);
     }
 
     public function previewFilters(Request $request): JsonResponse
@@ -695,29 +742,40 @@ class CandidateAlertController
         $msg .= "\n👉 *Apply:* {$jobUrl}\n\n";
         $msg .= "_Wakanda Jobs VIP Alert — wakandajobs.com_";
 
-        try {
-            $imgField = trim((string) ($job->whatsapp_image ?? ''));
-            if ($imgField !== '') {
-                $imageUrl = RvMedia::getImageUrl($imgField);
-                $response = Http::timeout(30)->withToken($token)->post("{$gatewayUrl}/messages/image", [
-                    'to'      => $alert->recipientJid(),
-                    'media'   => $imageUrl,
-                    'caption' => $msg,
-                ]);
-                if ($response->successful()) {
-                    return true;
+        $imgField = trim((string) ($job->whatsapp_image ?? ''));
+        $imageUrl = $imgField !== '' ? RvMedia::getImageUrl($imgField) : null;
+
+        $sentToAny = false;
+
+        foreach ($alert->recipientJids() as $jid) {
+            try {
+                if ($imageUrl) {
+                    $response = Http::timeout(30)->withToken($token)->post("{$gatewayUrl}/messages/image", [
+                        'to'      => $jid,
+                        'media'   => $imageUrl,
+                        'caption' => $msg,
+                    ]);
+
+                    if ($response->successful()) {
+                        $sentToAny = true;
+                        continue;
+                    }
                 }
+
+                $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
+                    'to'   => $jid,
+                    'body' => $msg,
+                ]);
+
+                if ($response->successful()) {
+                    $sentToAny = true;
+                }
+            } catch (Throwable) {
+                // try next number
             }
-
-            $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
-                'to'   => $alert->recipientJid(),
-                'body' => $msg,
-            ]);
-
-            return $response->successful();
-        } catch (Throwable) {
-            return false;
         }
+
+        return $sentToAny;
     }
 
     private function sendWelcomeMessage(CandidateAlert $alert): void
@@ -740,12 +798,14 @@ class CandidateAlertController
         $msg .= "Sit back and let us find your next opportunity! 🚀\n\n";
         $msg .= "_Wakanda Jobs — wakandajobs.com_";
 
-        try {
-            Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
-                'to'   => $alert->recipientJid(),
-                'body' => $msg,
-            ]);
-        } catch (Throwable) {}
+        foreach ($alert->recipientJids() as $jid) {
+            try {
+                Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
+                    'to'   => $jid,
+                    'body' => $msg,
+                ]);
+            } catch (Throwable) {}
+        }
     }
 
     private function sendFilterUpdateMessage(CandidateAlert $alert): void
@@ -761,12 +821,14 @@ class CandidateAlertController
         $msg .= "You will now receive jobs matching these updated criteria.\n\n";
         $msg .= "_Wakanda Jobs — wakandajobs.com_";
 
-        try {
-            Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
-                'to'   => $alert->recipientJid(),
-                'body' => $msg,
-            ]);
-        } catch (Throwable) {}
+        foreach ($alert->recipientJids() as $jid) {
+            try {
+                Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
+                    'to'   => $jid,
+                    'body' => $msg,
+                ]);
+            } catch (Throwable) {}
+        }
     }
 
     private function buildFilterDescription(CandidateAlert $alert): string

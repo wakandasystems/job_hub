@@ -56,6 +56,7 @@ class JobCrawlerForm extends FormAbstract
                     'noojobmonster' => 'Noo JobMonster theme (paginated HTML + JSON-LD)',
                     'emploitic' => 'Emploitic Algeria (XML sitemap + JSON-LD)',
                     'jobpoint' => 'JobPoint Botswana (paginated Inertia listings)',
+                    'ijob' => 'iJob South Africa (paginated WordPress articles)',
                 ],
                 'colspan' => 6,
             ])

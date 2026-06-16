@@ -39,11 +39,12 @@ class AdOrderCheckoutController extends BaseController
                 str_starts_with($placement->location, 'company_') => 'Companies',
                 str_starts_with($placement->location, 'candidate_') => 'Candidates',
                 str_starts_with($placement->location, 'post_'), str_starts_with($placement->location, 'blog_') => 'Blog',
+                str_starts_with($placement->location, 'social_') => 'Social Media',
                 default => 'General',
             };
         });
 
-        $groupOrder = ['Jobs', 'Companies', 'Candidates', 'Blog', 'General'];
+        $groupOrder = ['Jobs', 'Companies', 'Candidates', 'Blog', 'Social Media', 'General'];
 
         $groups = collect($groupOrder)
             ->filter(fn (string $group) => $groups->has($group))

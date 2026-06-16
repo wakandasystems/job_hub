@@ -188,16 +188,24 @@ class SendCandidateAlertsCommand extends Command
         $message .= "You receive at most one job digest per day. To stop these alerts, contact Wakanda Jobs support.\n";
         $message .= "_Wakanda Jobs VIP Alerts_";
 
-        try {
-            $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
-                'to'   => $alert->recipientJid(),
-                'body' => $message,
-            ]);
+        $sentToAny = false;
 
-            return $response->successful();
-        } catch (Throwable) {
-            return false;
+        foreach ($alert->recipientJids() as $jid) {
+            try {
+                $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
+                    'to'   => $jid,
+                    'body' => $message,
+                ]);
+
+                if ($response->successful()) {
+                    $sentToAny = true;
+                }
+            } catch (Throwable) {
+                // try next number
+            }
         }
+
+        return $sentToAny;
     }
 
     private function getWhapiCredentials(): array

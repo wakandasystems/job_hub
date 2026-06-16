@@ -27,6 +27,7 @@ class JobCrawlerRequest extends Request
                 'noojobmonster',
                 'emploitic',
                 'jobpoint',
+                'ijob',
             ])],
             'schedule' => ['required', 'string', Rule::in(array_keys(JobCrawler::scheduleOptions()))],
             'is_active' => ['nullable', 'bool'],

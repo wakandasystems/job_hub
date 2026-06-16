@@ -288,6 +288,10 @@ class JobCrawlerRunner
             return $this->fetchJobPointJobs($crawler);
         }
 
+        if ($crawler->parser_type === 'ijob') {
+            return $this->fetchIJobJobs($crawler);
+        }
+
         $sourceUrl = (string) $crawler->source_url;
         $paginated = str_contains($sourceUrl, '{page}');
 
@@ -498,6 +502,10 @@ class JobCrawlerRunner
 
         if ($crawler->parser_type === 'jobpoint') {
             return $this->importJobPointJobs($crawler, $items);
+        }
+
+        if ($crawler->parser_type === 'ijob') {
+            return $this->importIJobJobs($crawler, $items);
         }
 
         $stats = [
@@ -1338,6 +1346,7 @@ class JobCrawlerRunner
             } else {
                 $newJob = new Job();
                 $newJob->forceFill($this->buildGoZambiaJobAttributes($crawler, $item, $company));
+                $this->resolveApplyContact($newJob);
                 $this->persistNewJob($newJob, $crawler, $stats, function (Job $j) use ($item): void {
                     $this->assignGoZambiaCategory($j, $item);
                     $j->jobTypes()->syncWithoutDetaching([3]);
@@ -1741,7 +1750,13 @@ class JobCrawlerRunner
             return;
         }
 
-        // No email — fall back to company website so we don't strand the candidate.
+        // No email — fall back to external source URL, then company website.
+        $sourceUrl = trim((string) $job->external_source_url);
+        if ($sourceUrl) {
+            $job->apply_url = $sourceUrl;
+            return;
+        }
+
         $website = $job->company?->website;
         if ($website) {
             $job->apply_url = $website;
@@ -6086,7 +6101,317 @@ class JobCrawlerRunner
             ];
         }
 
-        return [];
+        return $this->extractNooJobMonsterDetail($html);
+    }
+
+    protected function extractNooJobMonsterDetail(string $html): array
+    {
+        $document = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        if (! $loaded) {
+            return [];
+        }
+
+        $xpath = new \DOMXPath($document);
+        $titleNode = $xpath->query(
+            '//h1[contains(concat(" ", normalize-space(@class), " "), " page-title ")]'
+        )?->item(0);
+        $descriptionNode = $xpath->query(
+            '//div[contains(concat(" ", normalize-space(@class), " "), " map-style-2 ") and @itemprop="description"]'
+        )?->item(0);
+
+        if (! $titleNode || ! $descriptionNode) {
+            return [];
+        }
+
+        $titleClone = $titleNode->cloneNode(true);
+        if ($titleClone instanceof \DOMElement) {
+            foreach (iterator_to_array((new \DOMXPath($titleClone->ownerDocument))->query('.//span', $titleClone)) as $span) {
+                $span->parentNode?->removeChild($span);
+            }
+        }
+
+        $companyNode = $xpath->query(
+            '//span[contains(concat(" ", normalize-space(@class), " "), " job-company ")]//span'
+        )?->item(0);
+        $companyLink = $xpath->query(
+            '//span[contains(concat(" ", normalize-space(@class), " "), " job-company ")]//a'
+        )?->item(0);
+        $postedNode = $xpath->query('//span[contains(@class, "job-date")]//time[@datetime]')?->item(0);
+        $closingNode = $xpath->query('//span[contains(@class, "job-date__closing")]')?->item(0);
+        $categoryNode = $xpath->query(
+            '//span[contains(concat(" ", normalize-space(@class), " "), " job-category ")]//a[1]'
+        )?->item(0);
+
+        $locations = [];
+        foreach ($xpath->query(
+            '(//div[contains(concat(" ", normalize-space(@class), " "), " job-details ")])[1]'
+            . '//span[contains(@class, "job-location")]//em'
+        ) ?: [] as $locationNode) {
+            $location = trim($locationNode->textContent);
+            if ($location !== '') {
+                $locations[] = $location;
+            }
+        }
+
+        $validThrough = null;
+        $closingText = trim((string) $closingNode?->textContent);
+        if (preg_match('/(\d{2})\/(\d{2})\/(\d{4})/', $closingText, $dateMatch)) {
+            $validThrough = "{$dateMatch[3]}-{$dateMatch[2]}-{$dateMatch[1]}";
+        }
+
+        return [
+            'title' => trim((string) $titleClone?->textContent),
+            'company_name' => trim((string) $companyNode?->textContent),
+            'company_url' => $companyLink instanceof \DOMElement ? (string) $companyLink->getAttribute('href') : '',
+            'location' => implode(', ', array_unique($locations)),
+            'industry' => trim((string) $categoryNode?->textContent),
+            'datePosted' => $postedNode instanceof \DOMElement ? $postedNode->getAttribute('datetime') : null,
+            'validThrough' => $validThrough,
+            'description' => $this->domNodeInnerHtml($descriptionNode),
+        ];
+    }
+
+    protected function domNodeInnerHtml(\DOMNode $node): string
+    {
+        $html = '';
+
+        foreach ($node->childNodes as $child) {
+            $html .= $node->ownerDocument?->saveHTML($child) ?: '';
+        }
+
+        return trim($html);
+    }
+
+    protected function fetchIJobJobs(JobCrawler $crawler): array
+    {
+        $baseUrl = rtrim((string) $crawler->source_url, '/');
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->all();
+        $jobs = [];
+        $seen = [];
+        $maxPages = $this->runMode === 'full' ? 20 : 5;
+
+        for ($page = 1; $page <= $maxPages; $page++) {
+            $url = $page === 1 ? "{$baseUrl}/" : "{$baseUrl}/page/{$page}/";
+            $response = $this->structuredJobRequest($url);
+
+            if (! $response->successful()) {
+                break;
+            }
+
+            preg_match_all(
+                '#<h4>\s*<a\s+href="(https?://(?:www\.)?ijob\.co\.za/\d{4}/\d{2}/\d{2}/[^"]+)"#i',
+                $response->body(),
+                $matches
+            );
+
+            if (empty($matches[1])) {
+                break;
+            }
+
+            $newOnPage = 0;
+            foreach ($matches[1] as $jobUrl) {
+                $jobUrl = html_entity_decode($jobUrl, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $slug = basename(trim(parse_url($jobUrl, PHP_URL_PATH), '/'));
+
+                if ($slug === '' || isset($seen[$slug])) {
+                    continue;
+                }
+
+                $seen[$slug] = true;
+                $jobs[] = ['url' => $jobUrl, 'slug' => $slug];
+
+                if (! array_key_exists($slug, $existingIds)) {
+                    $newOnPage++;
+                }
+            }
+
+            $this->saveProgress($page, count($jobs));
+
+            if (! empty($existingIds) && $this->runMode !== 'full' && $newOnPage === 0) {
+                break;
+            }
+        }
+
+        return $jobs;
+    }
+
+    protected function importIJobJobs(JobCrawler $crawler, array $items): array
+    {
+        $stats = [
+            'jobs_found' => count($items),
+            'jobs_created' => 0,
+            'jobs_updated' => 0,
+            'jobs_skipped' => 0,
+        ];
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->all();
+        $newItems = array_values(array_filter(
+            $items,
+            fn (array $item): bool => ! array_key_exists((string) ($item['slug'] ?? ''), $existingIds)
+        ));
+
+        $this->saveNewImportProgress(0, count($newItems), $stats);
+
+        foreach ($newItems as $index => $item) {
+            $slug = (string) ($item['slug'] ?? '');
+            $url = (string) ($item['url'] ?? '');
+
+            try {
+                $response = $this->structuredJobRequest($url);
+                $detail = $response->successful() ? $this->extractIJobDetail($response->body()) : [];
+            } catch (Throwable) {
+                $detail = [];
+            }
+
+            if ($slug === '' || empty($detail['title']) || empty($detail['description']) || ! empty($detail['excluded'])) {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, count($newItems), $stats);
+                continue;
+            }
+
+            $postedAt = Carbon::parse($detail['datePosted'] ?? 'now');
+            $company = $this->firstOrCreateStructuredCompany(
+                (string) ($detail['company_name'] ?? 'iJob South Africa'),
+                '',
+                53
+            );
+
+            if (! $company) {
+                $stats['jobs_skipped']++;
+                continue;
+            }
+
+            $content = $this->cleanStructuredJobContent((string) $detail['description']);
+            $job = new Job();
+            $job->forceFill([
+                'crawler_id' => $crawler->getKey(),
+                'external_source_id' => $slug,
+                'external_source_url' => $url,
+                'name' => $this->limitGoZambiaField((string) $detail['title'], 110),
+                'description' => Str::limit(trim(strip_tags($content)), 400),
+                'content' => $content,
+                'company_id' => $company->getKey(),
+                'country_id' => 53,
+                'currency_id' => 46,
+                'address' => (string) ($detail['location'] ?: 'South Africa'),
+                'apply_url' => $url,
+                'status' => JobStatusEnum::PUBLISHED,
+                'moderation_status' => ModerationStatusEnum::APPROVED,
+                'salary_type' => SalaryTypeEnum::HIDDEN,
+                'career_level_id' => 3,
+                'expire_date' => $postedAt->copy()->addDays(30),
+                'application_closing_date' => $postedAt->copy()->addDays(30),
+                'never_expired' => false,
+                'created_at' => $postedAt,
+                'updated_at' => $postedAt,
+            ]);
+            $this->resolveApplyContact($job);
+
+            $this->persistNewJob($job, $crawler, $stats, function (Job $job) use ($detail): void {
+                $this->assignGoZambiaCategory($job, ['category' => ['name' => $detail['category'] ?? '']]);
+                $job->jobTypes()->syncWithoutDetaching([3]);
+                $this->dispatchNewJobEvents($job);
+            });
+
+            $this->saveNewImportProgress($index + 1, count($newItems), $stats);
+        }
+
+        return $stats;
+    }
+
+    protected function extractIJobDetail(string $html): array
+    {
+        $document = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        if (! $loaded) {
+            return [];
+        }
+
+        $xpath = new \DOMXPath($document);
+        $post = $xpath->query('//div[contains(concat(" ", normalize-space(@class), " "), " blog-post ")]')?->item(0);
+        $content = $xpath->query(
+            '//div[contains(concat(" ", normalize-space(@class), " "), " blog-post-text ")]'
+        )?->item(0);
+        $title = $content ? $xpath->query('.//h1[1]', $content)?->item(0) : null;
+
+        if (! $post || ! $content || ! $title) {
+            return [];
+        }
+
+        foreach (iterator_to_array($xpath->query(
+            './/div[contains(concat(" ", normalize-space(@class), " "), " code-block ")'
+            . ' or contains(concat(" ", normalize-space(@class), " "), " addtoany_share_save_container ")]',
+            $content
+        )) as $unwanted) {
+            $unwanted->parentNode?->removeChild($unwanted);
+        }
+
+        $category = trim((string) $xpath->query(
+            '//ul[contains(concat(" ", normalize-space(@class), " "), " breadcrums ")]/li/a[2]'
+        )?->item(0)?->textContent);
+        $excludedCategories = ['bursaries', 'latest news', 'sassa grant', 'soccer', 'university application', 'universiy applications'];
+        $titleText = trim($title->textContent);
+        $plainText = trim($content->textContent);
+
+        return [
+            'title' => $titleText,
+            'company_name' => $this->inferIJobCompany($titleText, $plainText),
+            'location' => $this->inferIJobLocation($titleText, $plainText),
+            'category' => $category,
+            'datePosted' => $xpath->query('.//time[1]', $post)?->item(0)?->getAttribute('datetime'),
+            'description' => $this->domNodeInnerHtml($content),
+            'excluded' => in_array(mb_strtolower($category), $excludedCategories, true),
+        ];
+    }
+
+    protected function inferIJobCompany(string $title, string $content): string
+    {
+        if (preg_match('/\b([A-Z][A-Za-z0-9&.\' -]{1,60}?)\s+(?:has announced|is hiring|has opened|is recruiting)\b/', $content, $match)) {
+            return trim($match[1]);
+        }
+
+        if (preg_match('/^(.{2,70}?)\s+(?:is\s+)?(?:now\s+)?(?:hiring|recruitment|vacancies|learnerships?|opportunities)\b/i', $title, $match)) {
+            return trim($match[1]);
+        }
+
+        return trim((string) Str::before($title, ' ')) ?: 'iJob South Africa';
+    }
+
+    protected function inferIJobLocation(string $title, string $content): string
+    {
+        $provinces = 'Eastern Cape|Free State|Gauteng|KwaZulu-Natal|Limpopo|Mpumalanga|North West|Northern Cape|Western Cape';
+
+        if (preg_match('/\bin\s+([A-Z][A-Za-z .-]{2,40},\s*(?:' . $provinces . '))\b/', $title, $match)) {
+            return trim($match[1]);
+        }
+
+        if (preg_match(
+            '/\b(?:based|located)\s+in\s+(.{2,60}?)(?:[.;]|\s+and\s+(?:forms|is|offers|provides)\b)/i',
+            $content,
+            $match
+        )) {
+            return trim($match[1], " .,\n\r\t");
+        }
+
+        return 'South Africa';
     }
 
     protected function findJobPostingNode(mixed $data): ?array
