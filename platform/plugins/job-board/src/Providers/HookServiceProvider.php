@@ -1312,6 +1312,8 @@ class HookServiceProvider extends ServiceProvider
         JobSkill::deleted($clearFilterCache);
         Job::saved($clearFilterCache);
         Job::deleted($clearFilterCache);
+
+        $this->injectBlogPostImagePromptWidget();
     }
 
     public function registerMenuOptions(): void
@@ -1894,5 +1896,34 @@ class HookServiceProvider extends ServiceProvider
             ->init($widgets, $widgetSettings);
 
         return $widgets;
+    }
+
+    public function injectBlogPostImagePromptWidget(): void
+    {
+        add_filter(BASE_FILTER_BEFORE_RENDER_FORM, function ($form, $data) {
+            if (! ($data instanceof \Botble\Blog\Models\Post) || ! $data->getKey()) {
+                return $form;
+            }
+
+            $data->loadMissing(['categories']);
+
+            $promptUrl = route('job-board.blog-posts.image-prompt', $data->getKey());
+            $prompt    = app(\Botble\JobBoard\Http\Controllers\BlogPostImagePromptController::class)
+                ->buildPromptPublic($data);
+
+            $form->addMetaBoxes([
+                'blog-image-prompt' => [
+                    'title'    => null,
+                    'priority' => 1,
+                    'content'  => view('plugins/job-board::partials.blog-image-prompt-widget', [
+                        'post'      => $data,
+                        'promptUrl' => $promptUrl,
+                        'prompt'    => $prompt,
+                    ])->render(),
+                ],
+            ]);
+
+            return $form;
+        }, 240, 3);
     }
 }
