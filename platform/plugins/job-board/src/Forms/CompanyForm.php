@@ -87,16 +87,16 @@ class CompanyForm extends FormAbstract
                 ],
                 'colspan' => 4,
             ])
-            ->add('contact_emails', 'textarea', [
-                'label' => 'Contact Emails',
-                'value' => implode("\n", $this->getModel()->contact_emails ?? []),
-                'attr' => [
-                    'placeholder' => "jobs@example.com\nhr@example.com",
-                    'rows' => 6,
-                ],
-                'help_block' => [
-                    'text' => 'One email per line. You can directly correct or remove imported addresses here. Contacts found in this company’s jobs are added automatically.',
-                ],
+            ->add('contact_emails', 'html', [
+                'html' => $this->repeatableContactField(
+                    'contact_emails',
+                    'Contact Emails',
+                    (array) ($this->getModel()->contact_emails ?? []),
+                    'email',
+                    'jobs@example.com',
+                    'Add email',
+                    'Add one address per row. You can correct or remove imported addresses here. Contacts found in this company’s jobs are added automatically.'
+                ),
                 'colspan' => 12,
             ])
             ->add('phone', 'text', [
@@ -107,16 +107,16 @@ class CompanyForm extends FormAbstract
                 ],
                 'colspan' => 4,
             ])
-            ->add('contact_numbers', 'textarea', [
-                'label' => 'Contact Numbers',
-                'value' => implode("\n", $this->getModel()->contact_numbers ?? []),
-                'attr' => [
-                    'placeholder' => "+260 97 000 0000\n+260 96 000 0000",
-                    'rows' => 6,
-                ],
-                'help_block' => [
-                    'text' => 'One phone or WhatsApp number per line. You can directly correct or remove imported numbers here.',
-                ],
+            ->add('contact_numbers', 'html', [
+                'html' => $this->repeatableContactField(
+                    'contact_numbers',
+                    'Contact Numbers',
+                    (array) ($this->getModel()->contact_numbers ?? []),
+                    'text',
+                    '+260 97 000 0000',
+                    'Add number',
+                    'Add one phone or WhatsApp number per row. You can correct or remove imported numbers here.'
+                ),
                 'colspan' => 12,
             ])
             ->add('website', 'text', [
@@ -256,5 +256,94 @@ class CompanyForm extends FormAbstract
                     )->render(),
                 ],
             ]);
+    }
+
+    /**
+     * Render a repeatable list of inputs that submit as a native array (name="<field>[]").
+     * This keeps the value an array on both the client (DOM) and the server, avoiding the
+     * "must be an array" mismatch a plain textarea creates with client-side JS validation.
+     */
+    protected function repeatableContactField(
+        string $name,
+        string $label,
+        array $values,
+        string $inputType,
+        string $placeholder,
+        string $addLabel,
+        string $help
+    ): string {
+        $values = array_values(array_filter(array_map('trim', $values)));
+        if (empty($values)) {
+            $values = ['']; // always show one empty row to type into
+        }
+
+        $ph = e($placeholder);
+        $rows = '';
+        foreach ($values as $value) {
+            $rows .= '<div class="input-group input-group-sm mb-2 contact-row">'
+                . '<input type="' . e($inputType) . '" name="' . e($name) . '[]" class="form-control" '
+                . 'value="' . e($value) . '" placeholder="' . $ph . '">'
+                . '<button type="button" class="btn btn-outline-danger js-contact-remove" '
+                . 'title="Remove"><i class="fa fa-times"></i></button>'
+                . '</div>';
+        }
+
+        // Shared add/remove behaviour, injected once regardless of how many widgets render.
+        $script = <<<'JS'
+<script>
+(function () {
+    if (window.__contactListInit) { return; }
+    window.__contactListInit = true;
+
+    function rowHtml(name, type, placeholder) {
+        var span = document.createElement('span');
+        span.textContent = placeholder || '';
+        return '<div class="input-group input-group-sm mb-2 contact-row">'
+            + '<input type="' + type + '" name="' + name + '[]" class="form-control" placeholder="' + span.innerHTML + '">'
+            + '<button type="button" class="btn btn-outline-danger js-contact-remove" title="Remove"><i class="fa fa-times"></i></button>'
+            + '</div>';
+    }
+
+    document.addEventListener('click', function (e) {
+        var add = e.target.closest('.js-contact-add');
+        if (add) {
+            e.preventDefault();
+            var name = add.getAttribute('data-name');
+            var list = document.querySelector('.contact-list[data-name="' + name + '"]');
+            if (!list) { return; }
+            list.insertAdjacentHTML('beforeend', rowHtml(name, add.getAttribute('data-type') || 'text', add.getAttribute('data-placeholder') || ''));
+            var inputs = list.querySelectorAll('input');
+            if (inputs.length) { inputs[inputs.length - 1].focus(); }
+            return;
+        }
+        var rm = e.target.closest('.js-contact-remove');
+        if (rm) {
+            e.preventDefault();
+            var row = rm.closest('.contact-row');
+            var list = row ? row.parentNode : null;
+            if (row) { row.remove(); }
+            if (list && list.querySelectorAll('.contact-row').length === 0) {
+                var addBtn = document.querySelector('.js-contact-add[data-name="' + list.getAttribute('data-name') + '"]');
+                list.insertAdjacentHTML('beforeend', rowHtml(
+                    list.getAttribute('data-name'),
+                    addBtn ? (addBtn.getAttribute('data-type') || 'text') : 'text',
+                    addBtn ? (addBtn.getAttribute('data-placeholder') || '') : ''
+                ));
+            }
+        }
+    });
+})();
+</script>
+JS;
+
+        return '<div class="mb-3 position-relative">'
+            . '<label class="form-label d-block">' . e($label) . '</label>'
+            . '<div class="contact-list" data-name="' . e($name) . '">' . $rows . '</div>'
+            . '<button type="button" class="btn btn-sm btn-outline-secondary js-contact-add" '
+            . 'data-name="' . e($name) . '" data-type="' . e($inputType) . '" data-placeholder="' . $ph . '">'
+            . '<i class="fa fa-plus me-1"></i> ' . e($addLabel) . '</button>'
+            . '<small class="form-hint d-block mt-2 text-muted">' . e($help) . '</small>'
+            . $script
+            . '</div>';
     }
 }

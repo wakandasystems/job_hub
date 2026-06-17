@@ -12,7 +12,7 @@
     </div>
 @endif
 
-@if (is_plugin_active('job-board'))
+@if (is_plugin_active('job-board') && empty($hideApplyModal))
     @include(Theme::getThemeNamespace('partials.apply-modal'))
 @endif
 <header class="header @if (theme_option('enabled_sticky_header', 'yes') == 'yes') sticky-bar @endif">
@@ -94,9 +94,9 @@
     <div class="mobile-header-wrapper-inner">
         <div class="mobile-header-content-area">
             <div>
-                <div class="mobile-search mobile-header-border mb-30">
-                    <form action="#">
-                        <input type="text" placeholder="{{ __('Search...') }}">
+                <div class="mobile-search mobile-header-border mb-30 form-find position-relative">
+                    <form method="GET" action="{{ JobBoardHelper::getJobsPageURL() }}" data-quick-search-url="{{ route('public.ajax.quick-search-jobs') }}">
+                        <input class="input-keysearch" name="keyword" type="text" placeholder="{{ __('Search jobs...') }}" autocomplete="off">
                         <i class="fi-rr-search"></i>
                     </form>
                 </div>

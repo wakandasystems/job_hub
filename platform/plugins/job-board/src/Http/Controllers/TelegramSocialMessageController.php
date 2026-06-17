@@ -101,6 +101,19 @@ class TelegramSocialMessageController extends BaseController
             'employer_image' => $makeUploadUrl('employer_image'),
         ];
 
+        $makeGenerateUrl = fn (string $type) => URL::temporarySignedRoute(
+            'public.telegram-social-generate',
+            now()->addDays(7),
+            array_merge(array_filter(['job_id' => $job->getKey()]), ['type' => $type]),
+        );
+        $openAiConfigured = app(\Botble\JobBoard\Services\OpenAiImageService::class)->isConfigured();
+        $generateUrls = [];
+        if ($openAiConfigured) {
+            foreach (\Botble\JobBoard\Services\OpenAiImageService::slotTypes() as $slotType) {
+                $generateUrls[$slotType] = $makeGenerateUrl($slotType);
+            }
+        }
+
         $sendToEmployerUrl = URL::temporarySignedRoute(
             'public.telegram-social-send-to-employer',
             now()->addDays(7),
@@ -148,6 +161,8 @@ class TelegramSocialMessageController extends BaseController
             employerPhone: $employerPhone,
             sendToEmployerUrl: $sendToEmployerUrl,
             employerEmails: $employerEmails,
+            generateUrls: $generateUrls,
+            openAiConfigured: $openAiConfigured,
         ));
     }
 
@@ -342,6 +357,20 @@ class TelegramSocialMessageController extends BaseController
             'employer_image' => $makeUploadUrl('employer_image'),
         ];
 
+        // Signed OpenAI generate URLs (one per generatable slot)
+        $makeGenerateUrl = fn (string $type) => URL::temporarySignedRoute(
+            'public.telegram-social-generate',
+            now()->addDays(7),
+            array_merge(array_filter(['job_id' => $jobId]), ['type' => $type]),
+        );
+        $openAiConfigured = app(\Botble\JobBoard\Services\OpenAiImageService::class)->isConfigured();
+        $generateUrls = [];
+        if ($openAiConfigured && $jobId) {
+            foreach (\Botble\JobBoard\Services\OpenAiImageService::slotTypes() as $slotType) {
+                $generateUrls[$slotType] = $makeGenerateUrl($slotType);
+            }
+        }
+
         // Signed URL for sending the "your job ad is live" pitch to the employer
         $sendToEmployerUrl = URL::temporarySignedRoute(
             'public.telegram-social-send-to-employer',
@@ -388,6 +417,8 @@ class TelegramSocialMessageController extends BaseController
         $tiktokImageJson   = json_encode($tiktokImageSafe, JSON_UNESCAPED_UNICODE);
         $step2UrlJson      = json_encode($step2Url ?? '', JSON_UNESCAPED_UNICODE);
         $uploadUrlsJson    = json_encode($uploadUrls, JSON_UNESCAPED_UNICODE);
+        $generateUrlsJson  = json_encode($generateUrls, JSON_UNESCAPED_UNICODE);
+        $openAiConfiguredJson = $openAiConfigured ? 'true' : 'false';
         $jobImagesJson     = json_encode($jobImages, JSON_UNESCAPED_UNICODE);
         $companyLogoJson   = json_encode($companyLogoUrl, JSON_UNESCAPED_UNICODE);
         $companyNameJson   = json_encode((string) ($companyName ?? ''), JSON_UNESCAPED_UNICODE);
@@ -480,6 +511,9 @@ class TelegramSocialMessageController extends BaseController
             : '<span class="bb-next bb-next--disabled">Next: Get Post Text</span>';
 
 
+        $faviconUrl = htmlspecialchars((string) \Botble\Base\Facades\AdminHelper::getAdminFaviconUrl(), ENT_QUOTES, 'UTF-8');
+        $faviconType = htmlspecialchars((string) setting('admin_favicon_type', 'image/x-icon'), ENT_QUOTES, 'UTF-8');
+
         $html = <<<HTML
         <!doctype html>
         <html lang="en">
@@ -488,6 +522,8 @@ class TelegramSocialMessageController extends BaseController
             <meta name="viewport" content="width=device-width,initial-scale=1">
             <title>Post Kit — Wakanda Jobs</title>
             <meta name="csrf-token" content="{$csrfToken}">
+            <link rel="icon shortcut" href="{$faviconUrl}" type="{$faviconType}">
+            <meta property="og:image" content="{$faviconUrl}">
             <style>
                 *{box-sizing:border-box;margin:0;padding:0}
                 :root{
@@ -571,13 +607,18 @@ class TelegramSocialMessageController extends BaseController
                 .img-upload-zone-sub{font-size:10px;color:var(--muted)}
 
                 /* Card footer buttons */
-                .img-slot-footer{display:flex;gap:7px;margin-top:10px}
+                .img-slot-footer{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}
                 .img-footer-btn{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;text-decoration:none;background:#f8fafc;color:#475569;white-space:nowrap}
                 .img-footer-btn:hover{border-color:var(--p);color:var(--p);background:#faf5ff}
                 .img-footer-btn.ok{background:#16a34a;color:#fff;border-color:#16a34a}
                 .img-footer-btn:disabled,.img-footer-btn[aria-disabled="true"]{opacity:.35;pointer-events:none;cursor:default}
                 .img-footer-btn.dl{color:#0ea5e9;border-color:#bae6fd;background:#f0f9ff}
                 .img-footer-btn.dl:hover{background:#0ea5e9;color:#fff;border-color:#0ea5e9}
+                /* Mobile: stack footer buttons full-width so none get clipped by the narrow card */
+                @media (max-width:560px){
+                    .img-slot-footer{flex-direction:column;gap:6px}
+                    .img-footer-btn{flex:none;width:100%;padding:11px 10px;font-size:13px}
+                }
 
                 /* Status / progress */
                 .img-progress{margin-top:8px;display:none}
@@ -706,7 +747,7 @@ class TelegramSocialMessageController extends BaseController
                                 <div class="img-progress-label" id="label-company_logo"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-company_logo" href="#" download="company-logo" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-company_logo" href="#" download="company-logo" style="display:none">⬇ Download</a>
                             </div>
                         </div>
                     </div>
@@ -740,7 +781,7 @@ class TelegramSocialMessageController extends BaseController
                                 <div class="img-progress-label" id="label-cover_image"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-cover_image" href="#" download="cover-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-cover_image" href="#" download="cover-image" style="display:none">⬇ Download</a>
                             </div>
                         </div>
                     </div>
@@ -775,8 +816,9 @@ class TelegramSocialMessageController extends BaseController
                                 <div class="img-progress-label" id="label-tiktok_image"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-tiktok_image" href="#" download="tiktok-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-tiktok_image" href="#" download="tiktok-image" style="display:none">⬇ Download</a>
                                 <button class="img-footer-btn" onclick="copySlotPost('tiktok_image',this)">📋 Post Text</button>
+                                <button class="img-footer-btn" id="repost-tiktok_image" style="display:none" onclick="pkAskSendToPubler()">🔁 Repost</button>
                             </div>
                         </div>
                     </div>
@@ -811,8 +853,9 @@ class TelegramSocialMessageController extends BaseController
                                 <div class="img-progress-label" id="label-whatsapp_image"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-whatsapp_image" href="#" download="whatsapp-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-whatsapp_image" href="#" download="whatsapp-image" style="display:none">⬇ Download</a>
                                 <button class="img-footer-btn" onclick="copySlotPost('whatsapp_image',this)">📋 Post Text</button>
+                                <button class="img-footer-btn" id="repost-whatsapp_image" style="display:none" onclick="pkAskSendToChannel()">🔁 Repost</button>
                             </div>
                         </div>
                     </div>
@@ -847,7 +890,7 @@ class TelegramSocialMessageController extends BaseController
                                 <div class="img-progress-label" id="label-facebook_image"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-facebook_image" href="#" download="facebook-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-facebook_image" href="#" download="facebook-image" style="display:none">⬇ Download</a>
                                 <button class="img-footer-btn" onclick="copySlotPost('facebook_image',this)">📋 Post Text</button>
                             </div>
                         </div>
@@ -883,7 +926,7 @@ class TelegramSocialMessageController extends BaseController
                                 <div class="img-progress-label" id="label-linkedin_image"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-linkedin_image" href="#" download="linkedin-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-linkedin_image" href="#" download="linkedin-image" style="display:none">⬇ Download</a>
                                 <button class="img-footer-btn" onclick="copySlotPost('linkedin_image',this)">📋 Post Text</button>
                             </div>
                         </div>
@@ -919,7 +962,7 @@ class TelegramSocialMessageController extends BaseController
                                 <div class="img-progress-label" id="label-twitter_image"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-twitter_image" href="#" download="twitter-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-twitter_image" href="#" download="twitter-image" style="display:none">⬇ Download</a>
                                 <button class="img-footer-btn" onclick="copySlotPost('twitter_image',this)">📋 Post Text</button>
                             </div>
                         </div>
@@ -1057,7 +1100,7 @@ class TelegramSocialMessageController extends BaseController
                                 <div class="img-progress-label" id="label-employer_image"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-employer_image" href="#" download="employer-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-employer_image" href="#" download="employer-image" style="display:none">⬇ Download</a>
                                 <button class="img-footer-btn" onclick="copySlotPost('employer_image',this)">📋 Post Text</button>
                             </div>
                         </div>
@@ -1099,6 +1142,8 @@ class TelegramSocialMessageController extends BaseController
             const geminiText      = {$geminiJson};
             const step2Url        = {$step2UrlJson};
             const uploadUrls      = {$uploadUrlsJson};
+            const generateUrls    = {$generateUrlsJson};
+            const openAiConfigured = {$openAiConfiguredJson};
             const jobImages       = {$jobImagesJson};
             const companyLogoUrl  = {$companyLogoJson};
             const companyName     = {$companyNameJson};
@@ -1133,7 +1178,7 @@ class TelegramSocialMessageController extends BaseController
                 if (!jobImages.employer_image && jobImages.whatsapp_image) {
                     showPreview('employer_image', jobImages.whatsapp_image);
                     const dl = document.getElementById('dl-employer_image');
-                    if (dl) { dl.style.opacity = '.35'; dl.style.pointerEvents = 'none'; }
+                    if (dl) { dl.style.display = 'none'; }
                     const label = document.querySelector('#slot-employer_image .img-slot-label');
                     if (label) label.textContent = 'Employer Update Image (using WhatsApp image)';
                 }
@@ -1148,7 +1193,9 @@ class TelegramSocialMessageController extends BaseController
                 img.src = url;
                 prev.style.display = 'block';
                 if (zone) zone.style.display = 'none';
-                if (dl) { dl.href = url; dl.style.opacity = '1'; dl.style.pointerEvents = 'auto'; }
+                if (dl) { dl.href = url; dl.style.display = ''; dl.style.opacity = '1'; dl.style.pointerEvents = 'auto'; }
+                const rp = document.getElementById('repost-' + key);
+                if (rp) rp.style.display = ((key === 'whatsapp_image' && whapiSendUrl) || (key === 'tiktok_image' && publerSendUrl)) ? '' : 'none';
                 const slot = document.getElementById('slot-' + key);
                 if (slot) { const cb = slot.querySelector('.img-copy-btn'); if (cb) cb.style.display = 'none'; }
             }
@@ -1366,6 +1413,60 @@ class TelegramSocialMessageController extends BaseController
                     });
                 });
             }
+            function generateImage(key, btn) {
+                const url = generateUrls[key];
+                if (!url) { setProgress(key, 100, 'fail', '❌ AI generation not available.'); return; }
+                if (btn) { btn.disabled = true; }
+                setProgress(key, 92, '', '✨ Generating with AI… ~30s');
+                const fd = new FormData();
+                fd.append('type', key);
+                fd.append('_token', csrfToken);
+                fetch(url, {
+                    method: 'POST',
+                    body: fd,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': csrfToken },
+                }).then(function (r) {
+                    return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+                }).then(function (res) {
+                    const d = res.d || {};
+                    if (res.ok && d.ok !== false && d.url) {
+                        showPreview(key, d.url);
+                        setProgress(key, 100, 'done', '✅ Generated!');
+                        if (key === 'whatsapp_image' || key === 'tiktok_image') playUploadSound();
+                        setTimeout(function () {
+                            if (key === 'whatsapp_image' && whapiSendUrl) pkAskSendToChannel();
+                            else if (key === 'tiktok_image' && publerSendUrl) pkAskSendToPubler();
+                            else location.reload();
+                        }, 1300);
+                    } else {
+                        setProgress(key, 100, 'fail', '❌ ' + (d.message || 'Generation failed.'));
+                        if (btn) btn.disabled = false;
+                    }
+                }).catch(function () {
+                    setProgress(key, 100, 'fail', '❌ Network error — please retry.');
+                    if (btn) btn.disabled = false;
+                });
+            }
+
+            // Inject "✨ Generate" buttons into each slot footer (only when OpenAI is configured).
+            (function injectGenerateButtons() {
+                if (!openAiConfigured) return;
+                Object.keys(generateUrls).forEach(function (key) {
+                    if (!generateUrls[key]) return;
+                    const footer = document.querySelector('#slot-' + key + ' .img-slot-footer');
+                    if (!footer || footer.querySelector('.img-footer-btn-gen')) return;
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'img-footer-btn img-footer-btn-gen';
+                    b.innerHTML = '✨ Generate';
+                    b.style.color = '#7c3aed';
+                    b.style.borderColor = '#ddd6fe';
+                    b.style.background = '#faf5ff';
+                    b.addEventListener('click', function () { generateImage(key, b); });
+                    footer.insertBefore(b, footer.firstChild);
+                });
+            })();
+
             function copySlotPrompt(key, btn) {
                 const text = slotPrompts[key];
                 if (!text) return;
@@ -1546,6 +1647,39 @@ class TelegramSocialMessageController extends BaseController
             Log::error('Social image upload failed', ['type' => $type, 'job_id' => $jobId, 'error' => $e->getMessage()]);
             return response()->json(['ok' => false, 'message' => 'Server error: ' . $e->getMessage()], 500);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Generate an image with OpenAI (gpt-image-1) for a single slot
+    // -------------------------------------------------------------------------
+
+    public function generate(Request $request)
+    {
+        $type  = $request->input('type', $request->query('type', ''));
+        $jobId = $request->input('job_id', $request->query('job_id'));
+
+        $service = app(\Botble\JobBoard\Services\OpenAiImageService::class);
+
+        if (! in_array($type, $service::slotTypes(), true)) {
+            return response()->json(['ok' => false, 'message' => 'Invalid image type.'], 422);
+        }
+
+        if (! $jobId) {
+            return response()->json(['ok' => false, 'message' => 'Job ID is required.'], 422);
+        }
+
+        if (! $service->isConfigured()) {
+            return response()->json(['ok' => false, 'message' => 'OpenAI API key is not configured.'], 422);
+        }
+
+        $job = Job::with(['company', 'slugable', 'country', 'currency', 'jobTypes'])->find($jobId);
+        if (! $job) {
+            return response()->json(['ok' => false, 'message' => 'Job not found.'], 404);
+        }
+
+        $result = $service->generateForJob($job, $type);
+
+        return response()->json($result, ($result['ok'] ?? false) ? 200 : 500);
     }
 
     // -------------------------------------------------------------------------
@@ -1822,6 +1956,8 @@ class TelegramSocialMessageController extends BaseController
         ?string $employerPhone = null,
         ?string $sendToEmployerUrl = null,
         array $employerEmails = [],
+        array $generateUrls = [],
+        bool $openAiConfigured = false,
     ): string {
         $storyboardSafe    = mb_convert_encoding((string) $storyboardPrompt, 'UTF-8', 'UTF-8');
         $geminiSafe        = mb_convert_encoding((string) $geminiPrompt, 'UTF-8', 'UTF-8');
@@ -1839,6 +1975,8 @@ class TelegramSocialMessageController extends BaseController
         $tiktokImageJson   = json_encode($tiktokImageSafe, JSON_UNESCAPED_UNICODE);
         $step2UrlJson      = json_encode($step2Url ?? '', JSON_UNESCAPED_UNICODE);
         $uploadUrlsJson    = json_encode($uploadUrls, JSON_UNESCAPED_UNICODE);
+        $generateUrlsJson  = json_encode($generateUrls, JSON_UNESCAPED_UNICODE);
+        $openAiConfiguredJson = $openAiConfigured ? 'true' : 'false';
         $jobImagesJson     = json_encode($jobImages, JSON_UNESCAPED_UNICODE);
         $companyLogoJson   = json_encode($companyLogoUrl, JSON_UNESCAPED_UNICODE);
         $companyNameJson   = json_encode((string) ($companyName ?? ''), JSON_UNESCAPED_UNICODE);
@@ -1971,6 +2109,9 @@ class TelegramSocialMessageController extends BaseController
 JSFN;
         }
 
+        $faviconUrl = htmlspecialchars((string) \Botble\Base\Facades\AdminHelper::getAdminFaviconUrl(), ENT_QUOTES, 'UTF-8');
+        $faviconType = htmlspecialchars((string) setting('admin_favicon_type', 'image/x-icon'), ENT_QUOTES, 'UTF-8');
+
         return <<<HTML
         <!doctype html>
         <html lang="en">
@@ -1979,6 +2120,8 @@ JSFN;
             <meta name="viewport" content="width=device-width,initial-scale=1">
             <title>Post Kit — Wakanda Jobs</title>
             <meta name="csrf-token" content="{$csrfToken}">
+            <link rel="icon shortcut" href="{$faviconUrl}" type="{$faviconType}">
+            <meta property="og:image" content="{$faviconUrl}">
             <style>
                 *{box-sizing:border-box;margin:0;padding:0}
                 :root{
@@ -2062,13 +2205,18 @@ JSFN;
                 .img-upload-zone-sub{font-size:10px;color:var(--muted)}
 
                 /* Card footer buttons */
-                .img-slot-footer{display:flex;gap:7px;margin-top:10px}
+                .img-slot-footer{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}
                 .img-footer-btn{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;text-decoration:none;background:#f8fafc;color:#475569;white-space:nowrap}
                 .img-footer-btn:hover{border-color:var(--p);color:var(--p);background:#faf5ff}
                 .img-footer-btn.ok{background:#16a34a;color:#fff;border-color:#16a34a}
                 .img-footer-btn:disabled,.img-footer-btn[aria-disabled="true"]{opacity:.35;pointer-events:none;cursor:default}
                 .img-footer-btn.dl{color:#0ea5e9;border-color:#bae6fd;background:#f0f9ff}
                 .img-footer-btn.dl:hover{background:#0ea5e9;color:#fff;border-color:#0ea5e9}
+                /* Mobile: stack footer buttons full-width so none get clipped by the narrow card */
+                @media (max-width:560px){
+                    .img-slot-footer{flex-direction:column;gap:6px}
+                    .img-footer-btn{flex:none;width:100%;padding:11px 10px;font-size:13px}
+                }
 
                 /* Status / progress */
                 .img-progress{margin-top:8px;display:none}
@@ -2225,7 +2373,7 @@ JSFN;
                                 <div class="img-progress-label" id="label-company_logo"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-company_logo" href="#" download="company-logo" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-company_logo" href="#" download="company-logo" style="display:none">⬇ Download</a>
                             </div>
                         </div>
                     </div>
@@ -2259,7 +2407,7 @@ JSFN;
                                 <div class="img-progress-label" id="label-cover_image"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-cover_image" href="#" download="cover-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-cover_image" href="#" download="cover-image" style="display:none">⬇ Download</a>
                             </div>
                         </div>
                     </div>
@@ -2294,8 +2442,9 @@ JSFN;
                                 <div class="img-progress-label" id="label-tiktok_image"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-tiktok_image" href="#" download="tiktok-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-tiktok_image" href="#" download="tiktok-image" style="display:none">⬇ Download</a>
                                 <button class="img-footer-btn" onclick="copySlotPost('tiktok_image',this)">📋 Post Text</button>
+                                <button class="img-footer-btn" id="repost-tiktok_image" style="display:none" onclick="pkAskSendToPubler()">🔁 Repost</button>
                             </div>
                         </div>
                     </div>
@@ -2330,8 +2479,9 @@ JSFN;
                                 <div class="img-progress-label" id="label-whatsapp_image"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-whatsapp_image" href="#" download="whatsapp-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-whatsapp_image" href="#" download="whatsapp-image" style="display:none">⬇ Download</a>
                                 <button class="img-footer-btn" onclick="copySlotPost('whatsapp_image',this)">📋 Post Text</button>
+                                <button class="img-footer-btn" id="repost-whatsapp_image" style="display:none" onclick="pkAskSendToChannel()">🔁 Repost</button>
                             </div>
                         </div>
                     </div>
@@ -2366,7 +2516,7 @@ JSFN;
                                 <div class="img-progress-label" id="label-facebook_image"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-facebook_image" href="#" download="facebook-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-facebook_image" href="#" download="facebook-image" style="display:none">⬇ Download</a>
                                 <button class="img-footer-btn" onclick="copySlotPost('facebook_image',this)">📋 Post Text</button>
                             </div>
                         </div>
@@ -2402,7 +2552,7 @@ JSFN;
                                 <div class="img-progress-label" id="label-linkedin_image"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-linkedin_image" href="#" download="linkedin-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-linkedin_image" href="#" download="linkedin-image" style="display:none">⬇ Download</a>
                                 <button class="img-footer-btn" onclick="copySlotPost('linkedin_image',this)">📋 Post Text</button>
                             </div>
                         </div>
@@ -2438,7 +2588,7 @@ JSFN;
                                 <div class="img-progress-label" id="label-twitter_image"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-twitter_image" href="#" download="twitter-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-twitter_image" href="#" download="twitter-image" style="display:none">⬇ Download</a>
                                 <button class="img-footer-btn" onclick="copySlotPost('twitter_image',this)">📋 Post Text</button>
                             </div>
                         </div>
@@ -2578,7 +2728,7 @@ JSFN;
                                 <div class="img-progress-label" id="label-employer_image"></div>
                             </div>
                             <div class="img-slot-footer">
-                                <a class="img-footer-btn dl" id="dl-employer_image" href="#" download="employer-image" style="opacity:.35;pointer-events:none">⬇ Download</a>
+                                <a class="img-footer-btn dl" id="dl-employer_image" href="#" download="employer-image" style="display:none">⬇ Download</a>
                                 <button class="img-footer-btn" onclick="copySlotPost('employer_image',this)">📋 Post Text</button>
                             </div>
                         </div>
@@ -2620,6 +2770,8 @@ JSFN;
             const geminiText      = {$geminiJson};
             const step2Url        = {$step2UrlJson};
             const uploadUrls      = {$uploadUrlsJson};
+            const generateUrls    = {$generateUrlsJson};
+            const openAiConfigured = {$openAiConfiguredJson};
             const jobImages       = {$jobImagesJson};
             const companyLogoUrl  = {$companyLogoJson};
             const companyName     = {$companyNameJson};
@@ -2654,7 +2806,7 @@ JSFN;
                 if (!jobImages.employer_image && jobImages.whatsapp_image) {
                     showPreview('employer_image', jobImages.whatsapp_image);
                     const dl = document.getElementById('dl-employer_image');
-                    if (dl) { dl.style.opacity = '.35'; dl.style.pointerEvents = 'none'; }
+                    if (dl) { dl.style.display = 'none'; }
                     const label = document.querySelector('#slot-employer_image .img-slot-label');
                     if (label) label.textContent = 'Employer Update Image (using WhatsApp image)';
                 }
@@ -2669,7 +2821,9 @@ JSFN;
                 img.src = url;
                 prev.style.display = 'block';
                 if (zone) zone.style.display = 'none';
-                if (dl) { dl.href = url; dl.style.opacity = '1'; dl.style.pointerEvents = 'auto'; }
+                if (dl) { dl.href = url; dl.style.display = ''; dl.style.opacity = '1'; dl.style.pointerEvents = 'auto'; }
+                const rp = document.getElementById('repost-' + key);
+                if (rp) rp.style.display = ((key === 'whatsapp_image' && whapiSendUrl) || (key === 'tiktok_image' && publerSendUrl)) ? '' : 'none';
                 const slot = document.getElementById('slot-' + key);
                 if (slot) { const cb = slot.querySelector('.img-copy-btn'); if (cb) cb.style.display = 'none'; }
             }
@@ -2885,6 +3039,60 @@ JSFN;
                     });
                 });
             }
+            function generateImage(key, btn) {
+                const url = generateUrls[key];
+                if (!url) { setProgress(key, 100, 'fail', '❌ AI generation not available.'); return; }
+                if (btn) { btn.disabled = true; }
+                setProgress(key, 92, '', '✨ Generating with AI… ~30s');
+                const fd = new FormData();
+                fd.append('type', key);
+                fd.append('_token', csrfToken);
+                fetch(url, {
+                    method: 'POST',
+                    body: fd,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': csrfToken },
+                }).then(function (r) {
+                    return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+                }).then(function (res) {
+                    const d = res.d || {};
+                    if (res.ok && d.ok !== false && d.url) {
+                        showPreview(key, d.url);
+                        setProgress(key, 100, 'done', '✅ Generated!');
+                        if (key === 'whatsapp_image' || key === 'tiktok_image') playUploadSound();
+                        setTimeout(function () {
+                            if (key === 'whatsapp_image' && whapiSendUrl) pkAskSendToChannel();
+                            else if (key === 'tiktok_image' && publerSendUrl) pkAskSendToPubler();
+                            else location.reload();
+                        }, 1300);
+                    } else {
+                        setProgress(key, 100, 'fail', '❌ ' + (d.message || 'Generation failed.'));
+                        if (btn) btn.disabled = false;
+                    }
+                }).catch(function () {
+                    setProgress(key, 100, 'fail', '❌ Network error — please retry.');
+                    if (btn) btn.disabled = false;
+                });
+            }
+
+            // Inject "✨ Generate" buttons into each slot footer (only when OpenAI is configured).
+            (function injectGenerateButtons() {
+                if (!openAiConfigured) return;
+                Object.keys(generateUrls).forEach(function (key) {
+                    if (!generateUrls[key]) return;
+                    const footer = document.querySelector('#slot-' + key + ' .img-slot-footer');
+                    if (!footer || footer.querySelector('.img-footer-btn-gen')) return;
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'img-footer-btn img-footer-btn-gen';
+                    b.innerHTML = '✨ Generate';
+                    b.style.color = '#7c3aed';
+                    b.style.borderColor = '#ddd6fe';
+                    b.style.background = '#faf5ff';
+                    b.addEventListener('click', function () { generateImage(key, b); });
+                    footer.insertBefore(b, footer.firstChild);
+                });
+            })();
+
             function copySlotPrompt(key, btn) {
                 const text = slotPrompts[key];
                 if (!text) return;
@@ -2955,6 +3163,9 @@ JSFN;
 
     private function expiredHtml(): string
     {
+        $faviconUrl = htmlspecialchars((string) \Botble\Base\Facades\AdminHelper::getAdminFaviconUrl(), ENT_QUOTES, 'UTF-8');
+        $faviconType = htmlspecialchars((string) setting('admin_favicon_type', 'image/x-icon'), ENT_QUOTES, 'UTF-8');
+
         return <<<HTML
         <!doctype html>
         <html lang="en">
@@ -2962,6 +3173,8 @@ JSFN;
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width,initial-scale=1">
             <title>Link Expired</title>
+            <link rel="icon shortcut" href="{$faviconUrl}" type="{$faviconType}">
+            <meta property="og:image" content="{$faviconUrl}">
             <style>
                 *{box-sizing:border-box;margin:0;padding:0}
                 body{font-family:system-ui,sans-serif;background:#f0f4f8;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}

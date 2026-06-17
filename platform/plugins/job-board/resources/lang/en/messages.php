@@ -309,6 +309,8 @@ return [
     'about_the_company' => 'About the Company',
     'view_company_profile' => 'View Company Profile',
     'no_applied_jobs_found' => 'No applied jobs found.',
+    'job_details' => 'Job Details',
+    'closed_job_contacts_hidden' => 'This job is closed. Contact details have been hidden and applications are no longer accepted.',
 
     // Currency abbreviations
     'million' => 'million',

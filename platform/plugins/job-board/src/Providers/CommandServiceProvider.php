@@ -20,6 +20,7 @@ use Botble\JobBoard\Console\Commands\SendCandidateAlertsCommand;
 use Botble\JobBoard\Console\Commands\CheckCandidateAlertExpiryCommand;
 use Botble\JobBoard\Console\Commands\CheckFailedJobsCommand;
 use Botble\JobBoard\Console\Commands\ArchiveOldCrawledJobsCommand;
+use Botble\JobBoard\Console\Commands\GenerateSocialImagesCommand;
 use Botble\JobBoard\Console\Commands\SocialPublishJobCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
@@ -52,6 +53,7 @@ class CommandServiceProvider extends ServiceProvider
             CheckCandidateAlertExpiryCommand::class,
             CheckFailedJobsCommand::class,
             ArchiveOldCrawledJobsCommand::class,
+            GenerateSocialImagesCommand::class,
         ]);
 
         $this->app->afterResolving(Schedule::class, function (Schedule $schedule): void {

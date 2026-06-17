@@ -15,6 +15,12 @@ Route::group(['namespace' => 'Botble\Blog\Http\Controllers'], function (): void 
                 'permission' => 'blog.reports',
             ]);
             Route::group(['prefix' => 'posts', 'as' => 'posts.'], function (): void {
+                Route::post('generate-image', [
+                    'as' => 'generate-image',
+                    'uses' => 'PostController@generateImage',
+                    'permission' => 'posts.edit',
+                ]);
+
                 Route::resource('', 'PostController')
                     ->parameters(['' => 'post']);
 

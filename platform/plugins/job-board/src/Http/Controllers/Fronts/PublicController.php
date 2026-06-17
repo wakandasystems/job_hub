@@ -17,6 +17,7 @@ use Botble\JobBoard\Models\AccountExperience;
 use Botble\JobBoard\Models\Analytics;
 use Botble\JobBoard\Models\Category;
 use Botble\JobBoard\Models\Company;
+use Botble\Base\Facades\BaseHelper;
 use Botble\JobBoard\Models\Currency;
 use Botble\JobBoard\Models\Job as JobModel;
 use Botble\JobBoard\Models\JobApplication;
@@ -73,12 +74,18 @@ class PublicController extends BaseController
         ]);
 
         if (! $job) {
-            $expiredJob = JobModel::query()
+            $unavailableJob = JobModel::query()
                 ->where('id', $slug->reference_id)
                 ->first();
 
-            if ($expiredJob && $expiredJob->is_expired) {
-                return $this->showExpiredJob($expiredJob, $slug);
+            // The job row still exists but is not publicly viewable: it has expired,
+            // or it was unpublished/drafted (e.g. its listing was removed from the
+            // source site and the crawler set it back to draft). Show a friendly
+            // "no longer available" page with the job name instead of redirecting to
+            // the home page or returning a bare 404. Only a job that no longer exists
+            // at all (hard-deleted, no row) falls through to a 404.
+            if ($unavailableJob) {
+                return $this->showExpiredJob($unavailableJob, $slug);
             }
 
             abort(404);
@@ -123,12 +130,9 @@ class PublicController extends BaseController
             $company->loadCount('jobs');
 
             if (! $job->hide_company) {
-                // Use company logo as og:image when available
-                if (! empty($company->logo)) {
-                    $logoUrl = RvMedia::getImageUrl($company->logo, null, false);
-                    if ($logoUrl) {
-                        $meta->setImage($logoUrl);
-                    }
+                $logoUrl = $job->company_logo_thumb;
+                if ($logoUrl) {
+                    $meta->setImage($logoUrl);
                 }
 
                 $condition = [
@@ -1153,10 +1157,66 @@ class PublicController extends BaseController
 
         $jobsUrl = JobBoardHelper::getJobsPageURL();
 
+        // Closed jobs cannot be applied to — suppress the global apply modal/button
+        // that the layout (navbar) would otherwise render on every page.
+        view()->share('hideApplyModal', true);
+
+        // Show the job details on the closed page, but mask any contact info embedded
+        // in the description and strip clickable links so applications can't be made.
+        $obfuscatedContent = $this->obfuscateJobContent(
+            BaseHelper::clean((string) ($job->content ?: $job->description))
+        );
+
         return Theme::scope(
             'job-board.job-expired',
-            compact('job', 'jobsUrl'),
+            compact('job', 'jobsUrl', 'obfuscatedContent'),
             'plugins/job-board::themes.job-expired'
         )->render();
+    }
+
+    /**
+     * Mask contact details (emails, phone numbers) inside a job's HTML description and
+     * neutralise every link, so the closed/expired job page can display the listing
+     * content without leaking recruiter contacts or offering a working way to apply.
+     */
+    protected function obfuscateJobContent(?string $html): string
+    {
+        $html = (string) $html;
+
+        if (trim($html) === '') {
+            return '';
+        }
+
+        // Mask email addresses: keep the first 2 chars of the local part and the TLD.
+        $html = preg_replace_callback(
+            '/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/',
+            function (array $m): string {
+                [$user, $domain] = explode('@', $m[0], 2);
+                $tld = (string) Str::afterLast($domain, '.');
+                $maskedUser = mb_substr($user, 0, 2) . str_repeat('•', max(4, mb_strlen($user) - 2));
+
+                return $maskedUser . '@' . str_repeat('•', 6) . '.' . $tld;
+            },
+            $html
+        );
+
+        // Mask phone numbers: 7+ digits, allowing +, spaces, dashes and brackets.
+        $html = preg_replace_callback(
+            '/\+?\d[\d\s().\-]{5,}\d/',
+            function (array $m): string {
+                if (strlen((string) preg_replace('/\D/', '', $m[0])) < 7) {
+                    return $m[0]; // too short to be a phone number — leave untouched
+                }
+
+                return mb_substr($m[0], 0, 3) . ' •••••• ' . mb_substr($m[0], -2);
+            },
+            $html
+        );
+
+        // Neutralise links (apply / contact URLs) — keep the text, drop the anchor.
+        $html = preg_replace('/<a\b[^>]*>/i', '<span>', $html);
+        $html = preg_replace('#</a\s*>#i', '</span>', $html);
+
+        return $html;
     }
 }

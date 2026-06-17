@@ -2,8 +2,10 @@
 
 use Botble\Base\Facades\MetaBox;
 use Botble\Base\Forms\FieldOptions\CheckboxFieldOption;
+use Botble\Base\Forms\FieldOptions\HtmlFieldOption;
 use Botble\Base\Forms\FieldOptions\MediaImageFieldOption;
 use Botble\Base\Forms\FieldOptions\TextFieldOption;
+use Botble\Base\Forms\Fields\HtmlField;
 use Botble\Base\Forms\Fields\MediaImageField;
 use Botble\Base\Forms\Fields\OnOffCheckboxField;
 use Botble\Base\Forms\Fields\OnOffField;
@@ -519,12 +521,43 @@ app()->booted(function (): void {
                     $publishAtValue = $raw ? \Carbon\Carbon::parse($raw)->format('Y-m-d H:i:s') : null;
                 }
 
+                $thumbnailButton = view('plugins/blog::posts.partials.ai-image-button', [
+                    'slot' => 'image',
+                ])->render();
+
+                $coverButton = view('plugins/blog::posts.partials.ai-image-button', [
+                    'slot' => 'cover_image',
+                ])->render();
+
                 $form
+                    ->modify(
+                        'image',
+                        MediaImageField::class,
+                        MediaImageFieldOption::make()
+                            ->label(__('Image'))
+                            ->value($data->image)
+                            ->helperText($thumbnailButton),
+                        true
+                    )
                     ->add('cover_image', 'mediaImage', [
                         'label' => __('Cover Image'),
                         'label_attr' => ['class' => 'control-label'],
                         'value' => MetaBox::getMetaData($data, 'cover_image', true),
+                        'help_block' => [
+                            'text' => $coverButton,
+                        ],
                     ])
+                    ->addAfter(
+                        'cover_image',
+                        'blog_ai_image_script',
+                        HtmlField::class,
+                        HtmlFieldOption::make()->content(
+                            view('plugins/blog::posts.partials.ai-image-script', [
+                                'route' => route('posts.generate-image'),
+                                'postId' => $data->getKey(),
+                            ])->render()
+                        )
+                    )
                     ->addAfter('status', 'publish_at', \Botble\Base\Forms\Fields\DatePickerField::class,
                         \Botble\Base\Forms\FieldOptions\DatePickerFieldOption::make()
                             ->label(__('Publish At'))

@@ -33,6 +33,24 @@
                     </div>
                 </div>
 
+                @if(! empty($obfuscatedContent))
+                <div class="card mt-4">
+                    <div class="card-body">
+                        <h5 class="card-title mb-3 text-start">{{ trans('plugins/job-board::messages.job_details') }}</h5>
+                        <div class="alert alert-warning text-start" role="alert">
+                            <i class="mdi mdi-lock-outline me-1"></i>
+                            {{ trans('plugins/job-board::messages.closed_job_contacts_hidden') }}
+                        </div>
+                        <div class="content-single text-start">
+                            <div class="ck-content">
+                                {!! $obfuscatedContent !!}
+                            </div>
+                        </div>
+                        {{-- Applications are intentionally disabled on closed jobs: no apply button is rendered. --}}
+                    </div>
+                </div>
+                @endif
+
                 @if($job->company && !$job->hide_company)
                 <div class="card mt-4">
                     <div class="card-body">

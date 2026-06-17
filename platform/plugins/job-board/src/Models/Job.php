@@ -203,29 +203,33 @@ class Job extends BaseModel
 
     public function scopeNotExpired(Builder $query): Builder
     {
-        $now = Carbon::now()->toDateTimeString();
+        $today = Carbon::today()->toDateString();
 
-        return $query->where(function ($query) use ($now): void {
+        return $query->where(function ($query) use ($today): void {
             $query->where('never_expired', true)
                 ->orWhereNull('expire_date')
-                ->orWhere('expire_date', '>=', $now);
+                ->orWhereDate('expire_date', '>=', $today);
         });
     }
 
     public function scopeNotClosed(Builder $query): Builder
     {
-        return $query->where(function ($query): void {
+        $today = Carbon::today()->toDateString();
+
+        return $query->where(function ($query) use ($today): void {
             $query
-                ->where('application_closing_date', '>=', Carbon::now()->toDateTimeString())
+                ->whereDate('application_closing_date', '>=', $today)
                 ->orWhereNull('application_closing_date');
         });
     }
 
     public function scopeExpired(Builder $query): Builder
     {
-        return $query->where(function ($query): void {
+        $today = Carbon::today()->toDateString();
+
+        return $query->where(function ($query) use ($today): void {
             $query
-                ->where('expire_date', '<', Carbon::now()->toDateTimeString())
+                ->whereDate('expire_date', '<', $today)
                 ->where('never_expired', false);
         });
     }
@@ -384,7 +388,7 @@ class Job extends BaseModel
             return false;
         }
 
-        return $this->expire_date->lte(Carbon::now());
+        return $this->expire_date->copy()->endOfDay()->lt(Carbon::now());
     }
 
     public function isJobOpen(): bool
@@ -395,11 +399,11 @@ class Job extends BaseModel
             return false;
         }
 
-        if (! $this->never_expired && $this->expire_date && $now->greaterThan($this->expire_date)) {
+        if (! $this->never_expired && $this->expire_date && $now->greaterThan($this->expire_date->copy()->endOfDay())) {
             return false;
         }
 
-        if ($this->application_closing_date && $now->greaterThan($this->application_closing_date)) {
+        if ($this->application_closing_date && $now->greaterThan($this->application_closing_date->copy()->endOfDay())) {
             return false;
         }
 

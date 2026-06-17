@@ -194,6 +194,11 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers', 'middleware' =>
         'uses' => 'TelegramSocialMessageController@upload',
     ])->middleware('signed');
 
+    Route::post('telegram/social-message/generate', [
+        'as' => 'public.telegram-social-generate',
+        'uses' => 'TelegramSocialMessageController@generate',
+    ])->middleware('signed');
+
     Route::post('telegram/social-message/send-to-employer', [
         'as' => 'public.telegram-social-send-to-employer',
         'uses' => 'TelegramSocialMessageController@sendToEmployer',

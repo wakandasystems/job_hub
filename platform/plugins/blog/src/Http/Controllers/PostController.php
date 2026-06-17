@@ -5,10 +5,12 @@ namespace Botble\Blog\Http\Controllers;
 use Botble\Base\Http\Actions\DeleteResourceAction;
 use Botble\Base\Http\Controllers\BaseController;
 use Botble\Base\Http\Responses\BaseHttpResponse;
+use Botble\Base\Facades\MetaBox;
 use Botble\Base\Supports\Breadcrumb;
 use Botble\Blog\Forms\PostForm;
 use Botble\Blog\Http\Requests\PostRequest;
 use Botble\Blog\Models\Post;
+use Botble\Blog\Services\PostAiImageService;
 use Botble\Blog\Services\StoreCategoryService;
 use Botble\Blog\Services\StoreTagService;
 use Botble\Blog\Tables\PostTable;
@@ -108,5 +110,55 @@ class PostController extends BaseController
         return $this
             ->httpResponse()
             ->setData(view('plugins/blog::widgets.posts', compact('posts', 'limit'))->render());
+    }
+
+    public function generateImage(
+        Request $request,
+        BaseHttpResponse $response,
+        PostAiImageService $service
+    ): BaseHttpResponse {
+        $validated = $request->validate([
+            'post_id' => ['nullable', 'integer', 'exists:posts,id'],
+            'slot_type' => ['required', 'in:image,cover_image'],
+            'title' => ['required', 'string', 'max:255'],
+            'description' => ['nullable', 'string'],
+            'content' => ['nullable', 'string'],
+        ]);
+
+        $post = null;
+
+        if (! empty($validated['post_id'])) {
+            $post = Post::query()->find($validated['post_id']);
+        }
+
+        $result = $service->generate([
+            'post_id' => $post?->getKey(),
+            'title' => $validated['title'],
+            'description' => $validated['description'] ?? $post?->description,
+            'content' => $validated['content'] ?? $post?->content,
+        ], $validated['slot_type']);
+
+        if (! ($result['ok'] ?? false)) {
+            return $response
+                ->setError()
+                ->setMessage($result['message'] ?? 'Image generation failed.');
+        }
+
+        if ($post) {
+            if ($validated['slot_type'] === 'image') {
+                $post->image = $result['path'];
+                $post->save();
+            } else {
+                MetaBox::saveMetaBoxData($post, 'cover_image', $result['path']);
+            }
+        }
+
+        return $response
+            ->setMessage('Image generated successfully.')
+            ->setData([
+                'path' => $result['path'],
+                'url' => $result['url'],
+                'saved' => (bool) $post,
+            ]);
     }
 }

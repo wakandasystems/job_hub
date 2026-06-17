@@ -62,6 +62,7 @@ class Company extends BaseModel
         'city_id',
         'tax_id',
         'unique_id',
+        'last_employer_pitch_at',
     ];
 
     protected $casts = [
@@ -84,6 +85,7 @@ class Company extends BaseModel
         'verified_at' => 'datetime',
         'contact_emails' => 'array',
         'contact_numbers' => 'array',
+        'last_employer_pitch_at' => 'datetime',
     ];
 
     public function accounts(): BelongsToMany

@@ -11,6 +11,7 @@ use Botble\JobBoard\Events\JobPublishedEvent;
 use Botble\JobBoard\Listeners\AdminApprovedCompanyListener;
 use Botble\JobBoard\Listeners\AdminApprovedJobListener;
 use Botble\JobBoard\Listeners\EmployerPostedJobListener;
+use Botble\JobBoard\Listeners\GenerateSocialImagesListener;
 use Botble\JobBoard\Listeners\JobAppliedListener;
 use Botble\JobBoard\Listeners\NewApplicationNotification;
 use Botble\JobBoard\Listeners\RenderingSiteMapListener;
@@ -42,6 +43,7 @@ class EventServiceProvider extends ServiceProvider
             SocialPublishListener::class,
             SendPushNotificationListener::class,
             SendVipCandidateAlertsListener::class,
+            GenerateSocialImagesListener::class,
         ],
         EmployerPostedJobEvent::class => [
             EmployerPostedJobListener::class,

@@ -1975,8 +1975,13 @@ span {
             inset: 0;
             height: 100%;
             object-fit: contain;
-            background: #f3efff;
         }
+    }
+}
+
+@media screen and (max-width: 991.98px) {
+    .header-search-toggle {
+        display: none;
     }
 }
 

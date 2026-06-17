@@ -15,6 +15,7 @@ use Botble\JobBoard\Http\Controllers\FeaturedPackageController;
 use Botble\JobBoard\Http\Controllers\JobAlertOrderController;
 use Botble\JobBoard\Http\Controllers\VipAlertOrderController;
 use Botble\JobBoard\Http\Controllers\JobAlertPackageController;
+use Botble\JobBoard\Http\Controllers\Settings\AiImageSettingController;
 use Botble\JobBoard\Http\Controllers\Settings\CareerServiceSettingController;
 use Botble\JobBoard\Http\Controllers\Settings\VipAlertPlanSettingController;
 use Botble\JobBoard\Http\Controllers\CouponController;
@@ -98,6 +99,8 @@ AdminHelper::registerRoutes(function (): void {
         Route::put('career-services', [CareerServiceSettingController::class, 'update'])->name('career-services.update');
         Route::get('vip-alert-plans', [VipAlertPlanSettingController::class, 'edit'])->name('vip-alert-plans');
         Route::put('vip-alert-plans', [VipAlertPlanSettingController::class, 'update'])->name('vip-alert-plans.update');
+        Route::get('ai-images', [AiImageSettingController::class, 'edit'])->name('ai-images');
+        Route::put('ai-images', [AiImageSettingController::class, 'update'])->name('ai-images.update');
     });
 
     Route::group(['prefix' => 'job-board/candidate-alerts', 'as' => 'job-board.candidate-alerts.', 'middleware' => 'auth'], function (): void {

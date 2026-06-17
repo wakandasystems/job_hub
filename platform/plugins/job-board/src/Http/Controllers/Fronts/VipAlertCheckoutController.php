@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Http\Controllers\Fronts;
 
 use Botble\Base\Http\Controllers\BaseController;
+use Botble\JobBoard\Models\Currency;
 use Botble\JobBoard\Models\VipAlertOrder;
 use Botble\SeoHelper\Facades\SeoHelper;
 use Botble\Theme\Facades\Theme;
@@ -16,6 +17,14 @@ class VipAlertCheckoutController extends BaseController
         SeoHelper::setTitle('VIP WhatsApp Job Alerts');
         $plans = VipAlertOrder::plans();
 
+        $appCurrency = get_application_currency();
+        foreach ($plans as &$plan) {
+            [$plan['displayPrice'], $plan['displayCurrency']] = $this->convertPrice(
+                $plan['price'], $plan['currency'], $appCurrency
+            );
+        }
+        unset($plan);
+
         return Theme::scope('job-board.vip-alerts.plans', compact('plans'))->render();
     }
 
@@ -25,6 +34,10 @@ class VipAlertCheckoutController extends BaseController
         abort_unless($planData, 404);
 
         SeoHelper::setTitle('VIP Alerts — Enter Your Details');
+
+        [$planData['displayPrice'], $planData['displayCurrency']] = $this->convertPrice(
+            $planData['price'], $planData['currency']
+        );
 
         return Theme::scope('job-board.vip-alerts.checkout', compact('plan', 'planData'))->render();
     }
@@ -111,6 +124,25 @@ class VipAlertCheckoutController extends BaseController
         abort_unless(strlen($token) === 64, 404);
 
         return VipAlertOrder::query()->where('public_token', $token)->firstOrFail();
+    }
+
+    private function convertPrice(float $price, string $currencyCode, ?Currency $appCurrency = null): array
+    {
+        $appCurrency  ??= get_application_currency();
+        $planCurrency   = Currency::query()->where('title', $currencyCode)->first();
+
+        if ($planCurrency && $appCurrency) {
+            $inDefault  = (!$planCurrency->is_default && $planCurrency->exchange_rate > 0)
+                ? $price / $planCurrency->exchange_rate
+                : $price;
+            $converted  = (!$appCurrency->is_default && $appCurrency->exchange_rate > 0)
+                ? $inDefault * $appCurrency->exchange_rate
+                : $inDefault;
+
+            return [$converted, $appCurrency->title];
+        }
+
+        return [$price, $currencyCode];
     }
 
     private function cleanFilters(array $filters): array

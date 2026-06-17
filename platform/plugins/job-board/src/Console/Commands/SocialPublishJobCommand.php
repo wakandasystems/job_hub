@@ -33,6 +33,15 @@ class SocialPublishJobCommand extends Command
             }
         }
 
+        // After the image is generated and the job is posted, pitch the external employer
+        // by email — throttled to one email per employer per day (handled in the service).
+        $pitch = $publisher->autoPitchEmployerEmail($job->refresh(), $results);
+        if ($pitch['sent'] ?? false) {
+            $this->components->info('Employer pitch email sent to ' . $pitch['to'] . '.');
+        } else {
+            $this->components->info('Employer pitch skipped: ' . ($pitch['reason'] ?? 'unknown') . '.');
+        }
+
         return 0;
     }
 }

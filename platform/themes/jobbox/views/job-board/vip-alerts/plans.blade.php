@@ -51,7 +51,7 @@
                         @endif
                         <div class="card-body p-4 pt-5 d-flex flex-column">
                             <div class="text-center mb-4">
-                                <div class="display-5 fw-bold text-dark">{{ $plan['currency'] }} {{ number_format($plan['price'], 2) }}</div>
+                                <div class="display-5 fw-bold text-dark">{{ $plan['displayCurrency'] }} {{ number_format($plan['displayPrice'], 2) }}</div>
                                 <div class="text-muted font-sm">{{ $plan['label'] }}</div>
                             </div>
                             <ul class="list-unstyled mb-4 flex-grow-1">
@@ -65,7 +65,7 @@
                             </ul>
                             <a href="{{ route('public.vip-alerts.checkout', $planKey) }}"
                                class="btn w-100 btn-apply-big {{ $isPopular ? 'btn-success' : 'btn-outline-success' }}">
-                                Get Started — {{ $plan['currency'] }} {{ number_format($plan['price'], 2) }}
+                                Get Started — {{ $plan['displayCurrency'] }} {{ number_format($plan['displayPrice'], 2) }}
                             </a>
                         </div>
                     </div>

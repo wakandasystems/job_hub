@@ -23,7 +23,7 @@
                                 <p class="mb-0 text-muted font-sm">{{ $planData['label'] }} plan</p>
                             </div>
                             <div class="text-end flex-shrink-0">
-                                <div class="fs-3 fw-bold text-success">{{ $planData['currency'] }} {{ number_format($planData['price'], 2) }}</div>
+                                <div class="fs-3 fw-bold text-success">{{ $planData['displayCurrency'] }} {{ number_format($planData['displayPrice'], 2) }}</div>
                             </div>
                         </div>
                     </div>

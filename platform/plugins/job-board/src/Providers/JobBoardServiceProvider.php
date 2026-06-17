@@ -529,6 +529,15 @@ class JobBoardServiceProvider extends ServiceProvider
                     'permissions' => ['vip-alert-orders.index'],
                 ])
                 ->registerItem([
+                    'id'          => 'cms-plugins-job-board-ai-images',
+                    'priority'    => 7,
+                    'parent_id'   => 'cms-plugins-job-board-main',
+                    'name'        => 'AI Image Generation',
+                    'icon'        => 'ti ti-photo-ai',
+                    'url'         => route('job-board.settings.ai-images'),
+                    'permissions' => ['job-board.automations.index'],
+                ])
+                ->registerItem([
                     'id'          => 'cms-plugins-job-board-candidate-alerts',
                     'priority'    => 7,
                     'parent_id'   => 'cms-plugins-job-board-main',

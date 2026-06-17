@@ -14,9 +14,20 @@
                 $footerTgChannels      = wakanda_all_telegram_channels();
                 $footerVipPlans        = \Botble\JobBoard\Models\VipAlertOrder::plans();
                 $footerVipStartingPlan = collect($footerVipPlans)->sortBy('price')->first();
-                $footerVipStartingText = $footerVipStartingPlan
-                    ? $footerVipStartingPlan['currency'] . ' ' . number_format($footerVipStartingPlan['price'], 2)
-                    : null;
+                $footerAppCurrency     = get_application_currency();
+                $footerVipCurrency     = $footerAppCurrency->title ?? ($footerVipStartingPlan['currency'] ?? 'USD');
+                if ($footerVipStartingPlan) {
+                    $footerPlanCurrency = \Botble\JobBoard\Models\Currency::query()->where('title', $footerVipStartingPlan['currency'])->first();
+                    $footerPriceInDefault = ($footerPlanCurrency && !$footerPlanCurrency->is_default && $footerPlanCurrency->exchange_rate > 0)
+                        ? $footerVipStartingPlan['price'] / $footerPlanCurrency->exchange_rate
+                        : $footerVipStartingPlan['price'];
+                    $footerConvertedPrice = ($footerAppCurrency && !$footerAppCurrency->is_default && $footerAppCurrency->exchange_rate > 0)
+                        ? $footerPriceInDefault * $footerAppCurrency->exchange_rate
+                        : $footerPriceInDefault;
+                    $footerVipStartingText = $footerVipCurrency . ' ' . number_format($footerConvertedPrice, 2);
+                } else {
+                    $footerVipStartingText = null;
+                }
             @endphp
             <div class="row border-top pt-4 mt-4">
                 <div class="col-12 text-center">

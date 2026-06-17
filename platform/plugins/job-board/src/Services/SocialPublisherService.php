@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Throwable;
@@ -77,6 +79,137 @@ class SocialPublisherService
         }
 
         return $results;
+    }
+
+    /**
+     * After a job has been imaged and posted to social channels, send the employer the
+     * "your job ad is live" pitch by email — but only for external (crawled) employers,
+     * and at most once per employer per calendar day so a single employer posting many
+     * jobs in a day does not flood their inbox.
+     *
+     * Returns ['sent' => bool, 'reason' => string, ...] for logging.
+     */
+    public function autoPitchEmployerEmail(Job $job, array $publishResults): array
+    {
+        // 1. Require at least one successful social post.
+        $posted = collect($publishResults)->contains(fn ($r) => ($r['success'] ?? false) === true);
+        if (! $posted) {
+            return ['sent' => false, 'reason' => 'no_social_post'];
+        }
+
+        // 2. Only pitch external (crawled) employers. Organic employers posted with us
+        //    directly and shouldn't get an unsolicited "activate your account" pitch.
+        if ($job->is_organic) {
+            return ['sent' => false, 'reason' => 'organic_employer'];
+        }
+
+        // 3. Resolve the image to send (employer image first, then WhatsApp image, then
+        //    the job image). The pitch email must NEVER go out without an image.
+        $imagePath = trim((string) ($job->employer_image ?: $job->whatsapp_image ?: $job->image));
+        if ($imagePath === '') {
+            return ['sent' => false, 'reason' => 'no_image'];
+        }
+
+        $imageUrl = RvMedia::getImageUrl($imagePath);
+        if (! $imageUrl) {
+            return ['sent' => false, 'reason' => 'no_image'];
+        }
+
+        $company = $job->company;
+        if (! $company) {
+            return ['sent' => false, 'reason' => 'no_company'];
+        }
+
+        // 4. Resolve the employer's contact emails (contact_emails first, then email).
+        $emails = collect($company->contact_emails ?? [])->filter()->values();
+        if ($emails->isEmpty() && $company->email) {
+            $emails = collect([$company->email]);
+        }
+        if ($emails->isEmpty()) {
+            return ['sent' => false, 'reason' => 'no_email'];
+        }
+
+        // 5. Atomic per-employer, per-day throttle. The UPDATE only affects a row when
+        //    this employer has not been pitched today, so concurrent publishes (jobs run
+        //    in parallel background processes) can't both win — exactly one email goes out.
+        $claimed = DB::table('jb_companies')
+            ->where('id', $company->getKey())
+            ->where(function ($query): void {
+                $query->whereNull('last_employer_pitch_at')
+                    ->orWhere('last_employer_pitch_at', '<', now()->startOfDay());
+            })
+            ->update(['last_employer_pitch_at' => now()]);
+
+        if (! $claimed) {
+            return ['sent' => false, 'reason' => 'already_pitched_today'];
+        }
+
+        $to = $emails->first();
+        $cc = $emails->slice(1)->values()->all();
+        $message = $this->buildEmployerPitchMessage($job);
+        $jobUrl  = $this->trackedJobUrl($job, 'employer_email');
+
+        // Local file path (for inline CID embedding) — falls back to the public URL when
+        // the file can't be resolved locally (e.g. remote disk).
+        $localImagePath = null;
+        try {
+            if (Storage::disk('public')->exists($imagePath)) {
+                $localImagePath = Storage::disk('public')->path($imagePath);
+            }
+        } catch (\Throwable) {
+            // ignore — we'll fall back to the public URL
+        }
+
+        try {
+            Mail::send([], [], function ($mail) use ($to, $cc, $job, $message, $jobUrl, $imageUrl, $localImagePath): void {
+                $mail->to($to)
+                    ->subject('Your job ad "' . $job->name . '" is live on Wakanda Jobs! 🚀');
+
+                if ($cc) {
+                    $mail->cc($cc);
+                }
+
+                // Embed the image inline so it always displays (not blocked like a remote
+                // image), with the public URL as a fallback.
+                $src = ($localImagePath && is_file($localImagePath))
+                    ? $mail->embed($localImagePath)
+                    : $imageUrl;
+
+                $mail->html($this->buildEmployerPitchHtml($job, $message, $src, $jobUrl));
+            });
+        } catch (\Throwable $e) {
+            Log::error('Auto employer pitch email failed', [
+                'job_id' => $job->getKey(),
+                'company_id' => $company->getKey(),
+                'error' => $e->getMessage(),
+            ]);
+
+            return ['sent' => false, 'reason' => 'send_failed', 'error' => $e->getMessage()];
+        }
+
+        return ['sent' => true, 'reason' => 'sent', 'to' => $to, 'cc' => $cc];
+    }
+
+    /**
+     * Build the HTML body for the employer pitch email: the generated image at the top,
+     * the pitch text (with *bold* and links rendered), and a clear job-URL call to action.
+     */
+    protected function buildEmployerPitchHtml(Job $job, string $message, string $imageSrc, string $jobUrl): string
+    {
+        $body = e($message);
+        $body = preg_replace('/\*(.+?)\*/s', '<strong>$1</strong>', $body);
+        $body = preg_replace('~(https?://[^\s]+)~', '<a href="$1" style="color:#7c3aed">$1</a>', $body);
+        $body = nl2br($body);
+
+        return '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#222;max-width:600px;margin:0 auto;padding:8px">'
+            . '<img src="' . $imageSrc . '" alt="' . e($job->name) . '" '
+            . 'style="display:block;width:100%;max-width:600px;height:auto;border-radius:10px;margin-bottom:18px">'
+            . '<div>' . $body . '</div>'
+            . '<div style="margin:24px 0 8px">'
+            . '<a href="' . e($jobUrl) . '" '
+            . 'style="background:#7c3aed;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;display:inline-block;font-weight:bold">'
+            . 'View the job ad &rarr;</a></div>'
+            . '</div>';
     }
 
     public function trackedJobUrl(Job $job, string $source): string
@@ -186,6 +319,7 @@ class SocialPublisherService
         }
 
         $prompt .= " Feature Black African professionals dressed appropriately for the role in the scene.";
+        $prompt .= $this->sceneDirective($job);
         $prompt .= " " . $this->wakandaLogoLine();
         if ($companyLogoUrl) {
             $prompt .= " The Wakanda Jobs logo should be smaller and secondary to the company branding — this image should feel like a '{$company}' ad first.";
@@ -356,6 +490,7 @@ class SocialPublisherService
         }
 
         $prompt .= " Feature Black African professionals dressed appropriately for the role in the scene.";
+        $prompt .= $this->sceneDirective($job);
         $prompt .= " " . $this->wakandaLogoLine();
         if ($companyLogoUrl) {
             $prompt .= " The Wakanda Jobs logo should be smaller and secondary to the company branding — this image should feel like a '{$company}' ad first.";
@@ -425,6 +560,7 @@ class SocialPublisherService
 
         $p .= "═══ CONTENT REQUIREMENTS ═══\n";
         $p .= "• Show Black African professionals in a realistic work environment suitable for the role '{$title}'. The people should look confident, aspirational, and engaged.\n";
+        $p .= $this->sceneDirective($job, 'bullet');
         $p .= "• LEFT-SIDE TEXT OVERLAYS: Place text on a light cream, soft-white, or very pale tinted panel with strong contrast. Use deep charcoal or rich brand-colour text, not white text on a dark background.\n";
         $p .= "    — Large bold heading: \"{$title}\"\n";
         if ($company) $p .= "    — Subheading: \"at {$company}\"\n";
@@ -525,6 +661,7 @@ class SocialPublisherService
 
         $p .= "═══ CONTENT ═══\n";
         $p .= "• Show Black African professionals in a work environment suited to '{$title}'. Confident, aspirational, engaged.\n";
+        $p .= $this->sceneDirective($job, 'bullet');
         $p .= "• TEXT OVERLAYS (white or lavender on dark background):\n";
         $p .= "    — Large bold heading: \"{$title}\"\n";
         if ($company) $p .= "    — Subheading: \"at {$company}\"\n";
@@ -1028,6 +1165,186 @@ PROMPT;
 
         $index = $job->id % count($hooks);
         return $hooks[$index];
+    }
+
+    /**
+     * Build a haystack of the job's industry signals (title + categories + functional area)
+     * used to pick a realistic scene/background instead of always defaulting to an indoor office.
+     */
+    private function industryHaystack(Job $job): string
+    {
+        $parts = [(string) $job->name];
+
+        try {
+            $parts[] = $job->categories->pluck('name')->filter()->implode(' ');
+        } catch (Throwable) {}
+
+        try {
+            if ($job->functional_area_id && $job->functionalArea && $job->functionalArea->name) {
+                $parts[] = (string) $job->functionalArea->name;
+            }
+        } catch (Throwable) {}
+
+        // Pad with surrounding spaces so word-boundary keywords (e.g. ' it ', ' port') match cleanly.
+        return ' ' . strtolower(trim(implode(' ', array_filter($parts)))) . ' ';
+    }
+
+    /**
+     * Pick a concrete work-environment scene + appropriate attire for the job's industry, so
+     * generated images are diverse (a mine job shows a mine, a farm job shows fields, etc.)
+     * rather than everyone indoors in business suits.
+     *
+     * @return array{scene: string, attire: string}
+     */
+    private function industryScene(Job $job): array
+    {
+        $h = $this->industryHaystack($job);
+
+        // Ordered most-specific / most-visual industries first; office/desk roles fall through to the default.
+        $groups = [
+            [
+                ['mining', 'miner', 'mineral', 'quarry', 'geolog', 'metallurg', 'smelter', 'drill', 'blast', 'excavat', 'open pit', 'open-pit'],
+                'an active African mine site — an open-pit terraced excavation or underground tunnel, with haul trucks, excavators, conveyor systems or rock walls in the background, under bright natural daylight',
+                'mining PPE: hard hats, hi-visibility reflective vests or overalls, safety boots and protective gloves',
+            ],
+            [
+                ['oil and gas', 'oil & gas', 'petroleum', 'petrochemical', 'refinery', 'rig', 'offshore', 'energy', 'utilit', 'power station', 'power plant', 'solar', 'electrical grid', 'pipeline'],
+                'an energy / industrial plant setting — an oil & gas facility, power station, solar farm or refinery with pipework and structures in the background under daylight',
+                'industrial PPE: flame-resistant coveralls or work uniforms, hard hats, hi-vis vests and safety boots',
+            ],
+            [
+                ['marine', 'maritime', 'seafarer', 'seaport', ' port ', 'harbour', 'harbor', 'vessel', 'cruise ship', 'dockyard'],
+                'a marine / port setting — a shipping port with cranes, containers and vessels, or a ship deck in the background under open sky',
+                'maritime work attire: hi-vis vests, hard hats and safety boots, or officer uniforms for crew roles',
+            ],
+            [
+                ['construction', 'civil eng', 'quantity surv', 'builder', 'bricklay', 'scaffold', 'concrete', 'building site', 'site manager', 'site engineer', 'road works', 'roadworks', 'infrastructure', 'architect', 'carpenter', 'plumb', 'welding', 'welder'],
+                'an active construction site — scaffolding, cranes, partially built structures or roadworks in the background under a bright daytime sky',
+                'construction PPE: hard hats, hi-vis vests and work boots; engineers may carry blueprints or a tablet',
+            ],
+            [
+                ['agricultur', 'farm', 'agro', 'crop', 'livestock', 'fish', 'forestry', 'irrigation', 'plantation', 'horticult', 'agronom', 'veterinar', 'poultry', 'dairy'],
+                'an outdoor agricultural setting — green fields, crops, greenhouses, livestock or farm machinery in the background under open sky',
+                'practical farm work clothing: work shirts, hats and boots; agronomists/vets may inspect crops or animals',
+            ],
+            [
+                ['manufactur', 'production', 'factory', 'fmcg', 'assembly', 'fabricat', 'machinist', 'industrial plant', 'processing plant'],
+                'a modern factory / production floor — assembly lines, machinery and industrial equipment in the background',
+                'industrial PPE: overalls or work uniforms, hard hats, hi-vis vests, safety goggles and ear protection where relevant',
+            ],
+            [
+                ['automotive', 'motoring', ' mechanic ', 'panel beat', 'auto workshop', 'vehicle service', 'garage'],
+                'an automotive workshop — vehicles on lifts, tools and a service bay in the background',
+                'mechanic overalls and work uniforms; service advisors in branded polo shirts',
+            ],
+            [
+                ['driver', 'driving', 'logistic', 'transport', 'delivery', 'fleet', 'warehouse', 'supply chain', 'dispatch', 'freight', 'haul', 'trucking', 'courier', 'forklift', 'distribution'],
+                'a logistics environment — a warehouse with racking and forklifts, a loading dock, or delivery trucks in the background',
+                'hi-vis vests and practical work clothing; drivers beside vehicles, warehouse staff with handheld scanners',
+            ],
+            [
+                ['aviation', 'pilot', 'airline', 'flight', 'aircraft', 'cabin crew', 'airport', 'aerospace'],
+                'an aviation setting — an aircraft on the tarmac, a hangar, or an airport terminal in the background',
+                'aviation uniforms: pilot or cabin-crew uniforms, or engineering hi-vis for ground/maintenance roles',
+            ],
+            [
+                ['nurse', 'nursing', 'doctor', 'medical', 'healthcare', 'health care', 'clinic', 'hospital', 'pharmac', 'dental', 'dentist', 'midwife', 'surgeon', 'radiograph', 'physiother', 'laborator', 'clinical', 'patient', 'health officer'],
+                'a clean modern hospital or clinic interior — bright wards, an examination room or a laboratory in the background',
+                'medical scrubs, lab coats or nursing uniforms with stethoscopes — NOT business suits',
+            ],
+            [
+                ['hospitality', 'hotel', 'chef', 'cook', 'kitchen', 'catering', 'restaurant', 'barista', 'waiter', 'waitress', 'housekeep', 'lodge', 'resort', 'culinary', 'pastry', 'tourism', 'travel & tourism'],
+                'a hotel, lodge or restaurant setting — an elegant reception, dining area or professional kitchen in the background',
+                'hospitality uniforms: chef whites and a toque for kitchen roles, or smart front-desk/waitstaff uniforms for service roles',
+            ],
+            [
+                ['beauty', 'spa', 'wellness', 'salon', 'hairdress', 'cosmetic', 'skincare', 'barber', 'massage', 'fitness', 'gym'],
+                'a beauty / wellness setting — a modern salon, spa or fitness studio in the background',
+                'salon/spa uniforms or activewear appropriate to the role',
+            ],
+            [
+                ['teacher', 'teaching', 'lecturer', 'tutor', 'educat', 'school', 'academic', 'instructor', 'curriculum', 'professor', 'classroom', 'learnership'],
+                'an education setting — a bright classroom, lecture hall or campus with learners in the background',
+                'smart-casual professional attire suited to teaching — not necessarily formal suits',
+            ],
+            [
+                ['security', 'guard', 'enforcement', 'defence', 'defense', 'surveillance', 'patrol'],
+                'a security setting — a guarded premises entrance, a control room with monitors, or a patrol environment',
+                'professional security uniforms; control-room staff at monitoring stations',
+            ],
+            [
+                ['cleaning', 'janitor', 'facilities', 'maintenance', 'groundskeep', 'custodial', 'domestic worker', 'household'],
+                'a facilities / maintenance setting — a clean commercial building, office interior or maintained grounds',
+                'practical work uniforms or coveralls appropriate to cleaning/maintenance',
+            ],
+            [
+                ['retail', 'shop ', 'store', 'merchandis', 'cashier', 'sales assistant', 'boutique', 'supermarket', 'fashion'],
+                'a retail environment — a well-stocked modern store, shop floor or boutique in the background',
+                'branded retail staff uniforms or smart-casual attire',
+            ],
+            [
+                ['call centre', 'call center', 'customer service', 'customer care', 'bpo', 'telesales', 'helpdesk', 'contact center', 'contact centre'],
+                'a modern call-centre / customer-service floor — rows of headset-wearing agents at workstations in the background',
+                'smart-casual office attire with headsets',
+            ],
+            [
+                ['software', 'developer', 'programmer', 'information technology', ' ict', 'data scien', 'data analy', 'cyber', 'devops', 'network engineer', 'system admin', 'web develop', 'machine learning', 'cloud', ' it '],
+                'a modern tech office or co-working space — workstations with multiple monitors showing code, in a bright open-plan environment',
+                'smart-casual modern tech attire — not formal suits',
+            ],
+            [
+                ['creative', ' media', 'journal', 'graphic design', 'advertis', 'content writer', 'communications', 'public relation', 'photograph', 'videograph', 'film', 'copywrit', 'broadcast'],
+                'a creative studio or modern marketing agency — design workstations, mood boards or a media production set in the background',
+                'stylish smart-casual creative attire',
+            ],
+            [
+                ['ngo', 'non-profit', 'nonprofit', 'non profit', 'charity', 'humanitarian', 'community', 'social work', 'relief', 'development programme'],
+                'a community / field development setting — outreach in a community or a field project that conveys real impact',
+                'smart-casual or branded NGO field attire',
+            ],
+            [
+                ['legal', 'lawyer', 'advocate', 'attorney', 'solicitor', 'paralegal', 'litigation', 'court'],
+                'a refined law-office setting — an office with law books or a boardroom in the background',
+                'formal professional business attire',
+            ],
+            [
+                // Generic engineering / technical roles not caught by a more specific industry above.
+                ['engineer', 'technician', 'electrical', 'mechanical', 'telecommunication', 'telecoms', 'technical'],
+                'a technical / engineering work environment — an industrial site, plant, workshop or field installation with equipment and machinery in the background',
+                'engineering work attire: hard hats, hi-vis vests, safety boots and tools where relevant',
+            ],
+        ];
+
+        foreach ($groups as [$keywords, $scene, $attire]) {
+            foreach ($keywords as $keyword) {
+                if (str_contains($h, $keyword)) {
+                    return ['scene' => $scene, 'attire' => $attire];
+                }
+            }
+        }
+
+        // Office / admin / HR / management / finance / sales — a bright modern office is appropriate.
+        return [
+            'scene' => 'a bright, modern professional office in Africa with an open, welcoming atmosphere',
+            'attire' => 'smart professional business attire',
+        ];
+    }
+
+    /**
+     * One emphatic instruction block telling the model to match the background and clothing to the
+     * job's real industry instead of always rendering an indoor office full of people in suits.
+     */
+    private function sceneDirective(Job $job, string $style = 'sentence'): string
+    {
+        ['scene' => $scene, 'attire' => $attire] = $this->industryScene($job);
+
+        if ($style === 'bullet') {
+            return "• SCENE & SETTING — match the background to this job's real industry; do NOT default to a generic indoor office with everyone in business suits: set the scene in {$scene}.\n"
+                . "• Dress the people in {$attire}, suited to the actual work being done. Keep it authentic and photorealistic for an African workplace.\n";
+        }
+
+        return " SCENE & SETTING — match the background to this job's real industry; do NOT default to a generic indoor office with everyone in business suits: set the scene in {$scene}."
+            . " Dress the people in {$attire}, suited to the actual work being done, keeping it authentic and photorealistic for an African workplace.";
     }
 
     private function getFlagColors(string $country): ?string

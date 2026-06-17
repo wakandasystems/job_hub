@@ -565,7 +565,7 @@ class JobBoardHelper
                     WHERE jb_jobs_types.job_type_id = jb_job_types.id
                     AND jb_jobs.moderation_status = "' . ModerationStatusEnum::APPROVED . '"
                     AND jb_jobs.status = "' . JobStatusEnum::PUBLISHED . '"
-                    AND (jb_jobs.never_expired = 1 OR jb_jobs.expire_date IS NULL OR jb_jobs.expire_date >= NOW())
+                    AND (jb_jobs.never_expired = 1 OR jb_jobs.expire_date IS NULL OR jb_jobs.expire_date >= CURDATE())
                     ' . $this->buildFilterConditionsForSubquery($data) . '
                 ) as jobs_count'),
             ])
@@ -587,13 +587,15 @@ class JobBoardHelper
                 DB::raw('COALESCE(COUNT(DISTINCT jb_jobs.id), 0) as jobs_count'),
             ])
             ->leftJoin('jb_jobs', function ($join) use ($data): void {
+                $today = Carbon::today()->toDateString();
+
                 $join->on('jb_job_experiences.id', '=', 'jb_jobs.job_experience_id')
                     ->where('jb_jobs.moderation_status', '=', ModerationStatusEnum::APPROVED)
                     ->where('jb_jobs.status', '=', JobStatusEnum::PUBLISHED)
-                    ->where(function ($query): void {
+                    ->where(function ($query) use ($today): void {
                         $query->where('jb_jobs.never_expired', '=', 1)
                             ->orWhereNull('jb_jobs.expire_date')
-                            ->orWhere('jb_jobs.expire_date', '>=', now());
+                            ->orWhereDate('jb_jobs.expire_date', '>=', $today);
                     });
 
                 if (! empty($data['job_categories'])) {
@@ -635,7 +637,7 @@ class JobBoardHelper
                     WHERE jb_jobs_skills.job_skill_id = jb_job_skills.id
                     AND jb_jobs.moderation_status = "' . ModerationStatusEnum::APPROVED . '"
                     AND jb_jobs.status = "' . JobStatusEnum::PUBLISHED . '"
-                    AND (jb_jobs.never_expired = 1 OR jb_jobs.expire_date IS NULL OR jb_jobs.expire_date >= NOW())
+                    AND (jb_jobs.never_expired = 1 OR jb_jobs.expire_date IS NULL OR jb_jobs.expire_date >= CURDATE())
                     ' . $this->buildFilterConditionsForSubquery($data) . '
                 ) as jobs_count'),
             ])

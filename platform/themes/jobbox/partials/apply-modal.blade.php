@@ -11,6 +11,22 @@
     $applyModalWaLabel   = $applyModalCountry ? 'Follow Wakanda Jobs ' . $applyModalCountry->name . ' on WhatsApp' : null;
     $applyModalTgUrl     = wakanda_telegram_channel_url($applyModalCountry?->id);
     $applyModalTgLabel   = $applyModalCountry ? 'Join Wakanda Jobs ' . $applyModalCountry->name . ' on Telegram' : null;
+    $applyModalVipPlans        = \Botble\JobBoard\Models\VipAlertOrder::plans();
+    $applyModalVipStartingPlan = collect($applyModalVipPlans)->sortBy('price')->first();
+    $applyModalAppCurrency     = get_application_currency();
+    $applyModalVipCurrency     = $applyModalAppCurrency->title ?? ($applyModalVipStartingPlan['currency'] ?? 'USD');
+    if ($applyModalVipStartingPlan) {
+        $applyModalPlanCurrency = \Botble\JobBoard\Models\Currency::query()->where('title', $applyModalVipStartingPlan['currency'])->first();
+        $applyModalPriceInDefault = ($applyModalPlanCurrency && !$applyModalPlanCurrency->is_default && $applyModalPlanCurrency->exchange_rate > 0)
+            ? $applyModalVipStartingPlan['price'] / $applyModalPlanCurrency->exchange_rate
+            : $applyModalVipStartingPlan['price'];
+        $applyModalConvertedPrice = ($applyModalAppCurrency && !$applyModalAppCurrency->is_default && $applyModalAppCurrency->exchange_rate > 0)
+            ? $applyModalPriceInDefault * $applyModalAppCurrency->exchange_rate
+            : $applyModalPriceInDefault;
+        $applyModalVipText = $applyModalVipCurrency . ' ' . number_format($applyModalConvertedPrice, 2);
+    } else {
+        $applyModalVipText = null;
+    }
 @endphp
 
 @php
@@ -25,6 +41,12 @@
                 <div class="modal-body pl-30 pr-30 pt-50">
                     {!! \Botble\JobBoard\Forms\Fronts\InternalJobApplicationForm::create()->renderForm() !!}
                     <div class="text-center py-3 border-top mt-3">
+                        @if($applyModalVipText)
+                            <a href="{{ route('public.vip-alerts.plans') }}" class="badge px-3 py-2 mb-2 d-inline-block text-decoration-none" style="background:linear-gradient(135deg,#25d366,#128c4a);color:#fff;font-size:.78rem;">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="#fff" style="vertical-align:middle;margin-right:4px;" aria-hidden="true"><path d="M12.04 2a9.84 9.84 0 0 0-8.43 14.92L2.05 22l5.2-1.52A9.96 9.96 0 1 0 12.04 2Zm4.34 13.02c-.24-.12-1.4-.69-1.62-.77-.22-.08-.38-.12-.54.12-.16.24-.61.77-.75.93-.14.16-.28.18-.52.06-.24-.12-1-.37-1.91-1.18a7.17 7.17 0 0 1-1.32-1.64c-.14-.24-.01-.37.1-.49.11-.11.24-.28.36-.42.12-.14.16-.24.24-.4.08-.16.04-.3-.02-.42-.06-.12-.54-1.3-.74-1.78-.2-.47-.4-.4-.54-.41h-.46a.88.88 0 0 0-.63.3c-.22.24-.83.81-.83 1.98s.85 2.3.97 2.46c.12.16 1.67 2.55 4.05 3.58.57.24 1.01.39 1.35.5.57.18 1.08.15 1.49.09.45-.07 1.4-.57 1.6-1.12.2-.55.2-1.03.14-1.12-.06-.1-.22-.16-.46-.28Z"/></svg>
+                                VIP Alerts — from {{ $applyModalVipText }}
+                            </a>
+                        @endif
                         @if($applyModalWaUrl)
                             <a href="{{ $applyModalWaUrl }}" target="_blank" rel="noopener" class="d-inline-flex align-items-center gap-2 text-decoration-none fw-semibold" style="color:#25D366;">
                                 <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" width="20" height="20" alt="WhatsApp"> {{ $applyModalWaLabel }}
@@ -52,6 +74,12 @@
                 <div class="modal-body pl-30 pr-30 pt-50">
                     {!! \Botble\JobBoard\Forms\Fronts\ExternalJobApplicationForm::create()->renderForm() !!}
                     <div class="text-center py-3 border-top mt-3">
+                        @if($applyModalVipText)
+                            <a href="{{ route('public.vip-alerts.plans') }}" class="badge px-3 py-2 mb-2 d-inline-block text-decoration-none" style="background:linear-gradient(135deg,#25d366,#128c4a);color:#fff;font-size:.78rem;">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="#fff" style="vertical-align:middle;margin-right:4px;" aria-hidden="true"><path d="M12.04 2a9.84 9.84 0 0 0-8.43 14.92L2.05 22l5.2-1.52A9.96 9.96 0 1 0 12.04 2Zm4.34 13.02c-.24-.12-1.4-.69-1.62-.77-.22-.08-.38-.12-.54.12-.16.24-.61.77-.75.93-.14.16-.28.18-.52.06-.24-.12-1-.37-1.91-1.18a7.17 7.17 0 0 1-1.32-1.64c-.14-.24-.01-.37.1-.49.11-.11.24-.28.36-.42.12-.14.16-.24.24-.4.08-.16.04-.3-.02-.42-.06-.12-.54-1.3-.74-1.78-.2-.47-.4-.4-.54-.41h-.46a.88.88 0 0 0-.63.3c-.22.24-.83.81-.83 1.98s.85 2.3.97 2.46c.12.16 1.67 2.55 4.05 3.58.57.24 1.01.39 1.35.5.57.18 1.08.15 1.49.09.45-.07 1.4-.57 1.6-1.12.2-.55.2-1.03.14-1.12-.06-.1-.22-.16-.46-.28Z"/></svg>
+                                VIP Alerts — from {{ $applyModalVipText }}
+                            </a>
+                        @endif
                         @if($applyModalWaUrl)
                             <a href="{{ $applyModalWaUrl }}" target="_blank" rel="noopener" class="d-inline-flex align-items-center gap-2 text-decoration-none fw-semibold" style="color:#25D366;">
                                 <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" width="20" height="20" alt="WhatsApp"> {{ $applyModalWaLabel }}
