@@ -249,6 +249,14 @@ AdminHelper::registerRoutes(function (): void {
             ])->wherePrimaryKey();
         });
 
+        Route::group(['prefix' => 'blog-posts', 'as' => 'job-board.blog-posts.'], function (): void {
+            Route::get('{post}/image-prompt', [
+                'as'         => 'image-prompt',
+                'uses'       => 'BlogPostImagePromptController@show',
+                'permission' => 'posts.edit',
+            ])->whereNumber('post');
+        });
+
         Route::group(['prefix' => 'automations', 'as' => 'job-board.automations.'], function (): void {
             Route::get('', [
                 'as'         => 'index',
