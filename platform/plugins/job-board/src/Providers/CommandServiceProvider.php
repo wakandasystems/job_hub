@@ -20,6 +20,7 @@ use Botble\JobBoard\Console\Commands\SendCandidateAlertsCommand;
 use Botble\JobBoard\Console\Commands\CheckCandidateAlertExpiryCommand;
 use Botble\JobBoard\Console\Commands\CheckFailedJobsCommand;
 use Botble\JobBoard\Console\Commands\ArchiveOldCrawledJobsCommand;
+use Botble\JobBoard\Console\Commands\SendAutoApplyDigestCommand;
 use Botble\JobBoard\Console\Commands\SocialPublishJobCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
@@ -52,6 +53,7 @@ class CommandServiceProvider extends ServiceProvider
             CheckCandidateAlertExpiryCommand::class,
             CheckFailedJobsCommand::class,
             ArchiveOldCrawledJobsCommand::class,
+            SendAutoApplyDigestCommand::class,
         ]);
 
         $this->app->afterResolving(Schedule::class, function (Schedule $schedule): void {
@@ -74,6 +76,7 @@ class CommandServiceProvider extends ServiceProvider
             $schedule->command(ArchiveOldCrawledJobsCommand::class)
                 ->dailyAt('01:30')
                 ->withoutOverlapping();
+            $schedule->command(SendAutoApplyDigestCommand::class)->weeklyOn(1, '09:30');
             $schedule->command('horizon:snapshot')->everyFiveMinutes();
         });
     }

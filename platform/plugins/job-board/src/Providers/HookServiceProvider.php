@@ -24,6 +24,7 @@ use Botble\JobBoard\Models\CreditOrder;
 use Botble\JobBoard\Models\Company;
 use Botble\JobBoard\Models\EmployerSubscription;
 use Botble\JobBoard\Models\FeaturedOrder;
+use Botble\JobBoard\Models\AutoApplyOrder;
 use Botble\JobBoard\Models\JobAlertOrder;
 use Botble\JobBoard\Models\JobAlertQuota;
 use Botble\JobBoard\Models\Invoice;
@@ -169,6 +170,30 @@ class HookServiceProvider extends ServiceProvider
                         }
 
                         $this->sendJobAlertOrderAdminEmail($order->fresh(['package', 'account']), $isManual);
+                    }
+
+                    return;
+                }
+
+                // Handle auto apply orders
+                if ($autoApplyOrderId = session('auto_apply_order_id')) {
+                    $autoApplyOrder = AutoApplyOrder::query()->find($autoApplyOrderId);
+                    if ($autoApplyOrder && $autoApplyOrder->status === 'pending') {
+                        $autoApplyOrder->update([
+                            'charge_id'      => $data['charge_id'],
+                            'payment_method' => $data['payment_channel'],
+                        ]);
+
+                        $isManual = in_array($data['payment_channel'], [
+                            PaymentMethodEnum::BANK_TRANSFER,
+                            PaymentMethodEnum::COD,
+                        ]);
+
+                        if (! $isManual) {
+                            $autoApplyOrder->approve();
+                        }
+
+                        $this->sendAutoApplyOrderAdminEmail($autoApplyOrder->fresh(['account']), $isManual);
                     }
 
                     return;
@@ -437,6 +462,11 @@ class HookServiceProvider extends ServiceProvider
                     return $vipAlertCallbackUrl;
                 }
 
+                if ($autoApplyCallbackUrl = session('auto_apply_callback_url')) {
+                    session()->forget(['auto_apply_order_id', 'auto_apply_callback_url', 'auto_apply_return_url']);
+                    return $autoApplyCallbackUrl;
+                }
+
                 if ($careerServiceCallbackUrl = session('career_service_callback_url')) {
                     return $careerServiceCallbackUrl;
                 }
@@ -485,6 +515,11 @@ class HookServiceProvider extends ServiceProvider
                 if ($vipAlertReturnUrl = session('vip_alert_return_url')) {
                     session()->forget(['vip_alert_order_id', 'vip_alert_callback_url', 'vip_alert_return_url']);
                     return $vipAlertReturnUrl;
+                }
+
+                if ($autoApplyReturnUrl = session('auto_apply_return_url')) {
+                    session()->forget(['auto_apply_order_id', 'auto_apply_callback_url', 'auto_apply_return_url']);
+                    return $autoApplyReturnUrl;
                 }
 
                 if ($careerServiceReturnUrl = session('career_service_return_url')) {
@@ -551,6 +586,15 @@ class HookServiceProvider extends ServiceProvider
 
                         if ($adOrder) {
                             $adOrder->approve();
+                        }
+
+                        $autoApplyOrder = AutoApplyOrder::query()
+                            ->where('charge_id', $payment->charge_id)
+                            ->where('status', 'pending')
+                            ->first();
+
+                        if ($autoApplyOrder) {
+                            $autoApplyOrder->approve();
                         }
 
                     }
@@ -776,6 +820,59 @@ class HookServiceProvider extends ServiceProvider
                             'city'    => null,
                             'address' => null,
                             'zip'     => null,
+                        ],
+                        'checkout_token'  => $request->input('callback_url'),
+                    ];
+                }
+
+                if ($autoApplyOrderId = $request->input('auto_apply_order_id')) {
+                    $order = AutoApplyOrder::query()->with('account')->find($autoApplyOrderId);
+
+                    if (! $order || $order->status !== 'pending') {
+                        return $data;
+                    }
+
+                    /** @var Account $account */
+                    $account = auth('account')->user();
+                    $plan = AutoApplyOrder::plan($order->plan, includeDisabled: true);
+
+                    session([
+                        'auto_apply_order_id'     => $order->getKey(),
+                        'auto_apply_callback_url' => $request->input('callback_url'),
+                        'auto_apply_return_url'   => $request->input('return_url'),
+                    ]);
+
+                    return [
+                        'amount'          => (float) $order->amount,
+                        'shipping_amount' => 0,
+                        'shipping_method' => null,
+                        'tax_amount'      => 0,
+                        'currency'        => strtoupper($order->currency),
+                        'order_id'        => [$order->getKey()],
+                        'description'     => trans('plugins/payment::payment.payment_description', [
+                            'order_id' => $order->getKey(),
+                            'site_url' => $request->getHost(),
+                        ]),
+                        'customer_id'     => $account?->getKey(),
+                        'customer_type'   => $account ? Account::class : null,
+                        'email'           => $request->input('customer_email') ?: $account?->email,
+                        'return_url'      => $request->input('return_url'),
+                        'callback_url'    => $request->input('callback_url'),
+                        'products'        => [
+                            [
+                                'id'              => $order->getKey(),
+                                'name'            => 'Auto Apply — ' . ($plan['label'] ?? $order->planLabel()),
+                                'price'           => (float) $order->amount,
+                                'price_per_order' => (float) $order->amount,
+                                'qty'             => 1,
+                            ],
+                        ],
+                        'orders'          => [$order],
+                        'address'         => [
+                            'name'    => $request->input('customer_name') ?: $account?->name,
+                            'email'   => $request->input('customer_email') ?: $account?->email,
+                            'phone'   => $account?->phone,
+                            'country' => null, 'state' => null, 'city' => null, 'address' => null, 'zip' => null,
                         ],
                         'checkout_token'  => $request->input('callback_url'),
                     ];
@@ -1775,6 +1872,42 @@ class HookServiceProvider extends ServiceProvider
             );
         } catch (\Throwable) {
             // Non-fatal
+        }
+    }
+
+    protected function sendAutoApplyOrderAdminEmail(AutoApplyOrder $order, bool $isManual): void
+    {
+        $adminEmail = setting('admin_email') ?: config('mail.from.address');
+        if (! $adminEmail) {
+            return;
+        }
+
+        $planLabel = $order->planLabel();
+        $customerName = $order->account?->name ?? 'Unknown';
+        $customerEmail = $order->account?->email ?? '';
+        $paymentMethod = ucwords(str_replace('_', ' ', $order->payment_method ?? ''));
+        $status = $isManual ? 'Pending — awaiting manual payment verification' : 'Auto-approved';
+        $adminUrl = url('/admin/auto-apply-orders');
+
+        try {
+            Mail::raw(
+                "New Auto Apply Order\n\n" .
+                "Order #: {$order->id}\n" .
+                "Plan: {$planLabel}\n" .
+                "Amount: {$order->currency} {$order->amount}\n" .
+                "Customer: {$customerName} ({$customerEmail})\n" .
+                "Payment method: {$paymentMethod}\n" .
+                "Charge ID: {$order->charge_id}\n" .
+                "Status: {$status}\n\n" .
+                ($isManual ? "Action required — verify payment and approve at:\n{$adminUrl}" : "No action required."),
+                function ($msg) use ($adminEmail, $planLabel, $isManual): void {
+                    $subject = $isManual
+                        ? "Auto Apply Order Pending Approval: {$planLabel}"
+                        : "Auto Apply Order Received: {$planLabel}";
+                    $msg->to($adminEmail)->subject($subject);
+                }
+            );
+        } catch (\Throwable) {
         }
     }
 
