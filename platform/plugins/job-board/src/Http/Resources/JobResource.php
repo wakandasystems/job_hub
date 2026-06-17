@@ -46,6 +46,9 @@ class JobResource extends JsonResource
             'is_job_open' => $this->isJobOpen(),
             'zip_code' => $this->zip_code,
             'unique_id' => $this->unique_id,
+            'cover_image' => $this->cover_image
+                ? RvMedia::getImageUrl($this->cover_image)
+                : null,
             'image' => $this->company->logo ? RvMedia::getImageUrl(
                 $this->company->logo,
                 'small',
