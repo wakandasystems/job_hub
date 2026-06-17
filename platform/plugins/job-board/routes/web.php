@@ -18,6 +18,9 @@ use Botble\JobBoard\Http\Controllers\JobAlertPackageController;
 use Botble\JobBoard\Http\Controllers\Settings\AiImageSettingController;
 use Botble\JobBoard\Http\Controllers\Settings\CareerServiceSettingController;
 use Botble\JobBoard\Http\Controllers\Settings\VipAlertPlanSettingController;
+use Botble\JobBoard\Http\Controllers\Settings\AutoApplyPlanSettingController;
+use Botble\JobBoard\Http\Controllers\AutoApplyOrderController;
+use Botble\JobBoard\Http\Controllers\AutoApplyLogController;
 use Botble\JobBoard\Http\Controllers\CouponController;
 use Botble\JobBoard\Http\Controllers\CustomFieldController;
 use Botble\JobBoard\Http\Controllers\ExportAccountController;
@@ -101,6 +104,8 @@ AdminHelper::registerRoutes(function (): void {
         Route::put('vip-alert-plans', [VipAlertPlanSettingController::class, 'update'])->name('vip-alert-plans.update');
         Route::get('ai-images', [AiImageSettingController::class, 'edit'])->name('ai-images');
         Route::put('ai-images', [AiImageSettingController::class, 'update'])->name('ai-images.update');
+        Route::get('auto-apply-plans', [AutoApplyPlanSettingController::class, 'edit'])->name('auto-apply-plans');
+        Route::put('auto-apply-plans', [AutoApplyPlanSettingController::class, 'update'])->name('auto-apply-plans.update');
     });
 
     Route::group(['prefix' => 'job-board/candidate-alerts', 'as' => 'job-board.candidate-alerts.', 'middleware' => 'auth'], function (): void {
@@ -132,6 +137,18 @@ AdminHelper::registerRoutes(function (): void {
         Route::get('', [VipAlertOrderController::class, 'index'])->name('index');
         Route::post('{vipAlertOrder}/approve', [VipAlertOrderController::class, 'approve'])->name('approve');
         Route::post('{vipAlertOrder}/reject', [VipAlertOrderController::class, 'reject'])->name('reject');
+    });
+
+    Route::group(['prefix' => 'auto-apply-orders', 'as' => 'auto-apply-orders.', 'middleware' => 'auth'], function (): void {
+        Route::get('', [AutoApplyOrderController::class, 'index'])->name('index');
+        Route::post('{autoApplyOrder}/approve', [AutoApplyOrderController::class, 'approve'])->name('approve');
+        Route::post('{autoApplyOrder}/reject', [AutoApplyOrderController::class, 'reject'])->name('reject');
+        Route::post('preview', [AutoApplyOrderController::class, 'preview'])->name('preview');
+        Route::post('setup-for-candidate', [AutoApplyOrderController::class, 'setupForCandidate'])->name('setup-for-candidate');
+    });
+
+    Route::group(['prefix' => 'auto-apply-logs', 'as' => 'auto-apply-logs.', 'middleware' => 'auth'], function (): void {
+        Route::get('', [AutoApplyLogController::class, 'index'])->name('index');
     });
 
     Route::prefix('credit-orders')->name('credit-orders.')->middleware('auth')->group(function (): void {

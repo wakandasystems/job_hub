@@ -155,6 +155,15 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middlew
         Route::get('callback/{token}', 'VipAlertCheckoutController@callback')->name('callback');
         Route::get('pending/{token}', 'VipAlertCheckoutController@pending')->name('pending');
     });
+
+    Route::group(['prefix' => 'auto-apply', 'as' => 'public.auto-apply.'], function (): void {
+        Route::get('', 'AutoApplyCheckoutController@plans')->name('plans');
+        Route::get('checkout/{plan}', 'AutoApplyCheckoutController@checkout')->name('checkout');
+        Route::post('checkout/{plan}', 'AutoApplyCheckoutController@prepareCheckout')->name('prepare-checkout')->middleware('account');
+        Route::get('pay/{order}', 'AutoApplyCheckoutController@pay')->name('pay')->middleware('account');
+        Route::get('callback/{order}', 'AutoApplyCheckoutController@callback')->name('callback')->middleware('account');
+        Route::get('thanks/{order}', 'AutoApplyCheckoutController@thanks')->name('thanks')->middleware('account');
+    });
 });
 
 Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middleware' => ['web', 'core'], 'prefix' => 'push'], function (): void {

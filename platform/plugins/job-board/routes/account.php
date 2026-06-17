@@ -258,6 +258,15 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
                     });
                 });
 
+                Route::prefix('auto-apply')->name('auto-apply.')->group(function (): void {
+                    Route::controller('AutoApplyController')->group(function (): void {
+                        Route::get('', ['as' => 'index', 'uses' => 'index']);
+                        Route::put('', ['as' => 'update', 'uses' => 'updatePreference']);
+                        Route::get('backfill', ['as' => 'backfill', 'uses' => 'backfillPreview']);
+                        Route::post('send/{jobId}', ['as' => 'send-single', 'uses' => 'sendSingle']);
+                    });
+                });
+
                 Route::controller('JobAlertPackageCheckoutController')->prefix('job-alert-packages')->name('job-alert.packages.')->group(function (): void {
                     Route::get('', ['as' => 'index', 'uses' => 'index']);
                     Route::get('{package}/checkout', ['as' => 'checkout', 'uses' => 'checkout']);
