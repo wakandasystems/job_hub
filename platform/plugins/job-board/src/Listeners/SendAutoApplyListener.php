@@ -88,12 +88,12 @@ class SendAutoApplyListener implements ShouldQueue
 
     private function jobMatchesFilters(Job $job, AutoApplyPreference $preference): bool
     {
-        // Keywords — OR logic across title, description
+        // Keywords — OR logic across title, description, address
         $keywords = array_filter(array_map('trim', (array) ($preference->keywords ?? [])));
         if ($keywords) {
             $matched = false;
             foreach ($keywords as $kw) {
-                $kwPat = '/\b' . preg_quote($kw, '/') . '\b/iu';
+                $kwPat = '/' . $this->keywordRegexPattern($kw) . '/iu';
                 if (preg_match($kwPat, $job->name)
                     || preg_match($kwPat, (string) ($job->description ?? ''))
                     || preg_match($kwPat, (string) ($job->address ?? ''))) {
@@ -139,5 +139,21 @@ class SendAutoApplyListener implements ShouldQueue
         }
 
         return true;
+    }
+
+    /**
+     * Same plural-tolerant pattern used by the admin auto-apply preview/scoring,
+     * so a keyword like "engineer" also matches "engineers".
+     */
+    private function keywordRegexPattern(string $keyword): string
+    {
+        $keyword = mb_strtolower(trim($keyword));
+        $pattern = preg_quote($keyword, '/');
+
+        if (preg_match('/[a-z]$/i', $keyword)) {
+            $pattern .= 's?';
+        }
+
+        return '\\b' . $pattern . '\\b';
     }
 }
