@@ -46,10 +46,12 @@ class AutoApplyLogController extends BaseController
         $logs = $query->paginate(30)->withQueryString();
 
         $stats = [
-            'total'  => AutoApplyLog::count(),
-            'sent'   => AutoApplyLog::where('status', 'sent')->count(),
-            'failed' => AutoApplyLog::where('status', 'failed')->count(),
-            'skipped' => AutoApplyLog::where('status', 'skipped_low_score')->count(),
+            'total'        => AutoApplyLog::count(),
+            'sent'         => AutoApplyLog::where('status', 'sent')->count(),
+            'failed'       => AutoApplyLog::where('status', 'failed')->count(),
+            'skipped'      => AutoApplyLog::where('status', 'skipped_low_score')->count(),
+            'total_cost'   => (float) AutoApplyLog::sum('ai_cost_usd'),
+            'total_tokens' => (int) AutoApplyLog::sum('total_tokens'),
         ];
 
         return view('plugins/job-board::auto-apply-logs.index', compact('logs', 'stats'));

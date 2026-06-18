@@ -257,17 +257,41 @@ PROMPT;
                 return null;
             }
 
+            $promptTokens = (int) $response->json('usage.prompt_tokens', 0);
+            $completionTokens = (int) $response->json('usage.completion_tokens', 0);
+            $totalTokens = (int) $response->json('usage.total_tokens', $promptTokens + $completionTokens);
+
             return [
-                'score'   => (int) $parsed['score'],
-                'reasons' => (array) ($parsed['reasons'] ?? []),
-                'subject' => (string) $parsed['subject'],
-                'body'    => (string) $parsed['body'],
+                'score'             => (int) $parsed['score'],
+                'reasons'           => (array) ($parsed['reasons'] ?? []),
+                'subject'           => (string) $parsed['subject'],
+                'body'              => (string) $parsed['body'],
+                'ai_model'          => $model,
+                'prompt_tokens'     => $promptTokens,
+                'completion_tokens' => $completionTokens,
+                'total_tokens'      => $totalTokens,
+                'cost'              => $this->calculateAiCost($model, $promptTokens, $completionTokens),
             ];
         } catch (Throwable $e) {
             Log::error('AutoApply: OpenAI call failed', ['error' => $e->getMessage()]);
 
             return null;
         }
+    }
+
+    /**
+     * USD price per 1M tokens, [input, output]. Update if OpenAI changes pricing.
+     */
+    private const AI_PRICING_PER_MILLION_TOKENS = [
+        'gpt-4o-mini' => [0.15, 0.60],
+        'gpt-4o'      => [2.50, 10.00],
+    ];
+
+    public function calculateAiCost(string $model, int $promptTokens, int $completionTokens): float
+    {
+        [$inputRate, $outputRate] = self::AI_PRICING_PER_MILLION_TOKENS[$model] ?? self::AI_PRICING_PER_MILLION_TOKENS['gpt-4o-mini'];
+
+        return round(($promptTokens * $inputRate + $completionTokens * $outputRate) / 1_000_000, 6);
     }
 
     /**
@@ -440,34 +464,42 @@ PROMPT;
 
         if ($result['score'] < $threshold) {
             return AutoApplyLog::create([
-                'account_id'      => $account->id,
-                'job_id'          => $job->id,
-                'email_sent_to'   => $toEmail,
-                'ai_email_subject' => $result['subject'],
-                'ai_email_body'   => $result['body'],
-                'ai_model_used'   => $aiModel ?: AutoApplyOrder::globalAiModel(),
-                'match_score'     => $result['score'],
-                'match_reasons'   => $result['reasons'],
-                'status'          => 'skipped_low_score',
-                'error_message'   => "Score {$result['score']} below threshold {$threshold}",
-                'sent_at'         => now(),
+                'account_id'        => $account->id,
+                'job_id'            => $job->id,
+                'email_sent_to'     => $toEmail,
+                'ai_email_subject'  => $result['subject'],
+                'ai_email_body'     => $result['body'],
+                'ai_model_used'     => $aiModel ?: AutoApplyOrder::globalAiModel(),
+                'prompt_tokens'     => $result['prompt_tokens'] ?? null,
+                'completion_tokens' => $result['completion_tokens'] ?? null,
+                'total_tokens'      => $result['total_tokens'] ?? null,
+                'ai_cost_usd'       => $result['cost'] ?? null,
+                'match_score'       => $result['score'],
+                'match_reasons'     => $result['reasons'],
+                'status'            => 'skipped_low_score',
+                'error_message'     => "Score {$result['score']} below threshold {$threshold}",
+                'sent_at'           => now(),
             ]);
         }
 
         // Safety: check for leftover placeholders
         if ($this->containsPlaceholders($result['body']) || $this->containsPlaceholders($result['subject'])) {
             return AutoApplyLog::create([
-                'account_id'      => $account->id,
-                'job_id'          => $job->id,
-                'email_sent_to'   => $toEmail,
-                'ai_email_subject' => $result['subject'],
-                'ai_email_body'   => $result['body'],
-                'ai_model_used'   => $aiModel ?: AutoApplyOrder::globalAiModel(),
-                'match_score'     => $result['score'],
-                'match_reasons'   => $result['reasons'],
-                'status'          => 'failed',
-                'error_message'   => 'Email contained placeholders — blocked for safety',
-                'sent_at'         => now(),
+                'account_id'        => $account->id,
+                'job_id'            => $job->id,
+                'email_sent_to'     => $toEmail,
+                'ai_email_subject'  => $result['subject'],
+                'ai_email_body'     => $result['body'],
+                'ai_model_used'     => $aiModel ?: AutoApplyOrder::globalAiModel(),
+                'prompt_tokens'     => $result['prompt_tokens'] ?? null,
+                'completion_tokens' => $result['completion_tokens'] ?? null,
+                'total_tokens'      => $result['total_tokens'] ?? null,
+                'ai_cost_usd'       => $result['cost'] ?? null,
+                'match_score'       => $result['score'],
+                'match_reasons'     => $result['reasons'],
+                'status'            => 'failed',
+                'error_message'     => 'Email contained placeholders — blocked for safety',
+                'sent_at'           => now(),
             ]);
         }
 
@@ -483,17 +515,21 @@ PROMPT;
         }
 
         return AutoApplyLog::create([
-            'account_id'      => $account->id,
-            'job_id'          => $job->id,
-            'email_sent_to'   => $toEmail,
-            'ai_email_subject' => $result['subject'],
-            'ai_email_body'   => $result['body'],
-            'ai_model_used'   => $aiModel ?: AutoApplyOrder::globalAiModel(),
-            'match_score'     => $result['score'],
-            'match_reasons'   => $result['reasons'],
-            'status'          => $sent ? 'sent' : 'failed',
-            'error_message'   => $sent ? null : 'SMTP delivery failed',
-            'sent_at'         => now(),
+            'account_id'        => $account->id,
+            'job_id'            => $job->id,
+            'email_sent_to'     => $toEmail,
+            'ai_email_subject'  => $result['subject'],
+            'ai_email_body'     => $result['body'],
+            'ai_model_used'     => $aiModel ?: AutoApplyOrder::globalAiModel(),
+            'prompt_tokens'     => $result['prompt_tokens'] ?? null,
+            'completion_tokens' => $result['completion_tokens'] ?? null,
+            'total_tokens'      => $result['total_tokens'] ?? null,
+            'ai_cost_usd'       => $result['cost'] ?? null,
+            'match_score'       => $result['score'],
+            'match_reasons'     => $result['reasons'],
+            'status'            => $sent ? 'sent' : 'failed',
+            'error_message'     => $sent ? null : 'SMTP delivery failed',
+            'sent_at'           => now(),
         ]);
     }
 }

@@ -34,6 +34,15 @@
                 </x-core::card.body>
             </x-core::card>
         </div>
+        <div class="col-md-3 col-6">
+            <x-core::card>
+                <x-core::card.body>
+                    <div class="text-muted">AI Cost (Total)</div>
+                    <div class="h2 mb-0">${{ number_format($stats['total_cost'], 4) }}</div>
+                    <div class="text-muted small">{{ number_format($stats['total_tokens']) }} tokens</div>
+                </x-core::card.body>
+            </x-core::card>
+        </div>
     </div>
 
     <x-core::card>
@@ -73,6 +82,7 @@
                             <th>Sent To</th>
                             <th>Score</th>
                             <th>AI Model</th>
+                            <th>AI Usage</th>
                             <th>Status</th>
                             <th>Date</th>
                             <th width="80"></th>
@@ -99,6 +109,14 @@
                                     <span class="badge bg-{{ $scoreBg }}">{{ $log->match_score }}%</span>
                                 </td>
                                 <td class="text-muted small">{{ $log->ai_model_used }}</td>
+                                <td class="text-muted small">
+                                    @if($log->total_tokens)
+                                        <div>{{ number_format($log->total_tokens) }} tokens</div>
+                                        <div>${{ number_format($log->ai_cost_usd, 5) }}</div>
+                                    @else
+                                        —
+                                    @endif
+                                </td>
                                 <td>
                                     @php
                                         $statusBg = match($log->status) {
@@ -127,7 +145,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="text-center text-muted py-4">No auto apply logs found.</td>
+                                <td colspan="10" class="text-center text-muted py-4">No auto apply logs found.</td>
                             </tr>
                         @endforelse
                     </tbody>

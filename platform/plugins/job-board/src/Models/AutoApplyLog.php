@@ -16,6 +16,10 @@ class AutoApplyLog extends BaseModel
         'ai_email_subject',
         'ai_email_body',
         'ai_model_used',
+        'prompt_tokens',
+        'completion_tokens',
+        'total_tokens',
+        'ai_cost_usd',
         'match_score',
         'match_reasons',
         'status',
@@ -24,9 +28,13 @@ class AutoApplyLog extends BaseModel
     ];
 
     protected $casts = [
-        'match_reasons' => 'array',
-        'match_score'   => 'integer',
-        'sent_at'       => 'datetime',
+        'match_reasons'     => 'array',
+        'match_score'       => 'integer',
+        'prompt_tokens'     => 'integer',
+        'completion_tokens' => 'integer',
+        'total_tokens'      => 'integer',
+        'ai_cost_usd'       => 'float',
+        'sent_at'           => 'datetime',
     ];
 
     public function account(): BelongsTo
