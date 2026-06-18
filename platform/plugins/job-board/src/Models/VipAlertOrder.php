@@ -82,6 +82,21 @@ class VipAlertOrder extends BaseModel
         return self::plans($includeDisabled)[$key] ?? null;
     }
 
+    public static function renewalPricingLines(): string
+    {
+        $plans = collect(self::plans())->sortBy('duration_days');
+
+        return $plans
+            ->map(function (array $plan): string {
+                $price = $plan['price'] == floor($plan['price'])
+                    ? number_format($plan['price'], 0)
+                    : number_format($plan['price'], 2);
+
+                return "• {$plan['duration_days']} Days — {$plan['currency']} {$price}";
+            })
+            ->implode("\n");
+    }
+
     public function candidateAlert(): BelongsTo
     {
         return $this->belongsTo(CandidateAlert::class, 'candidate_alert_id');

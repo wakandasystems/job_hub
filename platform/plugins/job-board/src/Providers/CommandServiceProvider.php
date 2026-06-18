@@ -19,6 +19,7 @@ use Botble\JobBoard\Console\Commands\RefreshFreeCreditsCommand;
 use Botble\JobBoard\Console\Commands\SendCandidateAlertsCommand;
 use Botble\JobBoard\Console\Commands\CheckCandidateAlertExpiryCommand;
 use Botble\JobBoard\Console\Commands\CheckFailedJobsCommand;
+use Botble\JobBoard\Console\Commands\CheckStaleQueueWorkerCommand;
 use Botble\JobBoard\Console\Commands\ArchiveOldCrawledJobsCommand;
 use Botble\JobBoard\Console\Commands\GenerateSocialImagesCommand;
 use Botble\JobBoard\Console\Commands\SendAutoApplyDigestCommand;
@@ -53,6 +54,7 @@ class CommandServiceProvider extends ServiceProvider
             SendCandidateAlertsCommand::class,
             CheckCandidateAlertExpiryCommand::class,
             CheckFailedJobsCommand::class,
+            CheckStaleQueueWorkerCommand::class,
             ArchiveOldCrawledJobsCommand::class,
             GenerateSocialImagesCommand::class,
             SendAutoApplyDigestCommand::class,
@@ -74,6 +76,9 @@ class CommandServiceProvider extends ServiceProvider
                 ->withoutOverlapping();
             $schedule->command(CheckFailedJobsCommand::class)
                 ->hourly()
+                ->withoutOverlapping();
+            $schedule->command(CheckStaleQueueWorkerCommand::class)
+                ->everyFiveMinutes()
                 ->withoutOverlapping();
             $schedule->command(ArchiveOldCrawledJobsCommand::class)
                 ->dailyAt('01:30')

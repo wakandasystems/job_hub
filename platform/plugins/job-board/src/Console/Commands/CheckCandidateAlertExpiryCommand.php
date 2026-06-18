@@ -4,6 +4,7 @@ namespace Botble\JobBoard\Console\Commands;
 
 use Botble\JobBoard\Models\CandidateAlert;
 use Botble\JobBoard\Models\SocialAutomation;
+use Botble\JobBoard\Models\VipAlertOrder;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Throwable;
@@ -83,9 +84,7 @@ class CheckCandidateAlertExpiryCommand extends Command
         $msg   .= "Hi {$alert->candidate_name}! 👋\n\n";
         $msg   .= "Your VIP Job Alert *\"{$alert->label}\"* expires in *2 days* on *{$expiry}*.\n\n";
         $msg   .= "🔄 *Renew now to keep receiving personalised job alerts:*\n\n";
-        $msg   .= "• 7 Days  — K20\n";
-        $msg   .= "• 14 Days — K30\n";
-        $msg   .= "• 30 Days — K50\n\n";
+        $msg   .= VipAlertOrder::renewalPricingLines() . "\n\n";
         $msg   .= "Reply *RENEW* or contact us today to stay ahead of new opportunities! 🚀\n\n";
         $msg   .= "_Wakanda Jobs — wakandajobs.com_";
 
@@ -100,9 +99,7 @@ class CheckCandidateAlertExpiryCommand extends Command
         $msg   .= "This is a final reminder — your VIP Job Alert *\"{$alert->label}\"* expires *today ({$expiry})*.\n\n";
         $msg   .= "After today you will stop receiving automatic job matches.\n\n";
         $msg   .= "🔄 *Renew right now to avoid any gap:*\n\n";
-        $msg   .= "• 7 Days  — K20\n";
-        $msg   .= "• 14 Days — K30\n";
-        $msg   .= "• 30 Days — K50\n\n";
+        $msg   .= VipAlertOrder::renewalPricingLines() . "\n\n";
         $msg   .= "Reply *RENEW* and we'll sort you out instantly! ✅\n\n";
         $msg   .= "_Wakanda Jobs — wakandajobs.com_";
 
@@ -116,9 +113,7 @@ class CheckCandidateAlertExpiryCommand extends Command
         $msg .= "Your VIP Job Alert *\"{$alert->label}\"* has now expired.\n\n";
         $msg .= "You will no longer receive automatic job alerts.\n\n";
         $msg .= "🔄 *Renew your subscription to stay on top of opportunities:*\n\n";
-        $msg .= "• 7 Days  — K20\n";
-        $msg .= "• 14 Days — K30\n";
-        $msg .= "• 30 Days — K50\n\n";
+        $msg .= VipAlertOrder::renewalPricingLines() . "\n\n";
         $msg .= "Reply *RENEW* or visit *wakandajobs.com* to get back on track! 🚀\n\n";
         $msg .= "_Wakanda Jobs — wakandajobs.com_";
 
