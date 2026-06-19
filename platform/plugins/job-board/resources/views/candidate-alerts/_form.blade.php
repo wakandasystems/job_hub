@@ -8,6 +8,7 @@
     $cvAnalysis           = $alert?->cv_analysis;
     $tid                  = $prefix;
     $preloadedCityNames   = [];
+    $linkedAccount        = $alert?->account;
 @endphp
 
 {{-- ── Tab nav ──────────────────────────────────────────────────────────────── --}}
@@ -47,12 +48,96 @@
 </ul>
 
 <div class="tab-content border border-top-0 rounded-bottom p-3" id="tabContent-{{ $tid }}" style="max-height:58vh;overflow-y:auto;overflow-x:hidden">
+    <input type="hidden" name="cv_analysis_payload" value="{{ old('cv_analysis_payload', $cvAnalysis ? json_encode($cvAnalysis) : '') }}">
 
     {{-- ══════════════════════════════════════════════════════════════ --}}
     {{-- TAB 1 — CANDIDATE                                             --}}
     {{-- ══════════════════════════════════════════════════════════════ --}}
     <div class="tab-pane fade show active" id="tab-candidate-{{ $tid }}" role="tabpanel">
         <div class="row g-3">
+
+            <div class="col-12">
+                <input type="hidden" name="linked_account_id" value="{{ old('linked_account_id', $linkedAccount?->id) }}">
+                <div class="border rounded p-3 bg-light-subtle">
+                    <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap mb-2">
+                        <div>
+                            <label class="form-label fw-semibold mb-1">Link Existing Candidate Account</label>
+                            <div class="text-muted small">Search as you type. Results load 3 at a time so you can select an existing job-seeker account and reuse their CV.</div>
+                        </div>
+                        @if($linkedAccount)
+                            <span class="badge bg-success text-white">Linked now</span>
+                        @endif
+                    </div>
+                    <input type="text"
+                        class="form-control form-control-sm candidate-account-search-input"
+                        id="candidate-account-search-{{ $tid }}"
+                        data-prefix="{{ $tid }}"
+                        data-search-url="{{ route('job-board.candidate-alerts.search-accounts') }}"
+                        data-analyze-account-cv-url="{{ route('job-board.candidate-alerts.analyze-account-cv') }}"
+                        placeholder="Search by candidate name, email, phone or WhatsApp number">
+                    <div class="form-text">Pick the right account to keep one CV source of truth.</div>
+
+                    <div id="candidate-account-results-{{ $tid }}" class="mt-2 d-none"></div>
+
+                    <div id="candidate-account-selected-{{ $tid }}"
+                        class="mt-2 {{ $linkedAccount ? '' : 'd-none' }}"
+                        data-account-id="{{ $linkedAccount?->id }}"
+                        data-has-cv="{{ $linkedAccount?->resume ? '1' : '0' }}"
+                        data-resume-name="{{ $linkedAccount?->resume_name }}"
+                        data-account-name="{{ $linkedAccount?->name }}"
+                        data-account-email="{{ $linkedAccount?->email }}"
+                        data-account-phone="{{ $linkedAccount?->whatsapp_number ?: $linkedAccount?->phone }}">
+                        @if($linkedAccount)
+                            @php $linkedAccountAvatarUrl = $linkedAccount->avatar_thumb_url ?: $linkedAccount->avatar_url; @endphp
+                            <div class="border rounded px-3 py-2 bg-white">
+                                <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+                                    <div class="d-flex align-items-center gap-2">
+                                        @if($linkedAccountAvatarUrl)
+                                            <img src="{{ $linkedAccountAvatarUrl }}" alt="" style="width:40px;height:40px;border-radius:999px;object-fit:cover;border:1px solid #e5e7eb">
+                                        @endif
+                                        <div>
+                                            <div class="fw-semibold">{{ $linkedAccount->name }}</div>
+                                            <div class="text-muted small">
+                                                @if($linkedAccount->email)
+                                                    <span class="me-2"><i class="ti ti-mail me-1"></i>{{ $linkedAccount->email }}</span>
+                                                @endif
+                                                @if($linkedAccount->whatsapp_number || $linkedAccount->phone)
+                                                    <span><i class="ti ti-brand-whatsapp me-1"></i>{{ $linkedAccount->whatsapp_number ?: $linkedAccount->phone }}</span>
+                                                @endif
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-outline-danger btn-sm btn-clear-linked-account" data-prefix="{{ $tid }}">
+                                        <i class="ti ti-x me-1"></i> Clear
+                                    </button>
+                                </div>
+                            </div>
+                        @endif
+                    </div>
+
+                    <div id="candidate-account-cv-prompt-{{ $tid }}" class="mt-2">
+                        @if($linkedAccount)
+                            @if($linkedAccount->resume)
+                                <div class="alert alert-success py-2 px-3 mb-0 small">
+                                    <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                                        <div>
+                                            <strong>Account CV found:</strong> {{ $linkedAccount->resume_name ?: basename($linkedAccount->resume) }}
+                                            <div class="text-muted mt-1">Use the linked account CV to auto-generate keywords and filters.</div>
+                                        </div>
+                                        <button type="button" class="btn btn-success btn-sm btn-analyze-linked-account-cv" data-prefix="{{ $tid }}">
+                                            <i class="ti ti-sparkles me-1"></i> Analyse Account CV
+                                        </button>
+                                    </div>
+                                </div>
+                            @else
+                                <div class="alert alert-warning py-2 px-3 mb-0 small">
+                                    <strong>No CV on this account.</strong> Upload a CV below to generate the best keywords and matching filters.
+                                </div>
+                            @endif
+                        @endif
+                    </div>
+                </div>
+            </div>
 
             <div class="col-md-6">
                 <label class="form-label fw-semibold">Candidate Name <span class="text-danger">*</span></label>
@@ -97,15 +182,21 @@
 
             <div class="col-md-6">
                 <label class="form-label fw-semibold">Experience Level</label>
-                <select name="filters[job_experience_id]" class="form-select">
-                    <option value="">— Any Experience —</option>
-                    @foreach($experiences as $expId => $expName)
-                        <option value="{{ $expId }}"
-                            {{ old('filters.job_experience_id', $f['job_experience_id'] ?? '') == $expId ? 'selected' : '' }}>
-                            {{ $expName }}
-                        </option>
-                    @endforeach
-                </select>
+                <div class="input-group">
+                    <select name="filters[job_experience_id]" class="form-select" id="{{ $tid }}-job-experience-id">
+                        <option value="">— Any Experience —</option>
+                        @foreach($experiences as $expId => $expName)
+                            <option value="{{ $expId }}"
+                                {{ old('filters.job_experience_id', $f['job_experience_id'] ?? '') == $expId ? 'selected' : '' }}>
+                                {{ $expName }}
+                            </option>
+                        @endforeach
+                    </select>
+                    <button type="button" class="btn btn-outline-secondary btn-clear-experience"
+                        data-target="{{ $tid }}-job-experience-id" title="Clear experience level">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
             </div>
 
         </div>
@@ -120,12 +211,19 @@
                 <i class="fas fa-info-circle me-1"></i>
                 Leave sections empty to match all. Multiple values within a section are matched with <strong>OR</strong> logic.
             </p>
-            <button type="button"
-                class="btn btn-outline-success btn-sm btn-preview-filters flex-shrink-0"
-                data-url="{{ route('job-board.candidate-alerts.preview-filters') }}"
-                data-tid="{{ $tid }}">
-                <i class="fas fa-eye me-1"></i> Preview Matching Jobs
-            </button>
+            <div class="d-flex gap-2 flex-shrink-0">
+                <button type="button"
+                    class="btn btn-outline-danger btn-sm btn-clear-all-filters"
+                    data-tid="{{ $tid }}">
+                    <i class="fas fa-eraser me-1"></i> Clear All Filters
+                </button>
+                <button type="button"
+                    class="btn btn-outline-success btn-sm btn-preview-filters"
+                    data-url="{{ route('job-board.candidate-alerts.preview-filters') }}"
+                    data-tid="{{ $tid }}">
+                    <i class="fas fa-eye me-1"></i> Preview Matching Jobs
+                </button>
+            </div>
         </div>
 
         {{-- Filter preview result panel --}}
@@ -177,33 +275,17 @@
                         <button type="button" class="btn btn-outline-secondary btn-sm btn-add-kw"
                             data-target="keywords-list-{{ $tid }}"
                             data-count-badge="kw-count-badge-{{ $tid }}">
-                            <i class="fas fa-plus me-1"></i> Add Keyword
+                            <x-core::icon name="ti ti-plus" class="me-1" /> Add Keyword
                         </button>
                         <div class="dropdown">
                             <button type="button" class="btn btn-outline-primary btn-sm dropdown-toggle"
                                 data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="fas fa-magic me-1"></i> Quick Add
+                                <x-core::icon name="ti ti-sparkles" class="me-1" /> Quick Add
                             </button>
                             <div class="dropdown-menu dropdown-menu-end shadow-sm" style="min-width:260px;max-height:380px;overflow-y:auto">
                                 <h6 class="dropdown-header">Click a group to add its keywords</h6>
                                 @php
-                                $kwPresets = [
-                                    ['label' => '🎓 Grade 12 / Entry Level', 'keywords' => ['grade 12', 'grade twelve', 'form five', 'O level', 'GCSE', 'school leaver', 'entry level', 'no experience required', 'minimum qualification', 'junior', 'trainee']],
-                                    ['label' => '🎓 Intern / Attachment', 'keywords' => ['intern', 'internship', 'graduate trainee', 'attachment', 'industrial attachment', 'graduate program', 'apprentice', 'trainee', 'vacation work']],
-                                    ['label' => '⏰ Part Time / Casual', 'keywords' => ['part time', 'part-time', 'casual', 'weekend', 'evening', 'flexible hours', 'temporary', 'contract', 'freelance', 'remote']],
-                                    ['label' => '🧹 Service & Hospitality', 'keywords' => ['waiter', 'waitress', 'bartender', 'cleaner', 'housekeeper', 'domestic worker', 'caretaker', 'cook', 'kitchen assistant', 'hotel staff']],
-                                    ['label' => '🔒 Security & General Labour', 'keywords' => ['security guard', 'security officer', 'driver', 'gardener', 'general hand', 'labourer', 'casual worker', 'messenger', 'forklift operator']],
-                                    ['label' => '💰 Accounting & Finance', 'keywords' => ['accountant', 'auditor', 'bookkeeper', 'finance officer', 'accounts clerk', 'financial analyst', 'cashier', 'payroll officer', 'credit analyst']],
-                                    ['label' => '🏦 Banking & Insurance', 'keywords' => ['bank teller', 'banking officer', 'relationship manager', 'underwriter', 'claims officer', 'insurance agent', 'banker']],
-                                    ['label' => '🏥 Nursing & Health', 'keywords' => ['nurse', 'nursing officer', 'clinical officer', 'midwife', 'pharmacist', 'doctor', 'health worker', 'radiographer', 'physiotherapist', 'medical officer']],
-                                    ['label' => '💻 IT & Technology', 'keywords' => ['software developer', 'programmer', 'IT officer', 'systems administrator', 'web developer', 'data analyst', 'network engineer', 'database administrator', 'ICT officer']],
-                                    ['label' => '📚 Education & Teaching', 'keywords' => ['teacher', 'lecturer', 'tutor', 'school administrator', 'early childhood', 'education officer', 'head teacher']],
-                                    ['label' => '⚙️ Engineering', 'keywords' => ['engineer', 'civil engineer', 'electrical engineer', 'mechanical engineer', 'structural engineer', 'project manager', 'quantity surveyor', 'site engineer']],
-                                    ['label' => '👥 HR & Administration', 'keywords' => ['human resources', 'HR officer', 'HR manager', 'recruitment officer', 'administrative officer', 'secretary', 'receptionist', 'office manager']],
-                                    ['label' => '📣 Sales & Marketing', 'keywords' => ['sales representative', 'marketing officer', 'business development', 'sales executive', 'brand ambassador', 'sales manager', 'digital marketing']],
-                                    ['label' => '⚖️ Legal', 'keywords' => ['lawyer', 'advocate', 'legal officer', 'paralegal', 'legal assistant', 'compliance officer', 'attorney']],
-                                    ['label' => '🚚 Supply Chain & Logistics', 'keywords' => ['procurement officer', 'supply chain', 'logistics officer', 'warehouse officer', 'inventory manager', 'purchasing officer', 'stores officer']],
-                                ];
+                                    $kwPresets = $keywordPresets ?? \Botble\JobBoard\Models\CandidateAlert::keywordPresets();
                                 @endphp
                                 @foreach($kwPresets as $preset)
                                 <button type="button"
@@ -216,6 +298,11 @@
                                 @endforeach
                             </div>
                         </div>
+                        <a href="{{ route('job-board.candidate-alerts.index', ['tab' => 'quick-add']) }}"
+                            class="btn btn-outline-dark btn-sm"
+                            title="Configure Quick Add groups">
+                            <x-core::icon name="ti ti-settings" class="me-1" /> Configure
+                        </a>
                     </div>
                 </div>
             </div>
@@ -346,7 +433,8 @@
                     data-target="jobtypes-box-{{ $tid }}"
                     data-count-badge="jt-count-badge-{{ $tid }}"
                     title="Clear all job types"
-                    style="font-size:.7rem;{{ count($selJobTypes) ? '' : 'display:none' }}">
+                    style="font-size:.7rem"
+                    {{ count($selJobTypes) ? '' : 'disabled' }}>
                     <i class="fas fa-times me-1"></i>Clear
                 </button>
             </div>
@@ -396,7 +484,8 @@
                     data-target="categories-box-{{ $tid }}"
                     data-count-badge="cat-count-badge-{{ $tid }}"
                     title="Clear all categories"
-                    style="font-size:.7rem;{{ count($selCategories) ? '' : 'display:none' }}">
+                    style="font-size:.7rem"
+                    {{ count($selCategories) ? '' : 'disabled' }}>
                     <i class="fas fa-times me-1"></i>Clear
                 </button>
             </div>
@@ -453,15 +542,17 @@
                             name="duration_days"
                             id="{{ $tid }}-duration-{{ $days }}"
                             value="{{ $days }}"
-                            {{ old('duration_days', 60) == $days ? 'checked' : '' }}>
-                        <label class="form-check-label d-block border rounded p-3 h-100 duration-card {{ $days == 60 ? 'border-success' : 'border-secondary border-opacity-25' }}"
+                            {{ old('duration_days', 7) == $days ? 'checked' : '' }}>
+                        <label class="form-check-label d-block border rounded p-3 h-100 duration-card {{ $days == 7 ? 'border-primary' : 'border-secondary border-opacity-25' }}"
                             for="{{ $tid }}-duration-{{ $days }}"
                             style="cursor:pointer;transition:all .15s">
                             <div class="d-flex justify-content-between align-items-center mb-1">
                                 <span class="fw-bold fs-5">{{ $info['label'] }}</span>
                                 <span class="badge {{ $info['badge'] }} fs-6">K{{ number_format($info['price'], 0) }}</span>
                             </div>
-                            @if($days == 60)
+                            @if($days == 7)
+                                <div class="text-primary small fw-semibold"><i class="fas fa-check me-1"></i>Default plan</div>
+                            @elseif($days == 60)
                                 <div class="text-success small fw-semibold"><i class="fas fa-star me-1"></i>Best Value</div>
                             @elseif($days == 30)
                                 <div class="text-muted small">Standard plan</div>
@@ -574,7 +665,7 @@
         {{-- CV Upload & AI Analysis --}}
         <h6 class="fw-semibold mb-2"><i class="fas fa-brain me-1 text-primary"></i> AI-Powered CV Analysis</h6>
         <p class="text-muted small mb-3">
-            Upload the candidate's CV — Claude AI will read it and automatically suggest the best job filters for the Filters tab.
+            Upload the candidate's CV and OpenAI will infer likely job keywords, categories, experience level, and location hints from education, skills, and work history.
         </p>
         <div class="d-flex align-items-start gap-3 flex-wrap mb-3">
             <div>
@@ -591,10 +682,13 @@
             </button>
         </div>
 
-        @if($alert && $alert->cv_path)
+        @if($alert && $alert->hasStoredCv())
         <div class="d-flex align-items-center gap-2 text-muted small border rounded px-3 py-2 mb-3">
             <i class="fas fa-file-alt text-primary"></i>
-            CV on file: <strong>{{ basename($alert->cv_path) }}</strong>
+            CV on file: <strong>{{ $alert->cvDisplayName() }}</strong>
+            <span class="badge bg-{{ $alert->hasLinkedAccountCv() ? 'success' : 'secondary' }} text-white ms-1">
+                {{ $alert->hasLinkedAccountCv() ? 'Linked account CV' : 'VIP upload' }}
+            </span>
             <span class="ms-1">(upload a new file above to replace it)</span>
         </div>
         @endif
@@ -612,8 +706,24 @@
                 @if(!empty($cvAnalysis['summary']))
                     <p class="text-muted small mb-2">{{ $cvAnalysis['summary'] }}</p>
                 @endif
+                @if(!empty($cvAnalysis['candidate_type']))
+                    <div class="small text-dark fw-semibold mb-2">{{ $cvAnalysis['candidate_type'] }}</div>
+                @endif
+                @if(!empty($cvAnalysis['candidate_name']) || !empty($cvAnalysis['candidate_phone']) || !empty($cvAnalysis['candidate_email']))
+                    <div class="text-muted small mb-2">
+                        @if(!empty($cvAnalysis['candidate_name']))
+                            <span class="me-2"><i class="fas fa-user me-1"></i>{{ $cvAnalysis['candidate_name'] }}</span>
+                        @endif
+                        @if(!empty($cvAnalysis['candidate_phone']))
+                            <span class="me-2"><i class="fab fa-whatsapp me-1"></i>{{ $cvAnalysis['candidate_phone'] }}</span>
+                        @endif
+                        @if(!empty($cvAnalysis['candidate_email']))
+                            <span><i class="fas fa-envelope me-1"></i>{{ $cvAnalysis['candidate_email'] }}</span>
+                        @endif
+                    </div>
+                @endif
                 <div class="d-flex gap-1 flex-wrap mb-2">
-                    @foreach((array)($cvAnalysis['keywords'] ?? ($cvAnalysis['keyword'] ? [$cvAnalysis['keyword']] : [])) as $kw)
+                    @foreach((array)($cvAnalysis['keywords'] ?? (($cvAnalysis['keyword'] ?? null) ? [$cvAnalysis['keyword']] : [])) as $kw)
                         <span class="badge bg-dark text-white small"><i class="fas fa-search me-1"></i>{{ $kw }}</span>
                     @endforeach
                     @foreach($cvAnalysis['job_type_names'] ?? [] as $tn)
@@ -622,7 +732,19 @@
                     @foreach($cvAnalysis['category_names'] ?? [] as $cn)
                         <span class="badge bg-secondary text-white small">{{ $cn }}</span>
                     @endforeach
+                    @foreach($cvAnalysis['country_names'] ?? [] as $countryName)
+                        <span class="badge bg-info text-white small">{{ $countryName }}</span>
+                    @endforeach
                 </div>
+                @if(!empty($cvAnalysis['usage']['total_tokens']) || !empty($cvAnalysis['usage']['estimated_cost_usd']))
+                    <div class="text-muted small mb-2">
+                        Usage:
+                        {{ number_format((int) ($cvAnalysis['usage']['total_tokens'] ?? 0)) }} tokens
+                        @if(isset($cvAnalysis['usage']['estimated_cost_usd']))
+                            · ${{ number_format((float) $cvAnalysis['usage']['estimated_cost_usd'], 6) }}
+                        @endif
+                    </div>
+                @endif
                 <button type="button" class="btn btn-outline-primary btn-sm btn-apply-analysis"
                     data-prefix="{{ $prefix }}" data-analysis='@json($cvAnalysis)'>
                     <i class="fas fa-check me-1"></i> Apply These Filters

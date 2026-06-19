@@ -1,6 +1,9 @@
 @extends(BaseHelper::getAdminMasterLayoutTemplate())
 
 @section('content')
+@php
+    $activeCandidateAlertTab = request('tab') === 'quick-add' ? 'quick-add' : 'alerts';
+@endphp
 <div class="row g-4">
 
     {{-- Stats --}}
@@ -39,8 +42,22 @@
         </x-core::card>
     </div>
 
-    {{-- Alerts table --}}
+    {{-- Alerts table and settings --}}
     <div class="col-12">
+        <ul class="nav nav-tabs mb-3" id="candidate-alert-tabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link {{ $activeCandidateAlertTab === 'alerts' ? 'active' : '' }}" id="candidate-alerts-tab" data-bs-toggle="tab" data-bs-target="#candidate-alerts-pane" type="button" role="tab" aria-controls="candidate-alerts-pane" aria-selected="{{ $activeCandidateAlertTab === 'alerts' ? 'true' : 'false' }}">
+                    <i class="ti ti-list-details me-1"></i> Alerts
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link {{ $activeCandidateAlertTab === 'quick-add' ? 'active' : '' }}" id="candidate-alert-quick-add-tab" data-bs-toggle="tab" data-bs-target="#candidate-alert-quick-add-pane" type="button" role="tab" aria-controls="candidate-alert-quick-add-pane" aria-selected="{{ $activeCandidateAlertTab === 'quick-add' ? 'true' : 'false' }}">
+                    <i class="ti ti-sparkles me-1"></i> Quick Add Options
+                </button>
+            </li>
+        </ul>
+        <div class="tab-content">
+            <div class="tab-pane fade {{ $activeCandidateAlertTab === 'alerts' ? 'show active' : '' }}" id="candidate-alerts-pane" role="tabpanel" aria-labelledby="candidate-alerts-tab">
         <div class="card has-actions">
             <div class="card-header">
                 <div class="w-100 justify-content-between d-flex flex-wrap align-items-center gap-1">
@@ -123,7 +140,17 @@
                                             </div>
                                         </td>
                                         <td>
-                                            <div class="fw-semibold">{{ $alert->candidate_name }}</div>
+                                            <div class="fw-semibold d-flex align-items-center gap-2">
+                                                @if($alert->account?->avatar_thumb_url || $alert->account?->avatar_url)
+                                                    <img src="{{ $alert->account?->avatar_thumb_url ?: $alert->account?->avatar_url }}" alt="" style="width:24px;height:24px;border-radius:999px;object-fit:cover;border:1px solid #e5e7eb">
+                                                @endif
+                                                <span>{{ $alert->candidate_name }}</span>
+                                                @if($alert->account?->wakanda_verified)
+                                                    <span class="d-inline-flex align-items-center justify-content-center rounded-circle" title="Wakanda Verified" style="width:16px;height:16px;background:#6f42c1;color:#fff;font-size:10px;line-height:1;">
+                                                        <i class="ti ti-star-filled"></i>
+                                                    </span>
+                                                @endif
+                                            </div>
                                             <div class="text-muted small">
                                                 <i class="ti ti-brand-whatsapp me-1" style="color:#25D366"></i>{{ $alert->candidate_phone }}
                                             </div>
@@ -224,8 +251,17 @@
                                                     data-name="{{ $alert->candidate_name }}">
                                                     <i class="fab fa-whatsapp"></i>
                                                 </button>
-                                                @if($alert->cv_path)
-                                                <span class="btn btn-outline-info disabled" title="CV on file — re-upload in Edit to re-analyse">
+                                                @if(! $alert->account_id && $alert->candidate_email)
+                                                <button type="button"
+                                                    class="btn btn-outline-dark btn-send-account-invite"
+                                                    title="Invite candidate to create a Wakanda Jobs account"
+                                                    data-url="{{ route('job-board.candidate-alerts.send-account-invite', $alert->id) }}"
+                                                    data-name="{{ $alert->candidate_name }}">
+                                                    <i class="fas fa-envelope"></i>
+                                                </button>
+                                                @endif
+                                                @if($alert->hasStoredCv())
+                                                <span class="btn btn-outline-info disabled" title="{{ $alert->hasLinkedAccountCv() ? 'CV is linked from the candidate account.' : 'CV on file — re-upload in Edit to re-analyse' }}">
                                                     <i class="fas fa-file-alt"></i>
                                                 </span>
                                                 @endif
@@ -281,6 +317,57 @@
                 </div>{{-- /table-responsive --}}
             </div>{{-- /card-table --}}
         </div>{{-- /card --}}
+            </div>
+            <div class="tab-pane fade {{ $activeCandidateAlertTab === 'quick-add' ? 'show active' : '' }}" id="candidate-alert-quick-add-pane" role="tabpanel" aria-labelledby="candidate-alert-quick-add-tab">
+                <x-core::card>
+                    <x-core::card.header>
+                        <div>
+                            <h5 class="mb-1 d-flex align-items-center gap-2">
+                                <i class="ti ti-sparkles text-primary"></i>
+                                Quick Add Keyword Options
+                            </h5>
+                            <p class="text-muted small mb-0">These groups appear in the Keywords Quick Add dropdown when adding or editing a VIP job alert.</p>
+                        </div>
+                    </x-core::card.header>
+                    <x-core::card.body>
+                        <form method="POST" action="{{ route('job-board.candidate-alerts.quick-add-presets.update') }}" id="quickAddPresetForm">
+                            @csrf
+                            @method('PUT')
+                            <div id="quickAddPresetRows" class="d-flex flex-column gap-3">
+                                @foreach($keywordPresets as $presetIndex => $preset)
+                                    <div class="quick-add-preset-row border rounded p-3">
+                                        <div class="row g-3 align-items-start">
+                                            <div class="col-lg-4">
+                                                <label class="form-label">Group Label</label>
+                                                <input type="text" name="presets[{{ $presetIndex }}][label]" class="form-control" value="{{ $preset['label'] }}" maxlength="80" placeholder="e.g. Accounting & Finance">
+                                            </div>
+                                            <div class="col-lg-7">
+                                                <label class="form-label">Keywords</label>
+                                                <textarea name="presets[{{ $presetIndex }}][keywords]" class="form-control" rows="3" placeholder="One keyword per line or comma-separated">{{ implode("\n", $preset['keywords'] ?? []) }}</textarea>
+                                                <div class="form-text">Saved keywords are de-duplicated. Empty groups are ignored.</div>
+                                            </div>
+                                            <div class="col-lg-1 d-flex justify-content-lg-end">
+                                                <button type="button" class="btn btn-outline-danger btn-icon btn-remove-quick-add-preset mt-lg-4" title="Remove group" aria-label="Remove group">
+                                                    <i class="ti ti-trash"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                            <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                                <button type="button" class="btn btn-outline-primary" id="addQuickAddPreset">
+                                    <i class="ti ti-plus me-1"></i> Add Group
+                                </button>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="ti ti-device-floppy me-1"></i> Save Quick Add Options
+                                </button>
+                            </div>
+                        </form>
+                    </x-core::card.body>
+                </x-core::card>
+            </div>
+        </div>
     </div>
 
 </div>
@@ -504,12 +591,53 @@ wakandajobs.com';
         gap: .35rem !important;
     }
 }
+.quick-add-preset-row textarea {
+    min-height: 96px;
+}
+.table-actions .btn.btn-icon,
+.table-actions .btn.btn-icon i,
+.table-actions .btn.btn-icon svg {
+    color: #fff !important;
+}
 </style>
 @endpush
 
 @push('footer')
 <script>
 $(function () {
+
+    // ── Quick Add preset settings ────────────────────────────────────────────
+
+    let quickAddPresetIndex = {{ count($keywordPresets) }};
+
+    $('#addQuickAddPreset').on('click', function () {
+        const index = quickAddPresetIndex++;
+        const row = `
+            <div class="quick-add-preset-row border rounded p-3">
+                <div class="row g-3 align-items-start">
+                    <div class="col-lg-4">
+                        <label class="form-label">Group Label</label>
+                        <input type="text" name="presets[${index}][label]" class="form-control" maxlength="80" placeholder="e.g. Accounting & Finance">
+                    </div>
+                    <div class="col-lg-7">
+                        <label class="form-label">Keywords</label>
+                        <textarea name="presets[${index}][keywords]" class="form-control" rows="3" placeholder="One keyword per line or comma-separated"></textarea>
+                        <div class="form-text">Saved keywords are de-duplicated. Empty groups are ignored.</div>
+                    </div>
+                    <div class="col-lg-1 d-flex justify-content-lg-end">
+                        <button type="button" class="btn btn-outline-danger btn-icon btn-remove-quick-add-preset mt-lg-4" title="Remove group" aria-label="Remove group">
+                            <i class="ti ti-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+
+        $('#quickAddPresetRows').append(row).find('.quick-add-preset-row:last input').trigger('focus');
+    });
+
+    $(document).on('click', '.btn-remove-quick-add-preset', function () {
+        $(this).closest('.quick-add-preset-row').remove();
+    });
 
     // ── Phone number duplicate check ─────────────────────────────────────────
 
@@ -587,11 +715,18 @@ $(function () {
         $httpClient.make().post(url)
             .then(({ data: resp }) => {
                 const isActive = resp.data?.is_active ?? active;
+                const welcomeSent = resp.data?.welcome_sent ?? false;
+                const welcomeError = resp.data?.welcome_error || null;
                 $badge.text(isActive ? 'Active' : 'Disabled')
                     .removeClass('bg-success-subtle text-success bg-secondary-subtle text-secondary bg-danger-subtle text-danger')
                     .addClass(isActive ? 'bg-success-subtle text-success' : 'bg-secondary-subtle text-secondary');
                 $toggle.prop('checked', isActive);
-                Botble.showSuccess(isActive ? 'Alert enabled. Welcome message sent.' : 'Alert disabled.');
+                if (isActive) {
+                    if (welcomeSent) Botble.showSuccess('Alert enabled. Welcome message sent.');
+                    else Botble.showError(welcomeError || 'Alert enabled, but welcome message failed.');
+                } else {
+                    Botble.showSuccess('Alert disabled.');
+                }
             })
             .catch(() => {
                 $toggle.prop('checked', !active);
@@ -870,6 +1005,7 @@ $(function () {
 
         const total = jobsToSend.length;
         let done = 0, sent = 0, failed = 0;
+        const failedJobs = [];
 
         $btn.prop('disabled', true).html('<i class="fab fa-whatsapp me-1"></i> Sending…');
         $('#btnExportCsv, #btnExportPdf, #forceResendCheck, #pv-country, #pv-company, #pv-period, #pv-clear-filters').prop('disabled', true);
@@ -888,13 +1024,46 @@ $(function () {
             </div>
         `).show();
 
+        $('#pv-send-failures').remove();
+
+        const renderFailedJobs = () => {
+            $('#pv-send-failures').remove();
+            if (!failedJobs.length) return;
+
+            const items = failedJobs.map((item, index) => `
+                <tr>
+                    <td class="text-muted small">${index + 1}</td>
+                    <td class="fw-semibold">${escHtml(item.name)}</td>
+                    <td class="text-danger small">${escHtml(item.error || 'Failed to send')}</td>
+                </tr>
+            `).join('');
+
+            $('#pv-send-progress').after(`
+                <div id="pv-send-failures" class="border-bottom">
+                    <div class="px-3 pt-2 pb-3">
+                        <div class="alert alert-danger py-2 px-3 mb-2 small">
+                            <strong>${failedJobs.length} failed job(s)</strong> could not be sent. Review the reasons below.
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr><th style="width:36px">#</th><th>Job</th><th>Reason</th></tr>
+                                </thead>
+                                <tbody>${items}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `);
+        };
+
         // Helper: send one job, animate its row out on success
         const sendOne = async (job) => {
             $('#pv-prog-current').html(
                 `<i class="fas fa-paper-plane me-1 text-success"></i>${escHtml(job.name)}`
             );
             try {
-                await $httpClient.make().post(sendUrl, {
+                const { data } = await $httpClient.make().post(sendUrl, {
                     force_resend: forceResend ? 1 : 0,
                     job_ids: [job.id],
                 }, { timeout: 30000 });
@@ -907,8 +1076,29 @@ $(function () {
                     $row.css({ transition: 'opacity .3s ease, transform .3s ease', opacity: 0, transform: 'translateX(40px)' });
                     setTimeout(() => $row.remove(), 320);
                 }
-            } catch (_) {
+                if (Array.isArray(data?.failed_jobs) && data.failed_jobs.length) {
+                    data.failed_jobs.forEach(item => failedJobs.push({
+                        id: item.job_id,
+                        name: item.job_name || job.name,
+                        error: item.error || 'Failed to send',
+                    }));
+                }
+            } catch (error) {
                 failed++;
+                const response = error?.response?.data || {};
+                const failedItem = Array.isArray(response.failed_jobs) && response.failed_jobs.length
+                    ? response.failed_jobs[0]
+                    : null;
+                failedJobs.push({
+                    id: failedItem?.job_id || job.id,
+                    name: failedItem?.job_name || job.name,
+                    error: failedItem?.error || response.error || 'Failed to send',
+                });
+
+                const $row = $(`tr[data-job-id="${job.id}"]`);
+                if ($row.length) {
+                    $row.find('td:nth-child(8)').html('<span class="badge bg-danger-subtle text-danger border border-danger-subtle">Failed</span>');
+                }
             }
 
             done++;
@@ -916,6 +1106,7 @@ $(function () {
             $('#pv-prog-bar').css('width', pct + '%');
             $('#pv-prog-label').text(`Sending ${Math.min(done + BATCH, total)} of ${total}…`);
             $('#pv-prog-counts').text(`${sent} sent · ${failed} failed`);
+            renderFailedJobs();
         };
 
         // Process in batches of BATCH, with a short gap between rounds
@@ -931,13 +1122,16 @@ $(function () {
         $('#pv-prog-label').text(`Done — ${sent} sent${failed ? `, ${failed} failed` : ''}.`);
         $('#pv-prog-current').html('');
         $('#pv-prog-bar').removeClass('progress-bar-animated progress-bar-striped').css('width', '100%');
+        renderFailedJobs();
 
         failed ? Botble.showError(`${sent} sent, ${failed} failed.`) : Botble.showSuccess(`${sent} job(s) sent successfully.`);
 
         $btn.prop('disabled', false).html('<i class="fab fa-whatsapp me-1"></i> Send All New');
         $('#btnExportCsv, #btnExportPdf, #forceResendCheck, #pv-country, #pv-company, #pv-period, #pv-clear-filters').prop('disabled', false);
 
-        setTimeout(() => location.reload(), 1500);
+        if (!failed) {
+            setTimeout(() => location.reload(), 1500);
+        }
     });
 
     // ── Resend welcome message ────────────────────────────────────────────────
@@ -1441,9 +1635,9 @@ $(function () {
         const count = $box.find('input[type="checkbox"]:checked').length;
         const total = $box.find('input[type="checkbox"]').length;
         $('.' + badgeClass).text(count + (total > 0 ? ' selected' : ''));
-        // Show/hide sibling Clear button (btn-deselect-all-check next to the collapse toggle)
+        // Enable/disable sibling Clear button (btn-deselect-all-check next to the collapse toggle)
         $('[data-target="' + $box.attr('id') + '"].btn-deselect-all-check').filter('.btn-outline-danger')
-            .each(function() { count > 0 ? $(this).show() : $(this).hide(); });
+            .prop('disabled', count === 0);
     }
 
     // Search/filter within checkbox lists
@@ -1540,6 +1734,199 @@ $(function () {
         $(this).find('.collapse-chevron').css('transform', expanded ? '' : 'rotate(180deg)');
     });
 
+    // ── Candidate account search / link ─────────────────────────────────────
+
+    const candidateAccountSearchState = {};
+
+    function ensureCandidateAccountState(prefix) {
+        if (!candidateAccountSearchState[prefix]) {
+            candidateAccountSearchState[prefix] = { page: 1, term: '', hasMore: false, timer: null };
+        }
+
+        return candidateAccountSearchState[prefix];
+    }
+
+    function renderSelectedAccount(prefix, account) {
+        const $selected = $('#candidate-account-selected-' + prefix);
+        const phone = account.phone || account.whatsapp_number || '';
+        const hasCv = !!account.has_cv;
+        const avatar = account.avatar_url || '';
+        const badge = account.wakanda_verified
+            ? '<span class="d-inline-flex align-items-center justify-content-center rounded-circle ms-1" title="Wakanda Verified" style="width:16px;height:16px;background:#6f42c1;color:#fff;font-size:10px;line-height:1;"><i class="ti ti-star-filled"></i></span>'
+            : '';
+
+        $selected
+            .removeClass('d-none')
+            .attr('data-account-id', account.id || '')
+            .attr('data-has-cv', hasCv ? '1' : '0')
+            .attr('data-resume-name', account.resume_name || '')
+            .attr('data-account-name', account.name || '')
+            .attr('data-account-email', account.email || '')
+            .attr('data-account-phone', phone)
+            .html(
+                '<div class="border rounded px-3 py-2 bg-white">'
+                + '<div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">'
+                + '<div><div class="fw-semibold d-flex align-items-center gap-2">' + (avatar ? '<img src="' + escHtml(avatar) + '" alt="" style="width:24px;height:24px;border-radius:999px;object-fit:cover;border:1px solid #e5e7eb">' : '') + '<span>' + escHtml(account.name || '') + '</span>' + badge + '</div>'
+                + '<div class="text-muted small">'
+                + (account.email ? '<span class="me-2"><i class="ti ti-mail me-1"></i>' + escHtml(account.email) + '</span>' : '')
+                + (phone ? '<span><i class="ti ti-brand-whatsapp me-1"></i>' + escHtml(phone) + '</span>' : '')
+                + '</div></div>'
+                + '<button type="button" class="btn btn-outline-danger btn-sm btn-clear-linked-account" data-prefix="' + prefix + '"><i class="ti ti-x me-1"></i> Clear</button>'
+                + '</div></div>'
+            );
+
+        $('input[name="linked_account_id"]').filter(function () {
+            return $(this).closest('.modal-content, form').find('#candidate-account-selected-' + prefix).length > 0;
+        }).val(account.id || '');
+
+        renderLinkedAccountCvPrompt(prefix, account);
+    }
+
+    function renderLinkedAccountCvPrompt(prefix, account) {
+        const $prompt = $('#candidate-account-cv-prompt-' + prefix);
+        const hasCv = !!account.has_cv;
+        const resumeName = account.resume_name || 'CV on file';
+
+        if (hasCv) {
+            $prompt.html(
+                '<div class="alert alert-success py-2 px-3 mb-0 small">'
+                + '<div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">'
+                + '<div><strong>Account CV found:</strong> ' + escHtml(resumeName)
+                + '<div class="text-muted mt-1">Use the linked account CV to auto-generate keywords and matching filters.</div></div>'
+                + '<button type="button" class="btn btn-success btn-sm btn-analyze-linked-account-cv" data-prefix="' + prefix + '"><i class="ti ti-sparkles me-1"></i> Analyse Account CV</button>'
+                + '</div></div>'
+            );
+        } else {
+            $prompt.html(
+                '<div class="alert alert-warning py-2 px-3 mb-0 small">'
+                + '<strong>No CV on this account.</strong> Upload a CV below to generate the best keywords and matching filters.'
+                + '</div>'
+            );
+        }
+    }
+
+    function clearLinkedAccount(prefix) {
+        $('#candidate-account-selected-' + prefix)
+            .addClass('d-none')
+            .attr('data-account-id', '')
+            .attr('data-has-cv', '0')
+            .empty();
+        $('#candidate-account-cv-prompt-' + prefix).empty();
+        $('input[name="linked_account_id"]').filter(function () {
+            return $(this).closest('.modal-content, form').find('#candidate-account-selected-' + prefix).length > 0;
+        }).val('');
+    }
+
+    function runCandidateAccountSearch(prefix, page) {
+        const $input = $('#candidate-account-search-' + prefix);
+        const url = $input.data('search-url');
+        const term = $input.val().trim();
+        const state = ensureCandidateAccountState(prefix);
+        const $results = $('#candidate-account-results-' + prefix);
+
+        state.term = term;
+        state.page = page;
+
+        if (term.length < 2) {
+            $results.addClass('d-none').empty();
+            return;
+        }
+
+        $results.removeClass('d-none').html('<div class="border rounded p-3 bg-white text-muted small"><i class="ti ti-loader-2 fa-spin me-1"></i> Searching accounts…</div>');
+
+        fetch(url + '?q=' + encodeURIComponent(term) + '&page=' + page)
+            .then(r => r.json())
+            .then(resp => {
+                const rows = resp.data || [];
+                state.hasMore = !!resp.has_more;
+
+                if (!rows.length) {
+                    $results.html('<div class="border rounded p-3 bg-white text-muted small">No matching candidate accounts found.</div>');
+                    return;
+                }
+
+                let html = '<div class="border rounded bg-white overflow-hidden"><div class="list-group list-group-flush">';
+                rows.forEach(account => {
+                    const phone = account.phone || account.whatsapp_number || '';
+                    const avatar = account.avatar_url || '';
+                    const badge = account.wakanda_verified
+                        ? '<span class="d-inline-flex align-items-center justify-content-center rounded-circle ms-1" title="Wakanda Verified" style="width:16px;height:16px;background:#6f42c1;color:#fff;font-size:10px;line-height:1;"><i class="ti ti-star-filled"></i></span>'
+                        : '';
+                    html += '<button type="button" class="list-group-item list-group-item-action btn-select-candidate-account"'
+                        + ' data-prefix="' + prefix + '"'
+                        + ' data-account-id="' + escHtml(account.id) + '"'
+                        + ' data-account-name="' + escHtml(account.name || '') + '"'
+                        + ' data-account-email="' + escHtml(account.email || '') + '"'
+                        + ' data-account-phone="' + escHtml(phone) + '"'
+                        + ' data-has-cv="' + (account.has_cv ? '1' : '0') + '"'
+                        + ' data-resume-name="' + escHtml(account.resume_name || '') + '"'
+                        + ' data-avatar-url="' + escHtml(avatar) + '"'
+                        + ' data-wakanda-verified="' + (account.wakanda_verified ? '1' : '0') + '">'
+                        + '<div class="d-flex align-items-start justify-content-between gap-2">'
+                        + '<div><div class="fw-semibold d-flex align-items-center gap-2">' + (avatar ? '<img src="' + escHtml(avatar) + '" alt="" style="width:24px;height:24px;border-radius:999px;object-fit:cover;border:1px solid #e5e7eb">' : '') + '<span>' + escHtml(account.name || '') + '</span>' + badge + '</div>'
+                        + '<div class="text-muted small">'
+                        + (account.email ? '<span class="me-2"><i class="ti ti-mail me-1"></i>' + escHtml(account.email) + '</span>' : '')
+                        + (phone ? '<span><i class="ti ti-brand-whatsapp me-1"></i>' + escHtml(phone) + '</span>' : '')
+                        + '</div></div>'
+                        + '<span class="badge ' + (account.has_cv ? 'bg-success' : 'bg-warning text-dark') + '">'
+                        + (account.has_cv ? 'Has CV' : 'No CV')
+                        + '</span></div></button>';
+                });
+                html += '</div>';
+                html += '<div class="d-flex justify-content-between align-items-center px-3 py-2 border-top bg-light">'
+                    + '<button type="button" class="btn btn-outline-secondary btn-sm btn-candidate-account-page" data-prefix="' + prefix + '" data-page="' + Math.max(1, page - 1) + '"' + (page <= 1 ? ' disabled' : '') + '>Prev</button>'
+                    + '<span class="text-muted small">Page ' + page + '</span>'
+                    + '<button type="button" class="btn btn-outline-secondary btn-sm btn-candidate-account-page" data-prefix="' + prefix + '" data-page="' + (page + 1) + '"' + (state.hasMore ? '' : ' disabled') + '>Next</button>'
+                    + '</div></div>';
+                $results.html(html);
+            })
+            .catch(() => {
+                $results.html('<div class="border rounded p-3 bg-white text-danger small">Account search failed. Try again.</div>');
+            });
+    }
+
+    $(document).on('input', '.candidate-account-search-input', function () {
+        const prefix = $(this).data('prefix');
+        const state = ensureCandidateAccountState(prefix);
+        clearTimeout(state.timer);
+        state.timer = setTimeout(() => runCandidateAccountSearch(prefix, 1), 250);
+    });
+
+    $(document).on('click', '.btn-candidate-account-page', function () {
+        if ($(this).is(':disabled')) return;
+        runCandidateAccountSearch($(this).data('prefix'), parseInt($(this).data('page'), 10) || 1);
+    });
+
+    $(document).on('click', '.btn-select-candidate-account', function () {
+        const prefix = $(this).data('prefix');
+        const account = {
+            id: $(this).data('account-id'),
+            name: $(this).data('account-name'),
+            email: $(this).data('account-email'),
+            phone: $(this).data('account-phone'),
+            has_cv: String($(this).data('has-cv')) === '1',
+            resume_name: $(this).data('resume-name'),
+            avatar_url: $(this).data('avatar-url'),
+            wakanda_verified: String($(this).data('wakanda-verified')) === '1'
+        };
+
+        const $scope = $(this).closest('.modal-content, form');
+        $scope.find('input[name="candidate_name"]').val(account.name || '');
+        $scope.find('input[name="candidate_phone"]').val(account.phone || '');
+        $scope.find('input[name="candidate_email"]').val(account.email || '');
+
+        renderSelectedAccount(prefix, account);
+        $('#candidate-account-results-' + prefix).addClass('d-none').empty();
+
+        Botble.showSuccess(account.has_cv
+            ? 'Candidate account linked. Analyse the account CV to generate keywords.'
+            : 'Candidate account linked. This account has no CV yet, so upload one below for accurate keyword matching.');
+    });
+
+    $(document).on('click', '.btn-clear-linked-account', function () {
+        clearLinkedAccount($(this).data('prefix'));
+    });
+
     // ── CV Upload & AI Analysis ──────────────────────────────────────────────
 
     // Enable "Analyse" button once a file is chosen
@@ -1581,6 +1968,43 @@ $(function () {
             .finally(() => $btn.prop('disabled', false).html('<i class="ti ti-sparkles me-1"></i> Analyse with AI'));
     });
 
+    $(document).on('click', '.btn-analyze-linked-account-cv', function () {
+        const $btn = $(this);
+        const prefix = $btn.data('prefix');
+        const $selected = $('#candidate-account-selected-' + prefix);
+        const accountId = parseInt($selected.attr('data-account-id'), 10) || 0;
+        const analyzeUrl = $('#candidate-account-search-' + prefix).data('analyze-account-cv-url');
+
+        if (!accountId) {
+            Botble.showError('Select an account first.');
+            return;
+        }
+
+        $btn.prop('disabled', true).html('<i class="ti ti-loader-2 fa-spin me-1"></i> Analysing…');
+
+        fetch(analyzeUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'),
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({ account_id: accountId })
+        })
+            .then(r => r.json())
+            .then(resp => {
+                if (resp.error) {
+                    Botble.showError(resp.error);
+                    return;
+                }
+
+                applyAnalysisToForm(prefix, resp.data, true);
+                Botble.showSuccess('Linked account CV analysed and filters applied.');
+            })
+            .catch(() => Botble.showError('Linked account CV analysis failed.'))
+            .finally(() => $btn.prop('disabled', false).html('<i class="ti ti-sparkles me-1"></i> Analyse Account CV'));
+    });
+
     // Apply analysis results button (already-analysed CV)
     $(document).on('click', '.btn-apply-analysis', function () {
         const prefix   = $(this).data('prefix');
@@ -1589,50 +2013,68 @@ $(function () {
     });
 
     function applyAnalysisToForm(prefix, data, showPanel) {
-        // Keyword
-        if (data.keyword) {
-            const $kw = $('[data-prefix="' + prefix + '"]').closest('.modal-content, form').find('input[name="filters[keyword]"]');
-            if (!$kw.length) {
-                $('input[name="filters[keyword]"]').first().val(data.keyword);
-            } else {
-                $kw.val(data.keyword);
-            }
+        const $scope = $('[data-prefix="' + prefix + '"]').closest('.modal-content, form');
+        const keywords = Array.isArray(data.keywords) && data.keywords.length ? data.keywords : (data.keyword ? [data.keyword] : []);
+
+        if (data.candidate_name) {
+            $scope.find('input[name="candidate_name"]').val(data.candidate_name);
         }
 
-        // Job Types — check matching checkboxes
-        if (data.job_type_ids && data.job_type_ids.length) {
-            data.job_type_ids.forEach(id => {
-                $('#' + prefix + '-type-' + id).prop('checked', true);
+        if (data.candidate_phone) {
+            $scope.find('input[name="candidate_phone"]').val(data.candidate_phone);
+        }
+
+        if (data.candidate_email) {
+            $scope.find('input[name="candidate_email"]').val(data.candidate_email);
+        }
+
+        const $keywordsList = $('#keywords-list-' + prefix);
+        if ($keywordsList.length) {
+            const $inputs = $keywordsList.find('input[name="filters[keywords][]"]');
+            $inputs.val('');
+
+            keywords.forEach(function (keyword, index) {
+                let $input = $keywordsList.find('input[name="filters[keywords][]"]').eq(index);
+                if (! $input.length) {
+                    $keywordsList.append('<div class="input-group input-group-sm mb-1 keyword-row"><input type="text" name="filters[keywords][]" class="form-control" placeholder="e.g. Software Engineer"><button type="button" class="btn btn-outline-danger btn-remove-kw" title="Remove"><i class="fas fa-times"></i></button></div>');
+                    $input = $keywordsList.find('input[name="filters[keywords][]"]').eq(index);
+                }
+
+                $input.val(keyword);
             });
+
+            $('.kw-count-badge-' + prefix).text(keywords.length);
         }
 
-        // Categories — check matching checkboxes
-        if (data.category_ids && data.category_ids.length) {
-            data.category_ids.forEach(id => {
-                $('#' + prefix + '-cat-' + id).prop('checked', true);
-            });
-        }
+        $('#jobtypes-box-' + prefix + ' input[type="checkbox"]').prop('checked', false);
+        (data.job_type_ids || []).forEach(id => {
+            $('#' + prefix + '-type-' + id).prop('checked', true);
+        });
+        $('.jt-count-badge-' + prefix).text((data.job_type_ids || []).length + ' selected');
+        $('[data-target="jobtypes-box-' + prefix + '"].btn-deselect-all-check.btn-outline-danger').prop('disabled', !(data.job_type_ids || []).length);
 
-        // Experience
+        $('#categories-box-' + prefix + ' input[type="checkbox"]').prop('checked', false);
+        (data.category_ids || []).forEach(id => {
+            $('#' + prefix + '-cat-' + id).prop('checked', true);
+        });
+        $('.cat-count-badge-' + prefix).text((data.category_ids || []).length + ' selected');
+        $('[data-target="categories-box-' + prefix + '"].btn-deselect-all-check.btn-outline-danger').prop('disabled', !(data.category_ids || []).length);
+
+        $('#countries-box-' + prefix + ' input[type="checkbox"]').prop('checked', false);
+        (data.country_ids || []).forEach(id => {
+            $('#' + prefix + '-country-' + id + ', #add-country-' + id + ', #edit-country-' + id).prop('checked', true);
+        });
+        $('.country-count-badge-' + prefix).text((data.country_ids || []).length + ' selected');
+
         if (data.job_experience_id) {
-            $('[data-prefix="' + prefix + '"]').closest('.modal-content, form')
-                .find('select[name="filters[job_experience_id]"]')
-                .val(data.job_experience_id);
+            $scope.find('select[name="filters[job_experience_id]"]').val(data.job_experience_id);
         }
 
-        // City
-        if (data.city_id) {
-            $('[data-prefix="' + prefix + '"]').closest('.modal-content, form')
-                .find('select[name="filters[city_id]"]')
-                .val(data.city_id);
+        if (data.location_keyword) {
+            $scope.find('input[name="filters[location_keyword]"]').val(data.location_keyword);
         }
 
-        // Label suggestion from keyword + candidate name
-        const $labelInput = $('[data-prefix="' + prefix + '"]').closest('.modal-content, form').find('input[name="label"]');
-        if ($labelInput.length && !$labelInput.val() && data.keyword) {
-            const candidateName = $('[data-prefix="' + prefix + '"]').closest('.modal-content, form').find('input[name="candidate_name"]').val();
-            $labelInput.val(candidateName ? candidateName + ' — ' + data.keyword : data.keyword + ' Alert');
-        }
+        $scope.find('input[name="cv_analysis_payload"]').val(JSON.stringify(data));
 
         // Show result panel
         if (showPanel) {
@@ -1646,17 +2088,34 @@ $(function () {
             html += '<span class="badge ' + confidenceBadgeClass + ' ms-auto">' + confidence + '% confidence</span>';
             html += '</div>';
 
+            if (data.candidate_type) {
+                html += '<div class="small text-dark fw-semibold mb-2">' + escHtml(data.candidate_type) + '</div>';
+            }
+
+            if (data.candidate_name || data.candidate_phone || data.candidate_email) {
+                html += '<div class="text-muted small mb-2">';
+                if (data.candidate_name) html += '<span class="me-2"><i class="ti ti-user me-1"></i>' + escHtml(data.candidate_name) + '</span>';
+                if (data.candidate_phone) html += '<span class="me-2"><i class="ti ti-brand-whatsapp me-1"></i>' + escHtml(data.candidate_phone) + '</span>';
+                if (data.candidate_email) html += '<span><i class="ti ti-mail me-1"></i>' + escHtml(data.candidate_email) + '</span>';
+                html += '</div>';
+            }
+
             if (data.summary) {
                 html += '<p class="text-muted small mb-2">' + escHtml(data.summary) + '</p>';
             }
 
-            html += '<div class="d-flex gap-1 flex-wrap">';
-            if (data.keyword) html += '<span class="badge bg-light border text-dark small"><i class="ti ti-search me-1"></i>' + escHtml(data.keyword) + '</span>';
+            html += '<div class="d-flex gap-1 flex-wrap mb-2">';
+            keywords.forEach(n => { html += '<span class="badge bg-dark text-white small"><i class="ti ti-search me-1"></i>' + escHtml(n) + '</span>'; });
             (data.job_type_names || []).forEach(n => { html += '<span class="badge bg-blue-subtle text-blue border small">' + escHtml(n) + '</span>'; });
             (data.category_names || []).forEach(n => { html += '<span class="badge bg-purple-subtle text-purple border small">' + escHtml(n) + '</span>'; });
             if (data.experience_name) html += '<span class="badge bg-light border text-dark small"><i class="ti ti-award me-1"></i>' + escHtml(data.experience_name) + '</span>';
-            if (data.city_name)       html += '<span class="badge bg-light border text-dark small"><i class="ti ti-map-pin me-1"></i>' + escHtml(data.city_name) + '</span>';
+            (data.country_names || []).forEach(n => { html += '<span class="badge bg-info text-white small">' + escHtml(n) + '</span>'; });
+            if (data.location_keyword) html += '<span class="badge bg-light border text-dark small"><i class="ti ti-map-pin me-1"></i>' + escHtml(data.location_keyword) + '</span>';
             html += '</div>';
+            if (data.usage && (data.usage.total_tokens || data.usage.estimated_cost_usd)) {
+                const cost = data.usage.estimated_cost_usd ? Number(data.usage.estimated_cost_usd).toFixed(6) : null;
+                html += '<div class="text-muted small mb-2">Usage: ' + escHtml(String(data.usage.total_tokens || 0)) + ' tokens' + (cost ? ' · $' + escHtml(cost) : '') + '</div>';
+            }
             html += '<div class="text-success small mt-2"><i class="ti ti-check me-1"></i>Filters have been applied to the form below. Review and adjust as needed.</div>';
 
             $panel.html(html).removeClass('d-none');

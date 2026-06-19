@@ -1,6 +1,9 @@
 @extends($layout ?? BaseHelper::getAdminMasterLayoutTemplate())
 
 @section('content')
+@php
+    $activeCandidateAlertTab = request('tab') === 'quick-add' ? 'quick-add' : 'alerts';
+@endphp
 <div class="row g-4 mb-3">
 
     {{-- Stats --}}
@@ -32,8 +35,122 @@
 
 </div>
 
-{{-- The DataTable --}}
-@include('core/table::base-table')
+<ul class="nav nav-tabs mb-3" id="candidate-alert-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link {{ $activeCandidateAlertTab === 'alerts' ? 'active' : '' }}" id="candidate-alerts-tab" data-bs-toggle="tab" data-bs-target="#candidate-alerts-pane" type="button" role="tab" aria-controls="candidate-alerts-pane" aria-selected="{{ $activeCandidateAlertTab === 'alerts' ? 'true' : 'false' }}">
+            <x-core::icon name="ti ti-list-details" class="me-1" /> Alerts
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link {{ $activeCandidateAlertTab === 'quick-add' ? 'active' : '' }}" id="candidate-alert-quick-add-tab" data-bs-toggle="tab" data-bs-target="#candidate-alert-quick-add-pane" type="button" role="tab" aria-controls="candidate-alert-quick-add-pane" aria-selected="{{ $activeCandidateAlertTab === 'quick-add' ? 'true' : 'false' }}">
+            <x-core::icon name="ti ti-sparkles" class="me-1" /> Quick Add Options
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade {{ $activeCandidateAlertTab === 'alerts' ? 'show active' : '' }}" id="candidate-alerts-pane" role="tabpanel" aria-labelledby="candidate-alerts-tab">
+        @include('core/table::base-table')
+    </div>
+
+    <div class="tab-pane fade {{ $activeCandidateAlertTab === 'quick-add' ? 'show active' : '' }}" id="candidate-alert-quick-add-pane" role="tabpanel" aria-labelledby="candidate-alert-quick-add-tab">
+        <x-core::card>
+            <x-core::card.header>
+                <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 w-100">
+                    <div>
+                    <h5 class="mb-1 d-flex align-items-center gap-2">
+                        <x-core::icon name="ti ti-sparkles" class="text-primary" />
+                        Quick Add Keyword Options
+                    </h5>
+                    <p class="text-muted small mb-0">These groups appear in the Keywords Quick Add dropdown when adding or editing a VIP job alert.</p>
+                    </div>
+                    <button type="button" class="btn btn-primary btn-sm" id="createQuickAddPreset">
+                        <x-core::icon name="ti ti-plus" class="me-1" />
+                        Create Quick Add
+                    </button>
+                </div>
+            </x-core::card.header>
+            <x-core::card.body>
+                <form method="POST" action="{{ route('job-board.candidate-alerts.quick-add-presets.update') }}" id="quickAddPresetForm">
+                    @csrf
+                    @method('PUT')
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                        <div class="text-muted small" id="quickAddPresetSummary"></div>
+                        <div class="d-flex align-items-center gap-2">
+                            <label for="quickAddPresetPageSize" class="small text-muted mb-0">Show</label>
+                            <select id="quickAddPresetPageSize" class="form-select form-select-sm" style="width:auto">
+                                <option value="5">5</option>
+                                <option value="10" selected>10</option>
+                                <option value="all">All</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="quickAddPresetRows" class="d-flex flex-column gap-3">
+                        @foreach($keywordPresets as $presetIndex => $preset)
+                            <div class="quick-add-preset-row border rounded p-3" data-preset-index="{{ $presetIndex }}">
+                                <div class="row g-3 align-items-start">
+                                    <div class="col-lg-4">
+                                        <label class="form-label">Group Label</label>
+                                        <input type="text" name="presets[{{ $presetIndex }}][label]" class="form-control" value="{{ $preset['label'] }}" maxlength="80" placeholder="e.g. Accounting & Finance">
+                                    </div>
+                                    <div class="col-lg-7">
+                                        <label class="form-label">Keywords</label>
+                                        <div class="quick-add-keywords-box" id="quick-add-keywords-{{ $presetIndex }}">
+                                            @foreach(($preset['keywords'] ?? ['']) as $keyword)
+                                                <div class="input-group input-group-sm mb-1 quick-add-keyword-row">
+                                                    <input type="text" name="presets[{{ $presetIndex }}][keywords][]" class="form-control" value="{{ $keyword }}" placeholder="e.g. Software Engineer">
+                                                    <button type="button" class="btn btn-outline-danger btn-remove-quick-add-keyword" title="Remove keyword" aria-label="Remove keyword">
+                                                        <x-core::icon name="ti ti-x" />
+                                                    </button>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
+                                            <button type="button" class="btn btn-outline-secondary btn-sm btn-add-quick-add-keyword" data-group-index="{{ $presetIndex }}">
+                                                <x-core::icon name="ti ti-plus" class="me-1" />
+                                                Add Keyword
+                                            </button>
+                                            <div class="form-text mb-0">Saved keywords are de-duplicated. Empty rows are ignored.</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-1 d-flex justify-content-lg-end">
+                                        <button type="button" class="btn btn-outline-danger btn-sm mt-lg-4 btn-remove-quick-add-preset" title="Remove group" aria-label="Remove group">
+                                            <x-core::icon name="ti ti-trash" class="me-1" />
+                                            Remove
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3">
+                        <div class="d-flex align-items-center gap-2">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="quickAddPresetPrev">
+                                <x-core::icon name="ti ti-chevron-left" class="me-1" />
+                                Prev
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="quickAddPresetNext">
+                                Next
+                                <x-core::icon name="ti ti-chevron-right" class="ms-1" />
+                            </button>
+                            <span class="small text-muted" id="quickAddPresetPageLabel"></span>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <x-core::icon name="ti ti-device-floppy" class="me-1" />
+                            Save Quick Add Options
+                        </button>
+                    </div>
+                    <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                        <button type="button" class="btn btn-outline-primary" id="addQuickAddPreset">
+                            <x-core::icon name="ti ti-plus" class="me-1" />
+                            Add Another Group
+                        </button>
+                    </div>
+                </form>
+            </x-core::card.body>
+        </x-core::card>
+    </div>
+</div>
 
 {{-- ====================== ADD MODAL ====================== --}}
 <div class="modal fade" id="modal-add-alert" tabindex="-1">
@@ -57,6 +174,17 @@
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+{{-- ====================== EDIT MODAL ====================== --}}
+<div class="modal fade" id="modal-edit-alert" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-body p-4 text-center text-muted">
+                <i class="ti ti-loader-2 fa-spin fs-3 d-block mb-2"></i> Loading edit form...
+            </div>
         </div>
     </div>
 </div>
@@ -124,9 +252,170 @@
 
 @endsection
 
+@push('header')
+<style>
+.quick-add-preset-row[hidden] {
+    display: none !important;
+}
+.quick-add-keywords-box {
+    max-height: 108px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+.pv-match-reasons {
+    background: #f8fafc;
+    border-top: 1px solid #e9ecef;
+}
+.pv-match-reasons .badge {
+    white-space: normal;
+}
+.table-actions .btn.btn-icon,
+.table-actions .btn.btn-icon i,
+.table-actions .btn.btn-icon svg {
+    color: #fff !important;
+}
+</style>
+@endpush
+
 @push('footer')
 <script>
 $(function () {
+
+    let quickAddPresetIndex = {{ count($keywordPresets) }};
+    let quickAddPresetPage = 1;
+    let quickAddPresetPageSize = 10;
+
+    function renderQuickAddPresetPagination() {
+        const rows = $('#quickAddPresetRows .quick-add-preset-row');
+        const total = rows.length;
+        const showAll = quickAddPresetPageSize === 'all';
+        const totalPages = showAll || total === 0 ? 1 : Math.max(1, Math.ceil(total / quickAddPresetPageSize));
+
+        if (quickAddPresetPage > totalPages) {
+            quickAddPresetPage = totalPages;
+        }
+
+        rows.each(function (index) {
+            if (showAll) {
+                this.hidden = false;
+                return;
+            }
+
+            const start = (quickAddPresetPage - 1) * quickAddPresetPageSize;
+            const end = start + quickAddPresetPageSize;
+            this.hidden = index < start || index >= end;
+        });
+
+        const startRecord = total === 0 ? 0 : (showAll ? 1 : ((quickAddPresetPage - 1) * quickAddPresetPageSize) + 1);
+        const endRecord = total === 0 ? 0 : (showAll ? total : Math.min(total, quickAddPresetPage * quickAddPresetPageSize));
+
+        $('#quickAddPresetSummary').text(total ? `Showing ${startRecord} to ${endRecord} of ${total} quick add groups` : 'No quick add groups configured');
+        $('#quickAddPresetPageLabel').text(showAll ? `All ${total} records` : `Page ${quickAddPresetPage} of ${totalPages}`);
+        $('#quickAddPresetPrev').prop('disabled', showAll || quickAddPresetPage <= 1 || total === 0);
+        $('#quickAddPresetNext').prop('disabled', showAll || quickAddPresetPage >= totalPages || total === 0);
+    }
+
+    $('#addQuickAddPreset').on('click', function () {
+        const index = quickAddPresetIndex++;
+        const row = `
+            <div class="quick-add-preset-row border rounded p-3" data-preset-index="${index}">
+                <div class="row g-3 align-items-start">
+                    <div class="col-lg-4">
+                        <label class="form-label">Group Label</label>
+                        <input type="text" name="presets[${index}][label]" class="form-control" maxlength="80" placeholder="e.g. Accounting & Finance">
+                    </div>
+                    <div class="col-lg-7">
+                        <label class="form-label">Keywords</label>
+                        <div class="quick-add-keywords-box" id="quick-add-keywords-${index}">
+                            <div class="input-group input-group-sm mb-1 quick-add-keyword-row">
+                                <input type="text" name="presets[${index}][keywords][]" class="form-control" placeholder="e.g. Software Engineer">
+                                <button type="button" class="btn btn-outline-danger btn-remove-quick-add-keyword" title="Remove keyword" aria-label="Remove keyword">
+                                    <svg class="icon svg-icon-ti-ti-x" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6l-12 12"></path><path d="M6 6l12 12"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
+                            <button type="button" class="btn btn-outline-secondary btn-sm btn-add-quick-add-keyword" data-group-index="${index}">
+                                <svg class="icon svg-icon-ti-ti-plus me-1" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5l0 14"></path><path d="M5 12l14 0"></path></svg>
+                                Add Keyword
+                            </button>
+                            <div class="form-text mb-0">Saved keywords are de-duplicated. Empty rows are ignored.</div>
+                        </div>
+                    </div>
+                    <div class="col-lg-1 d-flex justify-content-lg-end">
+                        <button type="button" class="btn btn-outline-danger btn-sm mt-lg-4 btn-remove-quick-add-preset" title="Remove group" aria-label="Remove group">
+                            Remove
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+
+        const $rows = $('#quickAddPresetRows');
+        $rows.append(row);
+
+        if (quickAddPresetPageSize !== 'all') {
+            quickAddPresetPage = Math.max(1, Math.ceil($rows.find('.quick-add-preset-row').length / quickAddPresetPageSize));
+        }
+
+        renderQuickAddPresetPagination();
+        $rows.find('.quick-add-preset-row:last input').trigger('focus');
+    });
+
+    $('#createQuickAddPreset').on('click', function () {
+        $('#addQuickAddPreset').trigger('click');
+    });
+
+    $(document).on('click', '.btn-remove-quick-add-preset', function () {
+        $(this).closest('.quick-add-preset-row').remove();
+        renderQuickAddPresetPagination();
+    });
+
+    $(document).on('click', '.btn-add-quick-add-keyword', function () {
+        const groupIndex = $(this).data('group-index');
+        const $box = $('#quick-add-keywords-' + groupIndex);
+        const row = `
+            <div class="input-group input-group-sm mb-1 quick-add-keyword-row">
+                <input type="text" name="presets[${groupIndex}][keywords][]" class="form-control" placeholder="e.g. Software Engineer">
+                <button type="button" class="btn btn-outline-danger btn-remove-quick-add-keyword" title="Remove keyword" aria-label="Remove keyword">
+                    <svg class="icon svg-icon-ti-ti-x" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6l-12 12"></path><path d="M6 6l12 12"></path></svg>
+                </button>
+            </div>`;
+
+        $box.append(row);
+        $box.find('.quick-add-keyword-row:last input').trigger('focus');
+    });
+
+    $(document).on('click', '.btn-remove-quick-add-keyword', function () {
+        const $box = $(this).closest('.quick-add-keywords-box');
+        const $rows = $box.find('.quick-add-keyword-row');
+
+        if ($rows.length > 1) {
+            $(this).closest('.quick-add-keyword-row').remove();
+        } else {
+            $rows.find('input').val('').trigger('focus');
+        }
+    });
+
+    $('#quickAddPresetPageSize').on('change', function () {
+        const value = $(this).val();
+        quickAddPresetPageSize = value === 'all' ? 'all' : parseInt(value, 10);
+        quickAddPresetPage = 1;
+        renderQuickAddPresetPagination();
+    });
+
+    $('#quickAddPresetPrev').on('click', function () {
+        if (quickAddPresetPage > 1) {
+            quickAddPresetPage--;
+            renderQuickAddPresetPagination();
+        }
+    });
+
+    $('#quickAddPresetNext').on('click', function () {
+        quickAddPresetPage++;
+        renderQuickAddPresetPagination();
+    });
+
+    renderQuickAddPresetPagination();
 
     // Open Add Alert modal when the DataTable "Add Alert" button is clicked
     $(document).on('click', '[data-action="add_alert"]', function (e) {
@@ -226,6 +515,52 @@ $(function () {
             .catch(() => $('#logsContent').html('<div class="p-4 text-center text-danger">Failed to load logs.</div>'));
     });
 
+    $(document).on('click', '.btn-edit-alert-modal', function () {
+        const url = $(this).data('url');
+        const $modal = $('#modal-edit-alert');
+        const modal = new bootstrap.Modal($modal[0]);
+
+        $modal.find('.modal-content').html('<div class="modal-body p-4 text-center text-muted"><i class="ti ti-loader-2 fa-spin fs-3 d-block mb-2"></i> Loading edit form...</div>');
+        modal.show();
+
+        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(r => r.text())
+            .then(html => {
+                $modal.find('.modal-content').html(html);
+            })
+            .catch(() => {
+                $modal.find('.modal-content').html('<div class="modal-body p-4 text-center text-danger">Failed to load the edit form.</div>');
+            });
+    });
+
+    $(document).on('click', '.btn-reanalyze-alert-cv', function () {
+        const $btn = $(this);
+        const prefix = $btn.data('prefix');
+        const url = $btn.data('url');
+
+        $btn.prop('disabled', true).html('<i class="ti ti-loader-2 fa-spin me-1"></i> Re-analysing…');
+
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'),
+                'Accept': 'application/json'
+            }
+        })
+            .then(r => r.json())
+            .then(resp => {
+                if (resp.error) {
+                    Botble.showError(resp.error);
+                    return;
+                }
+
+                applyAnalysisToForm(prefix, resp.data, true);
+                Botble.showSuccess('Stored CV re-analysed and filters updated.');
+            })
+            .catch(() => Botble.showError('Stored CV re-analysis failed.'))
+            .finally(() => $btn.prop('disabled', false).html('<i class="ti ti-refresh me-1"></i> Re-analyse CV'));
+    });
+
     // ── Preview & Send modal ──────────────────────────────────────────────────
     let previewAllJobs = [], previewPage = 1;
     const PREVIEW_PER_PAGE = 25;
@@ -280,7 +615,7 @@ $(function () {
         previewPage = Math.min(previewPage, pages);
         const start = (previewPage - 1) * PREVIEW_PER_PAGE, slice = filtered.slice(start, start + PREVIEW_PER_PAGE);
         $('#pv-count-label').text(total !== previewAllJobs.length ? `${total} of ${serverTotal} jobs match filters` : `${serverTotal} matching job(s) total`);
-        let html = '<table class="table table-sm table-hover align-middle mb-0"><thead class="table-light"><tr><th style="width:36px">#</th><th>Job Title</th><th>Company</th><th>Address</th><th>Country</th><th>Posted</th><th>Closes</th><th class="text-center">Sent?</th></tr></thead><tbody>';
+        let html = '<table class="table table-sm table-hover align-middle mb-0"><thead class="table-light"><tr><th style="width:36px">#</th><th>Job Title</th><th>Company Name</th><th>Address</th><th>Country</th><th>Posted / Closes</th><th>Matched By</th><th class="text-center">Sent?</th></tr></thead><tbody>';
         if (!slice.length) { html += '<tr><td colspan="8" class="text-center text-muted py-4">No jobs match your filters.</td></tr>'; }
         else { slice.forEach((job, idx) => {
             const rowNum = start + idx + 1, sentBadge = job.already_sent ? '<span class="badge bg-success text-white">✓ Sent</span>' : '<span class="badge bg-secondary text-white">New</span>';
@@ -289,7 +624,18 @@ $(function () {
                 const d = job.deadline_days;
                 deadlineBadge = d < 0 ? '<span class="badge bg-danger text-white">Expired</span>' : d === 0 ? '<span class="badge bg-danger text-white">Today</span>' : d <= 3 ? `<span class="badge bg-warning text-dark" title="${escHtml(job.deadline)}">${d}d left</span>` : d <= 14 ? `<span class="badge bg-info text-white" title="${escHtml(job.deadline)}">${d}d left</span>` : `<span class="text-muted small text-nowrap" title="${escHtml(job.deadline)}">${d}d</span>`;
             }
-            html += `<tr data-job-id="${job.id}"><td class="text-muted small text-center">${rowNum}</td><td class="fw-semibold" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(job.name)}">${escHtml(job.name)}</td><td class="text-muted small"><div class="d-flex align-items-center gap-2">${job.company_logo ? `<img src="${escHtml(job.company_logo)}" alt="" style="width:28px;height:28px;object-fit:contain;border-radius:4px;border:1px solid #eee;background:#fff;padding:2px">` : ''}<span>${escHtml(job.company)}</span></div></td><td class="text-muted small">${escHtml(job.location || '')}</td><td class="text-muted small">${escHtml(job.country || '')}</td><td class="text-muted small text-nowrap">${escHtml(job.created)}</td><td class="text-nowrap">${deadlineBadge}</td><td>${sentBadge}</td></tr>`;
+            const countryLabel = [job.country_flag || '', job.country || ''].filter(Boolean).join(' ');
+            const dateBlock = `<div class="small text-nowrap"><div><span class="text-muted">Posted:</span> ${escHtml(job.created || '—')}</div><div><span class="text-muted">Closes:</span> ${job.deadline ? escHtml(job.deadline) : '—'} ${deadlineBadge}</div></div>`;
+            const reasons = Array.isArray(job.match_reasons) ? job.match_reasons : [];
+            const reasonBadges = reasons.length
+                ? reasons.slice(0, 3).map((reason) => `<span class="badge bg-light text-dark border me-1 mb-1">${escHtml(reason.field)}${reason.keyword ? ': ' + escHtml(reason.keyword) : ''}</span>`).join('')
+                : '<span class="text-muted small">General match</span>';
+            const reasonDetails = reasons.length
+                ? reasons.map((reason) => `<div class="small mb-2"><div class="fw-semibold">${escHtml(reason.field)}${reason.keyword ? ' · ' + escHtml(reason.keyword) : ''}</div><div class="text-muted">${escHtml(reason.snippet || '')}</div></div>`).join('')
+                : '<div class="small text-muted">No detailed trigger information available.</div>';
+
+            html += `<tr class="pv-job-row" data-job-id="${job.id}"><td class="text-muted small text-center">${rowNum}</td><td class="fw-semibold" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(job.name)}">${escHtml(job.name)}</td><td class="text-muted small"><div class="d-flex align-items-center gap-2">${job.company_logo ? `<img src="${escHtml(job.company_logo)}" alt="" style="width:28px;height:28px;object-fit:contain;border-radius:4px;border:1px solid #eee;background:#fff;padding:2px">` : ''}<span>${escHtml(job.company)}</span></div></td><td class="text-muted small">${escHtml(job.location || '')}</td><td class="text-muted small">${escHtml(countryLabel)}</td><td>${dateBlock}</td><td>${reasonBadges}<div class="small text-primary mt-1">View trigger</div></td><td>${sentBadge}</td></tr>`;
+            html += `<tr class="pv-match-reasons-row d-none"><td colspan="8" class="pv-match-reasons px-3 py-2">${reasonDetails}</td></tr>`;
         }); }
         html += '</tbody></table>';
         $('#pv-table-wrap').html(html);
@@ -304,27 +650,59 @@ $(function () {
         }
     }
 
+    $(document).on('click', '.pv-job-row', function () {
+        const $row = $(this);
+        const $detail = $row.next('.pv-match-reasons-row');
+        const wasOpen = !$detail.hasClass('d-none');
+
+        $('#pv-table-wrap .pv-match-reasons-row').addClass('d-none');
+        $('#pv-table-wrap .pv-job-row').removeClass('table-active');
+
+        if (!wasOpen) {
+            $row.addClass('table-active');
+            $detail.removeClass('d-none');
+        }
+    });
+
     // Send Now
     $('#btnSendNow').on('click', async function () {
         const $btn = $(this), sendUrl = $btn.data('send-url'), forceResend = $('#forceResendCheck').is(':checked'), BATCH = 3, BATCH_GAP = 400;
         const jobsToSend = forceResend ? [...previewAllJobs] : previewAllJobs.filter(j => !j.already_sent);
         if (!jobsToSend.length) { Botble.showError('No new jobs to send.'); return; }
-        const total = jobsToSend.length; let done = 0, sent = 0, failed = 0;
+        const total = jobsToSend.length; let done = 0, sent = 0, failed = 0; const failedJobs = [];
         $btn.prop('disabled', true).html('<i class="fab fa-whatsapp me-1"></i> Sending…');
         $('#btnExportCsv, #btnExportPdf, #forceResendCheck, #pv-country, #pv-company, #pv-period, #pv-clear-filters').prop('disabled', true);
         $('#pv-send-progress').html(`<div class="px-3 pt-3 pb-2"><div class="d-flex align-items-center justify-content-between mb-1"><span class="small fw-semibold" id="pv-prog-label">Sending 0 of ${total}…</span><span class="small text-muted" id="pv-prog-counts">0 sent · 0 failed</span></div><div class="progress mb-1" style="height:8px"><div class="progress-bar progress-bar-striped progress-bar-animated bg-success" id="pv-prog-bar" role="progressbar" style="width:0%;transition:width .4s ease"></div></div><div class="text-muted small text-truncate" id="pv-prog-current" style="min-height:1.3em"></div></div>`).show();
+        $('#pv-send-failures').remove();
+        const renderFailedJobs = () => {
+            $('#pv-send-failures').remove();
+            if (!failedJobs.length) return;
+            const items = failedJobs.map((item, index) => `<tr><td class="text-muted small">${index + 1}</td><td class="fw-semibold">${escHtml(item.name)}</td><td class="text-danger small">${escHtml(item.error || 'Failed to send')}</td></tr>`).join('');
+            $('#pv-send-progress').after(`<div id="pv-send-failures" class="border-bottom"><div class="px-3 pt-2 pb-3"><div class="alert alert-danger py-2 px-3 mb-2 small"><strong>${failedJobs.length} failed job(s)</strong> could not be sent. Review the reasons below.</div><div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead class="table-light"><tr><th style="width:36px">#</th><th>Job</th><th>Reason</th></tr></thead><tbody>${items}</tbody></table></div></div></div>`);
+        };
         const sendOne = async (job) => {
             $('#pv-prog-current').html(`<i class="fas fa-paper-plane me-1 text-success"></i>${escHtml(job.name)}`);
             try {
-                await $httpClient.make().post(sendUrl, { force_resend: forceResend ? 1 : 0, job_ids: [job.id] }, { timeout: 30000 });
+                const { data } = await $httpClient.make().post(sendUrl, { force_resend: forceResend ? 1 : 0, job_ids: [job.id] }, { timeout: 30000 });
                 sent++; job.already_sent = true;
                 const $row = $(`tr[data-job-id="${job.id}"]`);
                 if ($row.length) { $row.css({ transition: 'opacity .3s ease, transform .3s ease', opacity: 0, transform: 'translateX(40px)' }); setTimeout(() => $row.remove(), 320); }
-            } catch (_) { failed++; }
+                if (Array.isArray(data?.failed_jobs) && data.failed_jobs.length) {
+                    data.failed_jobs.forEach(item => failedJobs.push({ id: item.job_id, name: item.job_name || job.name, error: item.error || 'Failed to send' }));
+                }
+            } catch (error) {
+                failed++;
+                const response = error?.response?.data || {};
+                const failedItem = Array.isArray(response.failed_jobs) && response.failed_jobs.length ? response.failed_jobs[0] : null;
+                failedJobs.push({ id: failedItem?.job_id || job.id, name: failedItem?.job_name || job.name, error: failedItem?.error || response.error || 'Failed to send' });
+                const $row = $(`tr[data-job-id="${job.id}"]`);
+                if ($row.length) $row.find('td:nth-child(8)').html('<span class="badge bg-danger-subtle text-danger border border-danger-subtle">Failed</span>');
+            }
             done++; const pct = Math.round((done/total)*100);
             $('#pv-prog-bar').css('width', pct + '%');
             $('#pv-prog-label').text(`Sending ${Math.min(done+BATCH,total)} of ${total}…`);
             $('#pv-prog-counts').text(`${sent} sent · ${failed} failed`);
+            renderFailedJobs();
         };
         for (let i = 0; i < jobsToSend.length; i += BATCH) {
             await Promise.all(jobsToSend.slice(i, i+BATCH).map(sendOne));
@@ -332,10 +710,11 @@ $(function () {
         }
         $('#pv-prog-label').text(`Done — ${sent} sent${failed ? `, ${failed} failed` : ''}.`);
         $('#pv-prog-current').html(''); $('#pv-prog-bar').removeClass('progress-bar-animated progress-bar-striped').css('width','100%');
+        renderFailedJobs();
         failed ? Botble.showError(`${sent} sent, ${failed} failed.`) : Botble.showSuccess(`${sent} job(s) sent successfully.`);
         $btn.prop('disabled', false).html('<i class="fab fa-whatsapp me-1"></i> Send All Matching');
         $('#btnExportCsv, #btnExportPdf, #forceResendCheck, #pv-country, #pv-company, #pv-period, #pv-clear-filters').prop('disabled', false);
-        setTimeout(() => location.reload(), 1500);
+        if (!failed) setTimeout(() => location.reload(), 1500);
     });
 
     // Send welcome
@@ -402,11 +781,47 @@ $(function () {
     function updateCountBadge(badgeClass, $box) {
         const count = $box.find('input[type="checkbox"]:checked').length, total = $box.find('input[type="checkbox"]').length;
         $('.' + badgeClass).text(count + (total > 0 ? ' selected' : ''));
-        $('[data-target="' + $box.attr('id') + '"].btn-deselect-all-check').filter('.btn-outline-danger').each(function() { count > 0 ? $(this).show() : $(this).hide(); });
+        $('[data-target="' + $box.attr('id') + '"].btn-deselect-all-check').filter('.btn-outline-danger').prop('disabled', count === 0);
     }
     $(document).on('input', '.filter-search', function () {
         const needle = $(this).val().toLowerCase(), $box = $('#' + $(this).data('target'));
         $box.find('.checkable-item').each(function () { $(this).toggle($(this).text().toLowerCase().includes(needle)); });
+    });
+
+    // Clear experience level
+    $(document).on('click', '.btn-clear-experience', function () {
+        $('#' + $(this).data('target')).val('');
+    });
+
+    // Clear all filters in the Filters tab
+    $(document).on('click', '.btn-clear-all-filters', function () {
+        const tid = $(this).data('tid');
+
+        const $kwList = $('#keywords-list-' + tid);
+        $kwList.find('.keyword-row').slice(1).remove();
+        $kwList.find('input[name="filters[keywords][]"]').val('');
+        $('.kw-count-badge-' + tid).text('0');
+
+        const $coList = $('#company-list-' + tid);
+        $coList.find('.company-kw-row').slice(1).remove();
+        $coList.find('input[name="filters[company_keywords][]"]').val('');
+        $('.co-count-badge-' + tid).text('0');
+
+        $('#countries-box-' + tid + ' input[type="checkbox"]').prop('checked', false);
+        $('.country-count-badge-' + tid).text('0 selected');
+
+        $('#jobtypes-box-' + tid + ' input[type="checkbox"]').prop('checked', false);
+        $('.jt-count-badge-' + tid).text('0 selected');
+
+        $('#categories-box-' + tid + ' input[type="checkbox"]').prop('checked', false);
+        $('.cat-count-badge-' + tid).text('0 selected');
+
+        $('[data-target="jobtypes-box-' + tid + '"].btn-deselect-all-check.btn-outline-danger, [data-target="categories-box-' + tid + '"].btn-deselect-all-check.btn-outline-danger').prop('disabled', true);
+
+        $('#tab-filters-' + tid + ' input[name="filters[location_keyword]"]').val('');
+        $('#' + tid + '-job-experience-id').val('');
+
+        Botble.showSuccess('All filters cleared.');
     });
 
     // ── Keyword rows ──────────────────────────────────────────────────────────
@@ -458,6 +873,75 @@ $(function () {
         $(this).find('.collapse-chevron').css('transform', expanded ? '' : 'rotate(180deg)');
     });
 
+    // Candidate account search / link
+    const candidateAccountSearchState = {};
+    function ensureCandidateAccountState(prefix) {
+        if (!candidateAccountSearchState[prefix]) candidateAccountSearchState[prefix] = { page: 1, timer: null, hasMore: false };
+        return candidateAccountSearchState[prefix];
+    }
+    function renderLinkedAccountCvPrompt(prefix, account) {
+        const $prompt = $('#candidate-account-cv-prompt-' + prefix);
+        if (account.has_cv) {
+            $prompt.html('<div class="alert alert-success py-2 px-3 mb-0 small"><div class="d-flex align-items-center justify-content-between gap-2 flex-wrap"><div><strong>Account CV found:</strong> ' + escHtml(account.resume_name || 'CV on file') + '<div class="text-muted mt-1">Use the linked account CV to auto-generate keywords and matching filters.</div></div><button type="button" class="btn btn-success btn-sm btn-analyze-linked-account-cv" data-prefix="' + prefix + '"><i class="ti ti-sparkles me-1"></i> Analyse Account CV</button></div></div>');
+        } else {
+            $prompt.html('<div class="alert alert-warning py-2 px-3 mb-0 small"><strong>No CV on this account.</strong> Upload a CV below to generate the best keywords and matching filters.</div>');
+        }
+    }
+    function renderSelectedAccount(prefix, account) {
+        const phone = account.phone || account.whatsapp_number || '';
+        const avatar = account.avatar_url || '';
+        $('#candidate-account-selected-' + prefix).removeClass('d-none').attr('data-account-id', account.id || '').attr('data-has-cv', account.has_cv ? '1' : '0').html('<div class="border rounded px-3 py-2 bg-white"><div class="d-flex align-items-start justify-content-between gap-2 flex-wrap"><div class="d-flex align-items-center gap-2">' + (avatar ? '<img src="' + escHtml(avatar) + '" alt="" style="width:40px;height:40px;border-radius:999px;object-fit:cover;border:1px solid #e5e7eb">' : '') + '<div><div class="fw-semibold">' + escHtml(account.name || '') + '</div><div class="text-muted small">' + (account.email ? '<span class="me-2"><i class="ti ti-mail me-1"></i>' + escHtml(account.email) + '</span>' : '') + (phone ? '<span><i class="ti ti-brand-whatsapp me-1"></i>' + escHtml(phone) + '</span>' : '') + '</div></div></div><button type="button" class="btn btn-outline-danger btn-sm btn-clear-linked-account" data-prefix="' + prefix + '"><i class="ti ti-x me-1"></i> Clear</button></div></div>');
+        $('input[name="linked_account_id"]').filter(function () { return $(this).closest('.modal-content, form').find('#candidate-account-selected-' + prefix).length > 0; }).val(account.id || '');
+        renderLinkedAccountCvPrompt(prefix, account);
+    }
+    function clearLinkedAccount(prefix) {
+        $('#candidate-account-selected-' + prefix).addClass('d-none').attr('data-account-id', '').empty();
+        $('#candidate-account-cv-prompt-' + prefix).empty();
+        $('input[name="linked_account_id"]').filter(function () { return $(this).closest('.modal-content, form').find('#candidate-account-selected-' + prefix).length > 0; }).val('');
+    }
+    function runCandidateAccountSearch(prefix, page) {
+        const $input = $('#candidate-account-search-' + prefix), url = $input.data('search-url'), term = $input.val().trim(), state = ensureCandidateAccountState(prefix), $results = $('#candidate-account-results-' + prefix);
+        state.page = page;
+        if (term.length < 2) { $results.addClass('d-none').empty(); return; }
+        $results.removeClass('d-none').html('<div class="border rounded p-3 bg-white text-muted small"><i class="ti ti-loader-2 fa-spin me-1"></i> Searching accounts…</div>');
+        fetch(url + '?q=' + encodeURIComponent(term) + '&page=' + page)
+            .then(r => r.json())
+            .then(resp => {
+                const rows = resp.data || []; state.hasMore = !!resp.has_more;
+                if (!rows.length) { $results.html('<div class="border rounded p-3 bg-white text-muted small">No matching candidate accounts found.</div>'); return; }
+                let html = '<div class="border rounded bg-white overflow-hidden"><div class="list-group list-group-flush">';
+                rows.forEach(account => {
+                    const phone = account.phone || account.whatsapp_number || '';
+                    const avatar = account.avatar_url || '';
+                    html += '<button type="button" class="list-group-item list-group-item-action btn-select-candidate-account" data-prefix="' + prefix + '" data-account-id="' + escHtml(account.id) + '" data-account-name="' + escHtml(account.name || '') + '" data-account-email="' + escHtml(account.email || '') + '" data-account-phone="' + escHtml(phone) + '" data-has-cv="' + (account.has_cv ? '1' : '0') + '" data-resume-name="' + escHtml(account.resume_name || '') + '" data-avatar-url="' + escHtml(avatar) + '"><div class="d-flex align-items-start justify-content-between gap-2"><div class="d-flex align-items-center gap-2">' + (avatar ? '<img src="' + escHtml(avatar) + '" alt="" style="width:24px;height:24px;border-radius:999px;object-fit:cover;border:1px solid #e5e7eb">' : '') + '<div><div class="fw-semibold">' + escHtml(account.name || '') + '</div><div class="text-muted small">' + (account.email ? '<span class="me-2"><i class="ti ti-mail me-1"></i>' + escHtml(account.email) + '</span>' : '') + (phone ? '<span><i class="ti ti-brand-whatsapp me-1"></i>' + escHtml(phone) + '</span>' : '') + '</div></div></div><span class="badge ' + (account.has_cv ? 'bg-success' : 'bg-warning text-dark') + '">' + (account.has_cv ? 'Has CV' : 'No CV') + '</span></div></button>';
+                });
+                html += '</div><div class="d-flex justify-content-between align-items-center px-3 py-2 border-top bg-light"><button type="button" class="btn btn-outline-secondary btn-sm btn-candidate-account-page" data-prefix="' + prefix + '" data-page="' + Math.max(1, page - 1) + '"' + (page <= 1 ? ' disabled' : '') + '>Prev</button><span class="text-muted small">Page ' + page + '</span><button type="button" class="btn btn-outline-secondary btn-sm btn-candidate-account-page" data-prefix="' + prefix + '" data-page="' + (page + 1) + '"' + (state.hasMore ? '' : ' disabled') + '>Next</button></div></div>';
+                $results.html(html);
+            })
+            .catch(() => $results.html('<div class="border rounded p-3 bg-white text-danger small">Account search failed. Try again.</div>'));
+    }
+    $(document).on('input', '.candidate-account-search-input', function () {
+        const prefix = $(this).data('prefix'), state = ensureCandidateAccountState(prefix);
+        clearTimeout(state.timer);
+        state.timer = setTimeout(() => runCandidateAccountSearch(prefix, 1), 250);
+    });
+    $(document).on('click', '.btn-candidate-account-page', function () {
+        if ($(this).is(':disabled')) return;
+        runCandidateAccountSearch($(this).data('prefix'), parseInt($(this).data('page'), 10) || 1);
+    });
+    $(document).on('click', '.btn-select-candidate-account', function () {
+        const prefix = $(this).data('prefix');
+        const account = { id: $(this).data('account-id'), name: $(this).data('account-name'), email: $(this).data('account-email'), phone: $(this).data('account-phone'), has_cv: String($(this).data('has-cv')) === '1', resume_name: $(this).data('resume-name'), avatar_url: $(this).data('avatar-url') };
+        const $scope = $(this).closest('.modal-content, form');
+        $scope.find('input[name="candidate_name"]').val(account.name || '');
+        $scope.find('input[name="candidate_phone"]').val(account.phone || '');
+        $scope.find('input[name="candidate_email"]').val(account.email || '');
+        renderSelectedAccount(prefix, account);
+        $('#candidate-account-results-' + prefix).addClass('d-none').empty();
+        Botble.showSuccess(account.has_cv ? 'Candidate account linked. Analyse the account CV to generate keywords.' : 'Candidate account linked. This account has no CV yet, so upload one below for accurate keyword matching.');
+    });
+    $(document).on('click', '.btn-clear-linked-account', function () { clearLinkedAccount($(this).data('prefix')); });
+
     // ── CV Upload & AI Analysis ───────────────────────────────────────────────
     $(document).on('change', '.cv-upload-input', function () {
         $('[data-prefix="' + $(this).data('prefix') + '"].btn-analyze-cv').prop('disabled', !(this.files && this.files.length > 0));
@@ -475,24 +959,83 @@ $(function () {
             .catch(() => Botble.showError('CV analysis failed.'))
             .finally(() => $btn.prop('disabled', false).html('<i class="fas fa-magic me-1"></i> Analyse with AI'));
     });
+    $(document).on('click', '.btn-analyze-linked-account-cv', function () {
+        const $btn = $(this), prefix = $btn.data('prefix'), accountId = parseInt($('#candidate-account-selected-' + prefix).attr('data-account-id'), 10) || 0, analyzeUrl = $('#candidate-account-search-' + prefix).data('analyze-account-cv-url');
+        if (!accountId) { Botble.showError('Select an account first.'); return; }
+        $btn.prop('disabled', true).html('<i class="ti ti-loader-2 fa-spin me-1"></i> Analysing…');
+        fetch(analyzeUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'), 'Accept': 'application/json' }, body: JSON.stringify({ account_id: accountId }) })
+            .then(r => r.json())
+            .then(resp => { if (resp.error) { Botble.showError(resp.error); return; } applyAnalysisToForm(prefix, resp.data, true); Botble.showSuccess('Linked account CV analysed and filters applied.'); })
+            .catch(() => Botble.showError('Linked account CV analysis failed.'))
+            .finally(() => $btn.prop('disabled', false).html('<i class="ti ti-sparkles me-1"></i> Analyse Account CV'));
+    });
     $(document).on('click', '.btn-apply-analysis', function () {
         const prefix = $(this).data('prefix'), analysis = $(this).data('analysis');
         if (analysis) applyAnalysisToForm(prefix, analysis, false);
     });
     function applyAnalysisToForm(prefix, data, showPanel) {
-        if (data.keyword) { const $kw = $('[data-prefix="' + prefix + '"]').closest('.modal-content, form').find('input[name="filters[keyword]"]'); ($kw.length ? $kw : $('input[name="filters[keyword]"]').first()).val(data.keyword); }
-        if (data.job_type_ids && data.job_type_ids.length) data.job_type_ids.forEach(id => $('#' + prefix + '-type-' + id).prop('checked', true));
-        if (data.category_ids && data.category_ids.length) data.category_ids.forEach(id => $('#' + prefix + '-cat-' + id).prop('checked', true));
-        if (data.job_experience_id) $('[data-prefix="' + prefix + '"]').closest('.modal-content, form').find('select[name="filters[job_experience_id]"]').val(data.job_experience_id);
+        const $scope = $('[data-prefix="' + prefix + '"]').closest('.modal-content, form');
+        const keywords = Array.isArray(data.keywords) && data.keywords.length ? data.keywords : (data.keyword ? [data.keyword] : []);
+
+        if (data.candidate_name) $scope.find('input[name="candidate_name"]').val(data.candidate_name);
+        if (data.candidate_phone) $scope.find('input[name="candidate_phone"]').val(data.candidate_phone);
+        if (data.candidate_email) $scope.find('input[name="candidate_email"]').val(data.candidate_email);
+
+        const $keywordsList = $('#keywords-list-' + prefix);
+        if ($keywordsList.length) {
+            $keywordsList.find('input[name="filters[keywords][]"]').val('');
+            keywords.forEach(function (keyword, index) {
+                let $input = $keywordsList.find('input[name="filters[keywords][]"]').eq(index);
+                if (! $input.length) {
+                    $keywordsList.append('<div class="input-group input-group-sm mb-1 keyword-row"><input type="text" name="filters[keywords][]" class="form-control" placeholder="e.g. Software Engineer"><button type="button" class="btn btn-outline-danger btn-remove-kw" title="Remove"><i class="fas fa-times"></i></button></div>');
+                    $input = $keywordsList.find('input[name="filters[keywords][]"]').eq(index);
+                }
+                $input.val(keyword);
+            });
+            $('.kw-count-badge-' + prefix).text(keywords.length);
+        }
+
+        $('#jobtypes-box-' + prefix + ' input[type="checkbox"]').prop('checked', false);
+        (data.job_type_ids || []).forEach(id => $('#' + prefix + '-type-' + id).prop('checked', true));
+        $('.jt-count-badge-' + prefix).text((data.job_type_ids || []).length + ' selected');
+        $('[data-target="jobtypes-box-' + prefix + '"].btn-deselect-all-check.btn-outline-danger').prop('disabled', !(data.job_type_ids || []).length);
+
+        $('#categories-box-' + prefix + ' input[type="checkbox"]').prop('checked', false);
+        (data.category_ids || []).forEach(id => $('#' + prefix + '-cat-' + id).prop('checked', true));
+        $('.cat-count-badge-' + prefix).text((data.category_ids || []).length + ' selected');
+        $('[data-target="categories-box-' + prefix + '"].btn-deselect-all-check.btn-outline-danger').prop('disabled', !(data.category_ids || []).length);
+
+        $('#countries-box-' + prefix + ' input[type="checkbox"]').prop('checked', false);
+        (data.country_ids || []).forEach(id => $('#' + prefix + '-country-' + id + ', #add-country-' + id + ', #edit-country-' + id).prop('checked', true));
+        $('.country-count-badge-' + prefix).text((data.country_ids || []).length + ' selected');
+
+        if (data.job_experience_id) $scope.find('select[name="filters[job_experience_id]"]').val(data.job_experience_id);
+        if (data.location_keyword) $scope.find('input[name="filters[location_keyword]"]').val(data.location_keyword);
+        $scope.find('input[name="cv_analysis_payload"]').val(JSON.stringify(data));
+
         if (showPanel) {
             const $panel = $('#' + prefix + '-analysis-result'), confidence = data.confidence || 0, cb = confidence >= 80 ? 'bg-success-subtle text-success' : confidence >= 60 ? 'bg-warning-subtle text-warning' : 'bg-secondary-subtle text-secondary';
             let html = `<div class="d-flex align-items-center gap-2 mb-2"><i class="ti ti-file-text text-primary"></i><strong class="small">AI Analysis Result</strong><span class="badge ${cb} ms-auto">${confidence}% confidence</span></div>`;
+            if (data.candidate_type) html += `<div class="small text-dark fw-semibold mb-2">${escHtml(data.candidate_type)}</div>`;
+            if (data.candidate_name || data.candidate_phone || data.candidate_email) {
+                html += '<div class="text-muted small mb-2">';
+                if (data.candidate_name) html += `<span class="me-2"><i class="ti ti-user me-1"></i>${escHtml(data.candidate_name)}</span>`;
+                if (data.candidate_phone) html += `<span class="me-2"><i class="ti ti-brand-whatsapp me-1"></i>${escHtml(data.candidate_phone)}</span>`;
+                if (data.candidate_email) html += `<span><i class="ti ti-mail me-1"></i>${escHtml(data.candidate_email)}</span>`;
+                html += '</div>';
+            }
             if (data.summary) html += `<p class="text-muted small mb-2">${escHtml(data.summary)}</p>`;
-            html += '<div class="d-flex gap-1 flex-wrap">';
-            if (data.keyword) html += `<span class="badge bg-light border text-dark small"><i class="ti ti-search me-1"></i>${escHtml(data.keyword)}</span>`;
+            html += '<div class="d-flex gap-1 flex-wrap mb-2">';
+            keywords.forEach(n => { html += `<span class="badge bg-dark text-white small"><i class="ti ti-search me-1"></i>${escHtml(n)}</span>`; });
             (data.job_type_names||[]).forEach(n => { html += `<span class="badge bg-primary text-white small">${escHtml(n)}</span>`; });
             (data.category_names||[]).forEach(n => { html += `<span class="badge bg-secondary text-white small">${escHtml(n)}</span>`; });
+            (data.country_names||[]).forEach(n => { html += `<span class="badge bg-info text-white small">${escHtml(n)}</span>`; });
+            if (data.location_keyword) html += `<span class="badge bg-light border text-dark small"><i class="ti ti-map-pin me-1"></i>${escHtml(data.location_keyword)}</span>`;
             html += '</div><div class="text-success small mt-2"><i class="ti ti-check me-1"></i>Filters applied. Review and adjust as needed.</div>';
+            if (data.usage && (data.usage.total_tokens || data.usage.estimated_cost_usd)) {
+                const cost = data.usage.estimated_cost_usd ? Number(data.usage.estimated_cost_usd).toFixed(6) : null;
+                html = html.replace('</div><div class="text-success small mt-2">', `</div><div class="text-muted small mb-2">Usage: ${escHtml(String(data.usage.total_tokens || 0))} tokens${cost ? ' · $' + escHtml(cost) : ''}</div><div class="text-success small mt-2">`);
+            }
             $panel.html(html).removeClass('d-none');
         }
         Botble.showSuccess('AI analysis complete. Filters applied — review and adjust as needed.');

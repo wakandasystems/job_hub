@@ -3,13 +3,16 @@
 namespace Botble\JobBoard\Http\Controllers;
 
 use Botble\JobBoard\Enums\JobStatusEnum;
+use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\CandidateAlert;
+use Botble\JobBoard\Models\CandidateAlertCvAnalysisLog;
 use Botble\JobBoard\Models\CandidateAlertLog;
 use Botble\JobBoard\Models\Category;
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\JobExperience;
 use Botble\JobBoard\Models\JobType;
 use Botble\JobBoard\Models\SocialAutomation;
+use Botble\JobBoard\Services\CandidateAlertAccountSyncService;
 use Botble\JobBoard\Services\CvFilterAnalyzerService;
 use Botble\JobBoard\Services\CvScoringService;
 use Botble\JobBoard\Tables\CandidateAlertTable;
@@ -19,8 +22,10 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Throwable;
@@ -38,6 +43,7 @@ class CandidateAlertController
         $categories  = Category::query()->orderBy('name')->pluck('name', 'id');
         $experiences = JobExperience::query()->orderBy('name')->pluck('name', 'id');
         $countries   = DB::table('countries')->where('status', 'published')->orderBy('name')->pluck('name', 'id');
+        $keywordPresets = CandidateAlert::keywordPresets();
 
         $stats = [
             'total'      => CandidateAlert::count(),
@@ -46,7 +52,7 @@ class CandidateAlertController
             'sent_today' => CandidateAlertLog::whereDate('sent_at', today())->count(),
         ];
 
-        return $table->renderTable(compact('jobTypes', 'categories', 'experiences', 'countries', 'stats'));
+        return $table->renderTable(compact('jobTypes', 'categories', 'experiences', 'countries', 'stats', 'keywordPresets'));
     }
 
     public function edit(CandidateAlert $candidateAlert): View
@@ -55,6 +61,7 @@ class CandidateAlertController
         $categories  = Category::query()->orderBy('name')->pluck('name', 'id');
         $experiences = JobExperience::query()->orderBy('name')->pluck('name', 'id');
         $countries   = DB::table('countries')->where('status', 'published')->orderBy('name')->pluck('name', 'id');
+        $keywordPresets = CandidateAlert::keywordPresets();
 
         return view('plugins/job-board::candidate-alerts.edit', [
             'alert'       => $candidateAlert,
@@ -62,7 +69,49 @@ class CandidateAlertController
             'categories'  => $categories,
             'experiences' => $experiences,
             'countries'   => $countries,
+            'keywordPresets' => $keywordPresets,
         ]);
+    }
+
+    public function editModal(CandidateAlert $candidateAlert): View
+    {
+        $jobTypes    = JobType::query()->orderBy('name')->pluck('name', 'id');
+        $categories  = Category::query()->orderBy('name')->pluck('name', 'id');
+        $experiences = JobExperience::query()->orderBy('name')->pluck('name', 'id');
+        $countries   = DB::table('countries')->where('status', 'published')->orderBy('name')->pluck('name', 'id');
+        $keywordPresets = CandidateAlert::keywordPresets();
+
+        return view('plugins/job-board::candidate-alerts.partials.edit-modal-content', [
+            'alert' => $candidateAlert,
+            'prefix' => 'edit-' . $candidateAlert->id,
+            'jobTypes' => $jobTypes,
+            'categories' => $categories,
+            'experiences' => $experiences,
+            'countries' => $countries,
+            'keywordPresets' => $keywordPresets,
+        ]);
+    }
+
+    public function updateKeywordPresets(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'presets' => ['nullable', 'array'],
+            'presets.*.label' => ['nullable', 'string', 'max:80'],
+            'presets.*.keywords' => ['nullable', 'array'],
+            'presets.*.keywords.*' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        $presets = CandidateAlert::normalizeKeywordPresets($data['presets'] ?? []);
+
+        if ($presets === []) {
+            $presets = CandidateAlert::defaultKeywordPresets();
+        }
+
+        CandidateAlert::saveKeywordPresets($presets);
+
+        return redirect()
+            ->route('job-board.candidate-alerts.index', ['tab' => 'quick-add'])
+            ->with('success_message', 'Quick Add keyword options saved successfully.');
     }
 
     public function store(Request $request): RedirectResponse
@@ -72,6 +121,7 @@ class CandidateAlertController
             'candidate_phone'   => ['required', 'string', 'max:30'],
             'candidate_phone_2' => ['nullable', 'string', 'max:30'],
             'candidate_email'   => ['nullable', 'email', 'max:150'],
+            'linked_account_id' => ['nullable', 'integer', 'exists:jb_accounts,id'],
             'duration_days'   => ['required', 'in:7,30,60'],
             'filters'         => ['nullable', 'array'],
             'notes'           => ['nullable', 'string', 'max:1000'],
@@ -90,11 +140,17 @@ class CandidateAlertController
         $duration  = (int) $data['duration_days'];
         $price     = CandidateAlert::$durations[$duration]['price'];
         $now       = now();
+        $accountSync = app(CandidateAlertAccountSyncService::class);
+        $account = $this->resolveRequestedAccount($request, $accountSync);
 
         $cvPath = null;
-        if ($request->hasFile('cv_file')) {
+        if ($request->hasFile('cv_file') && ! $account) {
             $cvPath = $request->file('cv_file')->store('candidate-cvs', 'local');
+        } elseif ($request->hasFile('cv_file') && $account) {
+            $accountSync->syncUploadedCvToAccount($account, $request->file('cv_file'));
         }
+
+        $cvAnalysis = $this->extractCvAnalysisPayload($request);
 
         try {
             $alert = CandidateAlert::create([
@@ -103,6 +159,7 @@ class CandidateAlertController
                 'candidate_phone'   => $data['candidate_phone'],
                 'candidate_phone_2' => $data['candidate_phone_2'] ?? null,
                 'candidate_email' => $data['candidate_email'] ?? null,
+                'account_id'       => $account?->getKey(),
                 'filters'         => $this->cleanFilters($data['filters'] ?? []),
                 'duration_days'   => $duration,
                 'price'           => $price,
@@ -112,6 +169,7 @@ class CandidateAlertController
                 'expires_at'      => $now->copy()->addDays($duration),
                 'notes'           => $data['notes'] ?? null,
                 'cv_path'         => $cvPath,
+                'cv_analysis'     => $cvAnalysis,
             ]);
         } catch (UniqueConstraintViolationException) {
             throw ValidationException::withMessages([
@@ -119,10 +177,19 @@ class CandidateAlertController
             ]);
         }
 
-        $this->sendWelcomeMessage($alert);
+        if ($account) {
+            $accountSync->syncAlertWithAccount($alert, $account);
+        } else {
+            $accountSync->sendRegistrationPromptEmail($alert);
+        }
+
+        $welcomeError = null;
+        $welcomeSent = $this->sendWelcomeMessage($alert, $welcomeError);
 
         return redirect()->route('job-board.candidate-alerts.index')
-            ->with('success_message', "Alert for {$alert->candidate_name} created. Welcome message sent via WhatsApp.");
+            ->with('success_message', $welcomeSent
+                ? "Alert for {$alert->candidate_name} created. Welcome message sent via WhatsApp."
+                : "Alert for {$alert->candidate_name} created, but the welcome message failed: " . ($welcomeError ?: 'Unknown WhatsApp error.'));
     }
 
     public function update(CandidateAlert $candidateAlert, Request $request): RedirectResponse
@@ -132,6 +199,7 @@ class CandidateAlertController
             'candidate_phone'   => ['required', 'string', 'max:30'],
             'candidate_phone_2' => ['nullable', 'string', 'max:30'],
             'candidate_email'   => ['nullable', 'email', 'max:150'],
+            'linked_account_id' => ['nullable', 'integer', 'exists:jb_accounts,id'],
             'filters'         => ['nullable', 'array'],
             'notes'           => ['nullable', 'string', 'max:1000'],
             'cv_file'         => ['nullable', 'file', 'mimes:pdf,doc,docx,txt', 'max:10240'],
@@ -164,8 +232,27 @@ class CandidateAlertController
             'notes'           => $data['notes'] ?? null,
         ];
 
-        if ($request->hasFile('cv_file')) {
+        $accountSync = app(CandidateAlertAccountSyncService::class);
+        $account = $this->resolveRequestedAccount($request, $accountSync);
+        $updatePayload['account_id'] = $account?->getKey();
+
+        if ($request->hasFile('cv_file') && ! $account) {
             $updatePayload['cv_path'] = $request->file('cv_file')->store('candidate-cvs', 'local');
+        } elseif ($request->hasFile('cv_file') && $account) {
+            $accountSync->syncUploadedCvToAccount($account, $request->file('cv_file'));
+            $updatePayload['cv_path'] = null;
+        } elseif ($account && $account->resume) {
+            $updatePayload['cv_path'] = null;
+        } elseif ($account && $candidateAlert->cv_path && ! $account->resume) {
+            $accountSync->syncStoredAlertCvToAccount($account, $candidateAlert->cv_path);
+            $updatePayload['cv_path'] = null;
+        }
+
+        $cvAnalysis = $this->extractCvAnalysisPayload($request);
+        if ($cvAnalysis !== null) {
+            $updatePayload['cv_analysis'] = $cvAnalysis;
+        } elseif ($request->hasFile('cv_file')) {
+            $updatePayload['cv_analysis'] = null;
         }
 
         // Package upgrade / renewal
@@ -191,6 +278,10 @@ class CandidateAlertController
             throw ValidationException::withMessages([
                 'label' => 'Another alert with this name already exists for this phone number.',
             ]);
+        }
+
+        if ($account) {
+            $accountSync->syncAlertWithAccount($candidateAlert->fresh(), $account);
         }
 
         $upgraded = ! empty($data['duration_days']);
@@ -233,6 +324,56 @@ class CandidateAlertController
                 'status' => $a->status,
                 'active' => $a->is_active,
             ]),
+        ]);
+    }
+
+    public function searchAccounts(Request $request): JsonResponse
+    {
+        $term = trim((string) $request->input('q', ''));
+        $page = max(1, (int) $request->input('page', 1));
+        $perPage = 3;
+
+        if ($term === '' || mb_strlen($term) < 2) {
+            return response()->json([
+                'data' => [],
+                'page' => $page,
+                'has_more' => false,
+            ]);
+        }
+
+        $query = Account::query()
+            ->where('type', 'job-seeker')
+            ->where(function ($builder) use ($term): void {
+                $builder
+                    ->whereRaw("LOWER(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) like ?", ['%' . strtolower($term) . '%'])
+                    ->orWhere('email', 'like', '%' . $term . '%')
+                    ->orWhere('phone', 'like', '%' . $term . '%')
+                    ->orWhere('whatsapp_number', 'like', '%' . $term . '%');
+            })
+            ->orderBy('first_name')
+            ->orderBy('last_name');
+
+        $total = (clone $query)->count();
+        $items = $query
+            ->forPage($page, $perPage)
+            ->get()
+            ->map(fn (Account $account) => [
+                'id' => $account->id,
+                'name' => trim((string) $account->name),
+                'email' => $account->email,
+                'phone' => $account->whatsapp_number ?: $account->phone,
+                'whatsapp_number' => $account->whatsapp_number,
+                'resume_name' => $account->resume_name,
+                'has_cv' => (bool) $account->resume,
+                'avatar_url' => $account->avatar_thumb_url ?: $account->avatar_url,
+                'wakanda_verified' => (bool) $account->wakanda_verified,
+            ])
+            ->values();
+
+        return response()->json([
+            'data' => $items,
+            'page' => $page,
+            'has_more' => ($page * $perPage) < $total,
         ]);
     }
 
@@ -314,22 +455,112 @@ class CandidateAlertController
         $jobTypes   = JobType::query()->orderBy('name')->pluck('name', 'id')->toArray();
         $categories = Category::query()->orderBy('name')->pluck('name', 'id')->toArray();
         $experiences = JobExperience::query()->orderBy('name')->pluck('name', 'id')->toArray();
-        $cities     = DB::table('cities')->where('status', 'published')->orderBy('name')->pluck('name', 'id')->toArray();
+        $countries  = DB::table('countries')->where('status', 'published')->orderBy('name')->pluck('name', 'id')->toArray();
 
         $analyzer = app(CvFilterAnalyzerService::class);
-        $result   = $analyzer->analyzeFromText($cvText, $jobTypes, $categories, $experiences, $cities);
+        $result   = $analyzer->analyzeFromText($cvText, $jobTypes, $categories, $experiences, $countries);
 
         if (! $result) {
-            return response()->json(['error' => 'CV analysis failed. Check that ANTHROPIC_API_KEY is configured.'], 422);
+            $this->logCvAnalysis($request, null, $cvText, null, 'failed', 'OpenAI CV analysis failed or OPENAI_API_KEY is not configured.');
+
+            return response()->json(['error' => 'CV analysis failed. Check that OpenAI is configured and try again.'], 422);
         }
 
-        // Label job type names and category names for the UI
-        $result['job_type_names']  = array_values(array_intersect_key($jobTypes, array_flip($result['job_type_ids'])));
-        $result['category_names']  = array_values(array_intersect_key($categories, array_flip($result['category_ids'])));
-        $result['experience_name'] = $result['job_experience_id'] ? ($experiences[$result['job_experience_id']] ?? null) : null;
-        $result['country_name']    = $result['city_id'] ? ($cities[$result['city_id']] ?? null) : null;
+        $this->logCvAnalysis($request, null, $cvText, $result);
 
         return response()->json(['data' => $result]);
+    }
+
+    public function analyzeAccountCv(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'account_id' => ['required', 'integer', 'exists:jb_accounts,id'],
+        ]);
+
+        $account = Account::query()->findOrFail($data['account_id']);
+
+        if (! $account->resume) {
+            return response()->json(['error' => 'This account does not have a CV on file. Upload a CV to continue.'], 422);
+        }
+
+        $resumePath = Storage::disk('public')->path($account->resume);
+        $extension = strtolower(pathinfo($resumePath, PATHINFO_EXTENSION));
+
+        if (! is_file($resumePath)) {
+            return response()->json(['error' => 'The stored account CV could not be found. Please upload a new CV.'], 422);
+        }
+
+        $scorer = app(CvScoringService::class);
+        $cvText = $scorer->extractTextFromFile($resumePath, $extension);
+
+        if (strlen(trim($cvText)) < 50) {
+            $this->logCvAnalysis($request, null, $cvText, null, 'failed', 'Could not extract enough text from linked account CV.', [
+                'original_filename' => $account->resume_name ?: basename($account->resume),
+                'file_size' => filesize($resumePath) ?: null,
+                'mime_type' => mime_content_type($resumePath) ?: null,
+            ]);
+
+            return response()->json(['error' => 'Could not extract text from the linked account CV. Please upload a different CV file.'], 422);
+        }
+
+        $jobTypes = JobType::query()->orderBy('name')->pluck('name', 'id')->toArray();
+        $categories = Category::query()->orderBy('name')->pluck('name', 'id')->toArray();
+        $experiences = JobExperience::query()->orderBy('name')->pluck('name', 'id')->toArray();
+        $countries = DB::table('countries')->where('status', 'published')->orderBy('name')->pluck('name', 'id')->toArray();
+
+        $analyzer = app(CvFilterAnalyzerService::class);
+        $result = $analyzer->analyzeFromText($cvText, $jobTypes, $categories, $experiences, $countries);
+
+        if (! $result) {
+            $this->logCvAnalysis($request, null, $cvText, null, 'failed', 'OpenAI linked-account CV analysis failed.', [
+                'original_filename' => $account->resume_name ?: basename($account->resume),
+                'file_size' => filesize($resumePath) ?: null,
+                'mime_type' => mime_content_type($resumePath) ?: null,
+            ]);
+
+            return response()->json(['error' => 'Linked account CV analysis failed. Please try again or upload the CV manually.'], 422);
+        }
+
+        $result['candidate_name'] = $result['candidate_name'] ?: trim((string) $account->name);
+        $result['candidate_phone'] = $result['candidate_phone'] ?: ($account->whatsapp_number ?: $account->phone);
+        $result['candidate_email'] = $result['candidate_email'] ?: $account->email;
+
+        $this->logCvAnalysis($request, null, $cvText, $result, 'success', null, [
+            'original_filename' => $account->resume_name ?: basename($account->resume),
+            'file_size' => filesize($resumePath) ?: null,
+            'mime_type' => mime_content_type($resumePath) ?: null,
+        ]);
+
+        return response()->json(['data' => $result]);
+    }
+
+    public function analyzeExistingCv(CandidateAlert $candidateAlert, Request $request): JsonResponse
+    {
+        if ($candidateAlert->hasLinkedAccountCv()) {
+            $account = $candidateAlert->account;
+
+            if (! $account || ! $account->resume) {
+                return response()->json(['error' => 'The linked account CV is no longer available.'], 422);
+            }
+
+            return $this->analyzeStoredCvPath(
+                $request,
+                $candidateAlert,
+                Storage::disk('public')->path($account->resume),
+                $account->resume_name ?: basename($account->resume)
+            );
+        }
+
+        if ($candidateAlert->cv_path) {
+            return $this->analyzeStoredCvPath(
+                $request,
+                $candidateAlert,
+                Storage::disk('local')->path($candidateAlert->cv_path),
+                basename($candidateAlert->cv_path)
+            );
+        }
+
+        return response()->json(['error' => 'No stored CV is available for this alert. Upload or link a CV first.'], 422);
     }
 
     public function toggle(CandidateAlert $candidateAlert): JsonResponse
@@ -337,11 +568,20 @@ class CandidateAlertController
         $wasActive = $candidateAlert->is_active;
         $candidateAlert->update(['is_active' => ! $wasActive]);
 
+        $welcomeSent = false;
+        $welcomeError = null;
+
         if (! $wasActive && $candidateAlert->status !== 'expired') {
-            $this->sendWelcomeMessage($candidateAlert->fresh());
+            $welcomeSent = $this->sendWelcomeMessage($candidateAlert->fresh(), $welcomeError);
         }
 
-        return response()->json(['data' => ['is_active' => ! $wasActive]]);
+        return response()->json([
+            'data' => [
+                'is_active' => ! $wasActive,
+                'welcome_sent' => $welcomeSent,
+                'welcome_error' => $welcomeError,
+            ],
+        ]);
     }
 
     public function sendWelcome(CandidateAlert $candidateAlert): JsonResponse
@@ -352,9 +592,31 @@ class CandidateAlertController
             return response()->json(['error' => 'No active Whapi automation configured.'], 422);
         }
 
-        $this->sendWelcomeMessage($candidateAlert);
+        $errorMessage = null;
+        $sent = $this->sendWelcomeMessage($candidateAlert, $errorMessage);
+
+        if (! $sent) {
+            return response()->json([
+                'error' => $errorMessage ?: "Failed to send welcome message to {$candidateAlert->candidate_name}.",
+            ], 422);
+        }
 
         return response()->json(['message' => "Welcome message sent to {$candidateAlert->candidate_name}."]);
+    }
+
+    public function sendAccountInvite(CandidateAlert $candidateAlert): JsonResponse
+    {
+        if ($candidateAlert->account_id) {
+            return response()->json(['error' => 'This VIP is already linked to a Wakanda Jobs account.'], 422);
+        }
+
+        if (! $candidateAlert->candidate_email) {
+            return response()->json(['error' => 'This VIP does not have an email address on file.'], 422);
+        }
+
+        app(CandidateAlertAccountSyncService::class)->sendRegistrationPromptEmail($candidateAlert);
+
+        return response()->json(['message' => "Account invite sent to {$candidateAlert->candidate_name}."]);
     }
 
     public function logs(CandidateAlert $candidateAlert): JsonResponse
@@ -380,7 +642,12 @@ class CandidateAlertController
     public function preview(CandidateAlert $candidateAlert): JsonResponse
     {
         $jobs       = $this->getMatchingJobs($candidateAlert);
-        $sentJobIds = $candidateAlert->logs()->pluck('job_id')->toArray();
+        $sentJobIds = $candidateAlert->logs()->where('status', 'sent')->pluck('job_id')->toArray();
+        $filters    = $candidateAlert->filters ?? [];
+
+        if (! empty($filters['category_ids'])) {
+            $jobs->loadMissing('categories');
+        }
 
         $data = $jobs->take(500)->map(fn (Job $job) => [
             'id'            => $job->id,
@@ -390,12 +657,15 @@ class CandidateAlertController
             'city'          => $job->city?->name ?? '',
             'state'         => $job->state?->name ?? '',
             'country'       => $job->country?->name ?? '',
+            'country_code'  => strtoupper((string) ($job->country?->code ?? '')),
+            'country_flag'  => $this->countryFlagEmoji((string) ($job->country?->code ?? '')),
             'location'      => $this->jobLocation($job),
             'created'       => $job->created_at?->format('d M Y'),
             'created_date'  => $job->created_at?->format('Y-m-d'),
             'deadline'      => $job->never_expired ? null : ($job->expire_date ? \Carbon\Carbon::parse($job->expire_date)->format('d M Y') : null),
             'deadline_days' => $job->never_expired ? null : ($job->expire_date ? max(-999, (int) now()->diffInDays(\Carbon\Carbon::parse($job->expire_date), false)) : null),
             'already_sent'  => in_array($job->id, $sentJobIds),
+            'match_reasons' => $this->getMatchReasons($job, $filters),
         ]);
 
         return response()->json(['data' => $data, 'total' => $jobs->count()]);
@@ -423,32 +693,48 @@ class CandidateAlertController
             ->get();
 
         $sentCount = 0;
+        $failedJobs = [];
 
         foreach ($jobs as $job) {
             if (! $forceResend && $candidateAlert->logs()->where('job_id', $job->id)->where('status', 'sent')->exists()) {
                 continue;
             }
 
-            $ok = $this->sendJobMessage($token, $gatewayUrl, $candidateAlert, $job);
+            $errorMessage = null;
+            $ok = $this->sendJobMessage($token, $gatewayUrl, $candidateAlert, $job, $errorMessage);
 
             CandidateAlertLog::create([
                 'candidate_alert_id' => $candidateAlert->id,
                 'job_id'             => $job->id,
                 'status'             => $ok ? 'sent' : 'failed',
-                'error_message'      => $ok ? null : 'Manual send failed',
+                'error_message'      => $ok ? null : ($errorMessage ?: 'Manual send failed'),
                 'sent_at'            => now(),
             ]);
 
             if ($ok) {
                 $sentCount++;
+            } else {
+                $failedJobs[] = [
+                    'job_id' => $job->id,
+                    'job_name' => $job->name,
+                    'error' => $errorMessage ?: 'Manual send failed',
+                ];
             }
         }
 
         if ($sentCount === 0) {
-            return response()->json(['error' => 'Failed to send job(s) via WhatsApp.'], 422);
+            return response()->json([
+                'error' => count($failedJobs) === 1
+                    ? ($failedJobs[0]['error'] ?: 'Failed to send job via WhatsApp.')
+                    : 'Failed to send job(s) via WhatsApp.',
+                'failed_jobs' => $failedJobs,
+            ], 422);
         }
 
-        return response()->json(['message' => "Sent {$sentCount} job(s)."]);
+        return response()->json([
+            'message' => "Sent {$sentCount} job(s).",
+            'failed_jobs' => $failedJobs,
+        ]);
     }
 
     public function previewFilters(Request $request): JsonResponse
@@ -485,7 +771,7 @@ class CandidateAlertController
         // Keywords — check name, stripped description, and address
         $keywords = array_values(array_filter(array_map('trim', (array) ($filters['keywords'] ?? []))));
         foreach ($keywords as $kw) {
-            $kwPat = '/\b' . preg_quote($kw, '/') . '\b/iu';
+            $kwPat = '/' . $this->keywordRegexPattern($kw) . '/iu';
             if (preg_match($kwPat, $job->name)) {
                 $reasons[] = ['type' => 'keyword', 'keyword' => $kw, 'field' => 'Job Title',    'snippet' => $this->kwSnippet($job->name, $kw)];
             }
@@ -563,6 +849,23 @@ class CandidateAlertController
         return $snippet;
     }
 
+    private function countryFlagEmoji(string $code): string
+    {
+        $code = strtoupper(trim($code));
+
+        if (! preg_match('/^[A-Z]{2}$/', $code)) {
+            return '';
+        }
+
+        $flag = '';
+
+        foreach (str_split($code) as $char) {
+            $flag .= mb_chr(127397 + ord($char), 'UTF-8');
+        }
+
+        return $flag;
+    }
+
     public function sendDiscountNewsletter(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -632,7 +935,7 @@ class CandidateAlertController
         }
 
         if ($skipAlreadySent) {
-            $sent = $alert->logs()->pluck('job_id')->toArray();
+            $sent = $alert->logs()->where('status', 'sent')->pluck('job_id')->toArray();
             if ($sent) {
                 $query->whereNotIn('jb_jobs.id', $sent);
             }
@@ -643,7 +946,7 @@ class CandidateAlertController
         if ($keywords) {
             $query->where(function ($q) use ($keywords) {
                 foreach ($keywords as $kw) {
-                    $pat = '\\b' . preg_quote(strtolower($kw), '/') . '\\b';
+                    $pat = $this->keywordRegexPattern($kw);
                     $q->orWhereRaw('LOWER(jb_jobs.name) REGEXP ?', [$pat])
                       ->orWhereRaw('LOWER(jb_jobs.description) REGEXP ?', [$pat])
                       ->orWhereRaw('LOWER(jb_jobs.address) REGEXP ?', [$pat]);
@@ -708,7 +1011,19 @@ class CandidateAlertController
         return $query->get();
     }
 
-    private function sendJobMessage(string $token, string $gatewayUrl, CandidateAlert $alert, Job $job): bool
+    private function keywordRegexPattern(string $keyword): string
+    {
+        $keyword = mb_strtolower(trim($keyword));
+        $pattern = preg_quote($keyword, '/');
+
+        if (preg_match('/[a-z]$/i', $keyword)) {
+            $pattern .= 's?';
+        }
+
+        return '\\b' . $pattern . '\\b';
+    }
+
+    private function sendJobMessage(string $token, string $gatewayUrl, CandidateAlert $alert, Job $job, ?string &$errorMessage = null): bool
     {
         $jobUrl  = $job->slugable?->key ? url("/{$job->slugable->key}") : url('/jobs/' . $job->id);
         $company = $job->company?->name ?? '';
@@ -746,6 +1061,7 @@ class CandidateAlertController
         $imageUrl = $imgField !== '' ? RvMedia::getImageUrl($imgField) : null;
 
         $sentToAny = false;
+        $lastError = null;
 
         foreach ($alert->recipientJids() as $jid) {
             try {
@@ -760,6 +1076,8 @@ class CandidateAlertController
                         $sentToAny = true;
                         continue;
                     }
+
+                    $lastError = 'Image send failed for ' . $jid . ': HTTP ' . $response->status() . ' ' . str($response->body())->limit(250, '')->toString();
                 }
 
                 $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
@@ -769,19 +1087,28 @@ class CandidateAlertController
 
                 if ($response->successful()) {
                     $sentToAny = true;
+                    $lastError = null;
+                } else {
+                    $lastError = 'Text send failed for ' . $jid . ': HTTP ' . $response->status() . ' ' . str($response->body())->limit(250, '')->toString();
                 }
-            } catch (Throwable) {
-                // try next number
+            } catch (Throwable $exception) {
+                $lastError = 'Exception for ' . $jid . ': ' . $exception->getMessage();
             }
         }
+
+        $errorMessage = $lastError;
 
         return $sentToAny;
     }
 
-    private function sendWelcomeMessage(CandidateAlert $alert): void
+    private function sendWelcomeMessage(CandidateAlert $alert, ?string &$errorMessage = null): bool
     {
         [$token, $gatewayUrl] = $this->getWhapiCredentials();
-        if (! $token) return;
+        if (! $token) {
+            $errorMessage = 'No active Whapi automation configured.';
+
+            return false;
+        }
 
         $duration = CandidateAlert::$durations[$alert->duration_days] ?? ['label' => $alert->duration_days . ' Days'];
 
@@ -798,14 +1125,30 @@ class CandidateAlertController
         $msg .= "Sit back and let us find your next opportunity! 🚀\n\n";
         $msg .= "_Wakanda Jobs — wakandajobs.com_";
 
+        $sentToAny = false;
+        $lastError = null;
+
         foreach ($alert->recipientJids() as $jid) {
             try {
-                Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
+                $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
                     'to'   => $jid,
                     'body' => $msg,
                 ]);
-            } catch (Throwable) {}
+
+                if ($response->successful()) {
+                    $sentToAny = true;
+                    $lastError = null;
+                } else {
+                    $lastError = 'Welcome send failed for ' . $jid . ': HTTP ' . $response->status() . ' ' . str($response->body())->limit(250, '')->toString();
+                }
+            } catch (Throwable $exception) {
+                $lastError = 'Welcome send exception for ' . $jid . ': ' . $exception->getMessage();
+            }
         }
+
+        $errorMessage = $lastError;
+
+        return $sentToAny;
     }
 
     private function sendFilterUpdateMessage(CandidateAlert $alert): void
@@ -911,6 +1254,123 @@ class CandidateAlertController
         }
 
         return $clean;
+    }
+
+    private function extractCvAnalysisPayload(Request $request): ?array
+    {
+        $raw = $request->input('cv_analysis_payload');
+        if (! is_string($raw) || trim($raw) === '') {
+            return null;
+        }
+
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    private function logCvAnalysis(
+        Request $request,
+        ?CandidateAlert $candidateAlert,
+        string $cvText,
+        ?array $result,
+        string $status = 'success',
+        ?string $errorMessage = null,
+        array $fileMeta = []
+    ): void {
+        $file = $request->file('cv_file');
+        $usage = $result['usage'] ?? [];
+
+        CandidateAlertCvAnalysisLog::create([
+            'candidate_alert_id' => $candidateAlert?->id,
+            'admin_id' => Auth::id(),
+            'original_filename' => $file?->getClientOriginalName() ?: ($fileMeta['original_filename'] ?? null),
+            'mime_type' => $file?->getMimeType() ?: ($fileMeta['mime_type'] ?? null),
+            'file_size' => $file?->getSize() ?: ($fileMeta['file_size'] ?? null),
+            'ai_provider' => $usage['provider'] ?? 'openai',
+            'ai_model' => $usage['model'] ?? null,
+            'status' => $status,
+            'prompt_tokens' => $usage['prompt_tokens'] ?? null,
+            'completion_tokens' => $usage['completion_tokens'] ?? null,
+            'total_tokens' => $usage['total_tokens'] ?? null,
+            'estimated_cost_usd' => $usage['estimated_cost_usd'] ?? null,
+            'processing_ms' => $usage['processing_ms'] ?? null,
+            'extracted_characters' => mb_strlen($cvText),
+            'error_message' => $errorMessage,
+        ]);
+    }
+
+    private function resolveRequestedAccount(Request $request, CandidateAlertAccountSyncService $accountSync): ?Account
+    {
+        $selectedId = (int) $request->input('linked_account_id');
+
+        if ($selectedId > 0) {
+            return Account::query()
+                ->whereKey($selectedId)
+                ->where('type', 'job-seeker')
+                ->first();
+        }
+
+        return $accountSync->resolveAccount(
+            $request->input('candidate_email'),
+            $request->input('candidate_phone')
+        );
+    }
+
+    private function analyzeStoredCvPath(
+        Request $request,
+        ?CandidateAlert $candidateAlert,
+        string $absolutePath,
+        string $displayName
+    ): JsonResponse {
+        if (! is_file($absolutePath)) {
+            return response()->json(['error' => 'The stored CV file could not be found. Please upload it again.'], 422);
+        }
+
+        $extension = strtolower(pathinfo($absolutePath, PATHINFO_EXTENSION));
+        $cvText = app(CvScoringService::class)->extractTextFromFile($absolutePath, $extension);
+        $fileSize = @filesize($absolutePath) ?: null;
+        $mimeType = @mime_content_type($absolutePath) ?: null;
+
+        if (strlen(trim($cvText)) < 50) {
+            $this->logCvAnalysis($request, $candidateAlert, $cvText, null, 'failed', 'Could not extract enough text from stored CV.', [
+                'original_filename' => $displayName,
+                'file_size' => $fileSize,
+                'mime_type' => $mimeType,
+            ]);
+
+            return response()->json(['error' => 'Could not extract text from the stored CV. Please upload a different file.'], 422);
+        }
+
+        $jobTypes = JobType::query()->orderBy('name')->pluck('name', 'id')->toArray();
+        $categories = Category::query()->orderBy('name')->pluck('name', 'id')->toArray();
+        $experiences = JobExperience::query()->orderBy('name')->pluck('name', 'id')->toArray();
+        $countries = DB::table('countries')->where('status', 'published')->orderBy('name')->pluck('name', 'id')->toArray();
+
+        $result = app(CvFilterAnalyzerService::class)->analyzeFromText($cvText, $jobTypes, $categories, $experiences, $countries);
+
+        if (! $result) {
+            $this->logCvAnalysis($request, $candidateAlert, $cvText, null, 'failed', 'Stored CV re-analysis failed.', [
+                'original_filename' => $displayName,
+                'file_size' => $fileSize,
+                'mime_type' => $mimeType,
+            ]);
+
+            return response()->json(['error' => 'Stored CV analysis failed. Please try again or upload a new CV.'], 422);
+        }
+
+        if ($candidateAlert) {
+            $result['candidate_name'] = $result['candidate_name'] ?: $candidateAlert->candidate_name;
+            $result['candidate_phone'] = $result['candidate_phone'] ?: $candidateAlert->candidate_phone;
+            $result['candidate_email'] = $result['candidate_email'] ?: $candidateAlert->candidate_email;
+        }
+
+        $this->logCvAnalysis($request, $candidateAlert, $cvText, $result, 'success', null, [
+            'original_filename' => $displayName,
+            'file_size' => $fileSize,
+            'mime_type' => $mimeType,
+        ]);
+
+        return response()->json(['data' => $result]);
     }
 
     private function filtersChanged(array $old, array $new): bool

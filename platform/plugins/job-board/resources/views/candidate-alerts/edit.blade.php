@@ -84,11 +84,47 @@ $(function () {
     function updateCountBadge(badgeClass, $box) {
         const count = $box.find('input[type="checkbox"]:checked').length, total = $box.find('input[type="checkbox"]').length;
         $('.' + badgeClass).text(count + (total > 0 ? ' selected' : ''));
-        $('[data-target="' + $box.attr('id') + '"].btn-deselect-all-check').filter('.btn-outline-danger').each(function() { count > 0 ? $(this).show() : $(this).hide(); });
+        $('[data-target="' + $box.attr('id') + '"].btn-deselect-all-check').filter('.btn-outline-danger').prop('disabled', count === 0);
     }
     $(document).on('input', '.filter-search', function () {
         const needle = $(this).val().toLowerCase(), $box = $('#' + $(this).data('target'));
         $box.find('.checkable-item').each(function () { $(this).toggle($(this).text().toLowerCase().includes(needle)); });
+    });
+
+    // Clear experience level
+    $(document).on('click', '.btn-clear-experience', function () {
+        $('#' + $(this).data('target')).val('');
+    });
+
+    // Clear all filters in the Filters tab
+    $(document).on('click', '.btn-clear-all-filters', function () {
+        const tid = $(this).data('tid');
+
+        const $kwList = $('#keywords-list-' + tid);
+        $kwList.find('.keyword-row').slice(1).remove();
+        $kwList.find('input[name="filters[keywords][]"]').val('');
+        $('.kw-count-badge-' + tid).text('0');
+
+        const $coList = $('#company-list-' + tid);
+        $coList.find('.company-kw-row').slice(1).remove();
+        $coList.find('input[name="filters[company_keywords][]"]').val('');
+        $('.co-count-badge-' + tid).text('0');
+
+        $('#countries-box-' + tid + ' input[type="checkbox"]').prop('checked', false);
+        $('.country-count-badge-' + tid).text('0 selected');
+
+        $('#jobtypes-box-' + tid + ' input[type="checkbox"]').prop('checked', false);
+        $('.jt-count-badge-' + tid).text('0 selected');
+
+        $('#categories-box-' + tid + ' input[type="checkbox"]').prop('checked', false);
+        $('.cat-count-badge-' + tid).text('0 selected');
+
+        $('[data-target="jobtypes-box-' + tid + '"].btn-deselect-all-check.btn-outline-danger, [data-target="categories-box-' + tid + '"].btn-deselect-all-check.btn-outline-danger').prop('disabled', true);
+
+        $('#tab-filters-' + tid + ' input[name="filters[location_keyword]"]').val('');
+        $('#' + tid + '-job-experience-id').val('');
+
+        Botble.showSuccess('All filters cleared.');
     });
 
     // Keyword rows
@@ -139,6 +175,76 @@ $(function () {
         $(this).find('.collapse-chevron').css('transform', expanded ? '' : 'rotate(180deg)');
     });
 
+    // Candidate account search / link
+    const candidateAccountSearchState = {};
+    function ensureCandidateAccountState(prefix) {
+        if (!candidateAccountSearchState[prefix]) candidateAccountSearchState[prefix] = { page: 1, timer: null, hasMore: false };
+        return candidateAccountSearchState[prefix];
+    }
+    function renderLinkedAccountCvPrompt(prefix, account) {
+        const $prompt = $('#candidate-account-cv-prompt-' + prefix);
+        if (account.has_cv) {
+            $prompt.html('<div class="alert alert-success py-2 px-3 mb-0 small"><div class="d-flex align-items-center justify-content-between gap-2 flex-wrap"><div><strong>Account CV found:</strong> ' + escHtml(account.resume_name || 'CV on file') + '<div class="text-muted mt-1">Use the linked account CV to auto-generate keywords and matching filters.</div></div><button type="button" class="btn btn-success btn-sm btn-analyze-linked-account-cv" data-prefix="' + prefix + '"><i class="ti ti-sparkles me-1"></i> Analyse Account CV</button></div></div>');
+        } else {
+            $prompt.html('<div class="alert alert-warning py-2 px-3 mb-0 small"><strong>No CV on this account.</strong> Upload a CV below to generate the best keywords and matching filters.</div>');
+        }
+    }
+    function renderSelectedAccount(prefix, account) {
+        const phone = account.phone || account.whatsapp_number || '';
+        const avatar = account.avatar_url || '';
+        const badge = account.wakanda_verified ? '<span class="d-inline-flex align-items-center justify-content-center rounded-circle ms-1" title="Wakanda Verified" style="width:16px;height:16px;background:#6f42c1;color:#fff;font-size:10px;line-height:1;"><i class="ti ti-star-filled"></i></span>' : '';
+        $('#candidate-account-selected-' + prefix).removeClass('d-none').attr('data-account-id', account.id || '').attr('data-has-cv', account.has_cv ? '1' : '0').html('<div class="border rounded px-3 py-2 bg-white"><div class="d-flex align-items-start justify-content-between gap-2 flex-wrap"><div><div class="fw-semibold d-flex align-items-center gap-2">' + (avatar ? '<img src="' + escHtml(avatar) + '" alt="" style="width:24px;height:24px;border-radius:999px;object-fit:cover;border:1px solid #e5e7eb">' : '') + '<span>' + escHtml(account.name || '') + '</span>' + badge + '</div><div class="text-muted small">' + (account.email ? '<span class="me-2"><i class="ti ti-mail me-1"></i>' + escHtml(account.email) + '</span>' : '') + (phone ? '<span><i class="ti ti-brand-whatsapp me-1"></i>' + escHtml(phone) + '</span>' : '') + '</div></div><button type="button" class="btn btn-outline-danger btn-sm btn-clear-linked-account" data-prefix="' + prefix + '"><i class="ti ti-x me-1"></i> Clear</button></div></div>');
+        $('input[name="linked_account_id"]').val(account.id || '');
+        renderLinkedAccountCvPrompt(prefix, account);
+    }
+    function clearLinkedAccount(prefix) {
+        $('#candidate-account-selected-' + prefix).addClass('d-none').attr('data-account-id', '').empty();
+        $('#candidate-account-cv-prompt-' + prefix).empty();
+        $('input[name="linked_account_id"]').val('');
+    }
+    function runCandidateAccountSearch(prefix, page) {
+        const $input = $('#candidate-account-search-' + prefix), url = $input.data('search-url'), term = $input.val().trim(), state = ensureCandidateAccountState(prefix), $results = $('#candidate-account-results-' + prefix);
+        state.page = page;
+        if (term.length < 2) { $results.addClass('d-none').empty(); return; }
+        $results.removeClass('d-none').html('<div class="border rounded p-3 bg-white text-muted small"><i class="ti ti-loader-2 fa-spin me-1"></i> Searching accounts…</div>');
+        fetch(url + '?q=' + encodeURIComponent(term) + '&page=' + page)
+            .then(r => r.json())
+            .then(resp => {
+                const rows = resp.data || []; state.hasMore = !!resp.has_more;
+                if (!rows.length) { $results.html('<div class="border rounded p-3 bg-white text-muted small">No matching candidate accounts found.</div>'); return; }
+                let html = '<div class="border rounded bg-white overflow-hidden"><div class="list-group list-group-flush">';
+                rows.forEach(account => {
+                    const phone = account.phone || account.whatsapp_number || '';
+                    const avatar = account.avatar_url || '';
+                    const badge = account.wakanda_verified ? '<span class="d-inline-flex align-items-center justify-content-center rounded-circle ms-1" title="Wakanda Verified" style="width:16px;height:16px;background:#6f42c1;color:#fff;font-size:10px;line-height:1;"><i class="ti ti-star-filled"></i></span>' : '';
+                    html += '<button type="button" class="list-group-item list-group-item-action btn-select-candidate-account" data-prefix="' + prefix + '" data-account-id="' + escHtml(account.id) + '" data-account-name="' + escHtml(account.name || '') + '" data-account-email="' + escHtml(account.email || '') + '" data-account-phone="' + escHtml(phone) + '" data-has-cv="' + (account.has_cv ? '1' : '0') + '" data-resume-name="' + escHtml(account.resume_name || '') + '" data-avatar-url="' + escHtml(avatar) + '" data-wakanda-verified="' + (account.wakanda_verified ? '1' : '0') + '"><div class="d-flex align-items-start justify-content-between gap-2"><div><div class="fw-semibold d-flex align-items-center gap-2">' + (avatar ? '<img src="' + escHtml(avatar) + '" alt="" style="width:24px;height:24px;border-radius:999px;object-fit:cover;border:1px solid #e5e7eb">' : '') + '<span>' + escHtml(account.name || '') + '</span>' + badge + '</div><div class="text-muted small">' + (account.email ? '<span class="me-2"><i class="ti ti-mail me-1"></i>' + escHtml(account.email) + '</span>' : '') + (phone ? '<span><i class="ti ti-brand-whatsapp me-1"></i>' + escHtml(phone) + '</span>' : '') + '</div></div><span class="badge ' + (account.has_cv ? 'bg-success' : 'bg-warning text-dark') + '">' + (account.has_cv ? 'Has CV' : 'No CV') + '</span></div></button>';
+                });
+                html += '</div><div class="d-flex justify-content-between align-items-center px-3 py-2 border-top bg-light"><button type="button" class="btn btn-outline-secondary btn-sm btn-candidate-account-page" data-prefix="' + prefix + '" data-page="' + Math.max(1, page - 1) + '"' + (page <= 1 ? ' disabled' : '') + '>Prev</button><span class="text-muted small">Page ' + page + '</span><button type="button" class="btn btn-outline-secondary btn-sm btn-candidate-account-page" data-prefix="' + prefix + '" data-page="' + (page + 1) + '"' + (state.hasMore ? '' : ' disabled') + '>Next</button></div></div>';
+                $results.html(html);
+            })
+            .catch(() => $results.html('<div class="border rounded p-3 bg-white text-danger small">Account search failed. Try again.</div>'));
+    }
+    $(document).on('input', '.candidate-account-search-input', function () {
+        const prefix = $(this).data('prefix'), state = ensureCandidateAccountState(prefix);
+        clearTimeout(state.timer);
+        state.timer = setTimeout(() => runCandidateAccountSearch(prefix, 1), 250);
+    });
+    $(document).on('click', '.btn-candidate-account-page', function () {
+        if ($(this).is(':disabled')) return;
+        runCandidateAccountSearch($(this).data('prefix'), parseInt($(this).data('page'), 10) || 1);
+    });
+    $(document).on('click', '.btn-select-candidate-account', function () {
+        const prefix = $(this).data('prefix');
+        const account = { id: $(this).data('account-id'), name: $(this).data('account-name'), email: $(this).data('account-email'), phone: $(this).data('account-phone'), has_cv: String($(this).data('has-cv')) === '1', resume_name: $(this).data('resume-name'), avatar_url: $(this).data('avatar-url'), wakanda_verified: String($(this).data('wakanda-verified')) === '1' };
+        $('input[name="candidate_name"]').val(account.name || '');
+        $('input[name="candidate_phone"]').val(account.phone || '');
+        $('input[name="candidate_email"]').val(account.email || '');
+        renderSelectedAccount(prefix, account);
+        $('#candidate-account-results-' + prefix).addClass('d-none').empty();
+        Botble.showSuccess(account.has_cv ? 'Candidate account linked. Analyse the account CV to generate keywords.' : 'Candidate account linked. This account has no CV yet, so upload one below for accurate keyword matching.');
+    });
+    $(document).on('click', '.btn-clear-linked-account', function () { clearLinkedAccount($(this).data('prefix')); });
+
     // CV analysis
     $(document).on('change', '.cv-upload-input', function () {
         $('[data-prefix="' + $(this).data('prefix') + '"].btn-analyze-cv').prop('disabled', !(this.files && this.files.length > 0));
@@ -156,15 +262,57 @@ $(function () {
             .catch(() => Botble.showError('CV analysis failed.'))
             .finally(() => $btn.prop('disabled', false).html('<i class="fas fa-magic me-1"></i> Analyse with AI'));
     });
+    $(document).on('click', '.btn-analyze-linked-account-cv', function () {
+        const $btn = $(this), prefix = $btn.data('prefix'), accountId = parseInt($('#candidate-account-selected-' + prefix).attr('data-account-id'), 10) || 0, analyzeUrl = $('#candidate-account-search-' + prefix).data('analyze-account-cv-url');
+        if (!accountId) { Botble.showError('Select an account first.'); return; }
+        $btn.prop('disabled', true).html('<i class="ti ti-loader-2 fa-spin me-1"></i> Analysing…');
+        fetch(analyzeUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'), 'Accept': 'application/json' }, body: JSON.stringify({ account_id: accountId }) })
+            .then(r => r.json())
+            .then(resp => { if (resp.error) { Botble.showError(resp.error); return; } applyAnalysis(prefix, resp.data); Botble.showSuccess('Linked account CV analysed and filters applied.'); })
+            .catch(() => Botble.showError('Linked account CV analysis failed.'))
+            .finally(() => $btn.prop('disabled', false).html('<i class="ti ti-sparkles me-1"></i> Analyse Account CV'));
+    });
     $(document).on('click', '.btn-apply-analysis', function () {
         const analysis = $(this).data('analysis');
         if (analysis) applyAnalysis($(this).data('prefix'), analysis);
     });
     function applyAnalysis(prefix, data) {
-        if (data.keyword) $('input[name="filters[keyword]"]').val(data.keyword);
-        if (data.job_type_ids) data.job_type_ids.forEach(id => $('#' + prefix + '-type-' + id).prop('checked', true));
-        if (data.category_ids) data.category_ids.forEach(id => $('#' + prefix + '-cat-' + id).prop('checked', true));
+        if (data.candidate_name) $('input[name="candidate_name"]').val(data.candidate_name);
+        if (data.candidate_phone) $('input[name="candidate_phone"]').val(data.candidate_phone);
+        if (data.candidate_email) $('input[name="candidate_email"]').val(data.candidate_email);
+
+        const keywords = Array.isArray(data.keywords) && data.keywords.length ? data.keywords : (data.keyword ? [data.keyword] : []);
+        const $keywordsList = $('#keywords-list-' + prefix);
+        if ($keywordsList.length) {
+            $keywordsList.find('input[name="filters[keywords][]"]').val('');
+            keywords.forEach(function (keyword, index) {
+                let $input = $keywordsList.find('input[name="filters[keywords][]"]').eq(index);
+                if (! $input.length) {
+                    $keywordsList.append('<div class="input-group input-group-sm mb-1 keyword-row"><input type="text" name="filters[keywords][]" class="form-control" placeholder="e.g. Software Engineer"><button type="button" class="btn btn-outline-danger btn-remove-kw" title="Remove"><i class="fas fa-times"></i></button></div>');
+                    $input = $keywordsList.find('input[name="filters[keywords][]"]').eq(index);
+                }
+                $input.val(keyword);
+            });
+            $('.kw-count-badge-' + prefix).text(keywords.length);
+        }
+
+        $('#jobtypes-box-' + prefix + ' input[type="checkbox"]').prop('checked', false);
+        (data.job_type_ids || []).forEach(id => $('#' + prefix + '-type-' + id).prop('checked', true));
+        $('.jt-count-badge-' + prefix).text((data.job_type_ids || []).length + ' selected');
+        $('[data-target="jobtypes-box-' + prefix + '"].btn-deselect-all-check.btn-outline-danger').prop('disabled', !(data.job_type_ids || []).length);
+
+        $('#categories-box-' + prefix + ' input[type="checkbox"]').prop('checked', false);
+        (data.category_ids || []).forEach(id => $('#' + prefix + '-cat-' + id).prop('checked', true));
+        $('.cat-count-badge-' + prefix).text((data.category_ids || []).length + ' selected');
+        $('[data-target="categories-box-' + prefix + '"].btn-deselect-all-check.btn-outline-danger').prop('disabled', !(data.category_ids || []).length);
+
+        $('#countries-box-' + prefix + ' input[type="checkbox"]').prop('checked', false);
+        (data.country_ids || []).forEach(id => $('#' + prefix + '-country-' + id + ', #edit-country-' + id).prop('checked', true));
+        $('.country-count-badge-' + prefix).text((data.country_ids || []).length + ' selected');
+
         if (data.job_experience_id) $('select[name="filters[job_experience_id]"]').val(data.job_experience_id);
+        if (data.location_keyword) $('input[name="filters[location_keyword]"]').val(data.location_keyword);
+        $('input[name="cv_analysis_payload"]').val(JSON.stringify(data));
         Botble.showSuccess('AI analysis complete. Filters applied — review and adjust as needed.');
     }
 
