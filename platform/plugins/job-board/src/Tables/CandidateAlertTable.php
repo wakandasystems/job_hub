@@ -195,7 +195,7 @@ class CandidateAlertTable extends TableAbstract
                     $mailIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" style="' . $iconStyle . '"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>';
                     $trashIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" style="' . $iconStyle . '"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
 
-                    $inviteButton = (! $alert->account_id && $alert->candidate_email)
+                    $inviteButton = (! $alert->account_id && ($alert->candidate_email || $alert->candidate_phone))
                         ? '<button type="button" class="btn btn-sm btn-icon btn-secondary text-white btn-send-account-invite" style="color:#fff !important" data-bs-toggle="tooltip" title="Invite candidate to create a Wakanda Jobs account" data-url="' . route('job-board.candidate-alerts.send-account-invite', $alert->id) . '" data-name="' . e($alert->candidate_name) . '">' . $mailIcon . '</button>'
                         : '';
 
@@ -207,7 +207,7 @@ class CandidateAlertTable extends TableAbstract
                         . '<button type="button" class="btn btn-sm btn-icon btn-success text-white btn-preview-jobs" style="color:#fff !important" data-bs-toggle="tooltip" title="Preview &amp; send matching jobs" data-url="' . route('job-board.candidate-alerts.preview', $alert->id) . '" data-send-url="' . route('job-board.candidate-alerts.send-now', $alert->id) . '" data-name="' . e($alert->candidate_name) . '">' . $eyeIcon . '</button>'
                         . $welcomeButton
                         . $inviteButton
-                        . '<a href="' . route('job-board.candidate-alerts.destroy', $alert->id) . '" class="btn btn-sm btn-icon btn-danger text-white" style="color:#fff !important" data-dt-single-action data-method="DELETE" data-confirmation-modal="true" data-confirmation-modal-title="Delete Alert" data-confirmation-modal-message="Delete alert for ' . e($alert->candidate_name) . '? This will also delete all send logs." data-confirmation-modal-button="Delete" data-confirmation-modal-cancel-button="Cancel" data-bs-toggle="tooltip" title="Delete">' . $trashIcon . '</a>'
+                        . '<button type="button" class="btn btn-sm btn-icon btn-danger text-white btn-delete-alert-modal" style="color:#fff !important" data-bs-toggle="tooltip" title="Delete" data-url="' . route('job-board.candidate-alerts.destroy', $alert->id) . '" data-name="' . e($alert->candidate_name) . '">' . $trashIcon . '</button>'
                         . '</div>';
                 }),
         ];

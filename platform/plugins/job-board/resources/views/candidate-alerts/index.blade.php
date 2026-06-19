@@ -251,7 +251,7 @@
                                                     data-name="{{ $alert->candidate_name }}">
                                                     <i class="fab fa-whatsapp"></i>
                                                 </button>
-                                                @if(! $alert->account_id && $alert->candidate_email)
+                                                @if(! $alert->account_id && ($alert->candidate_email || $alert->candidate_phone))
                                                 <button type="button"
                                                     class="btn btn-outline-dark btn-send-account-invite"
                                                     title="Invite candidate to create a Wakanda Jobs account"
@@ -555,6 +555,27 @@ wakandajobs.com';
     </div>
 </div>
 
+{{-- ====================== ACTION CONFIRM MODAL ====================== --}}
+<div class="modal fade" id="modal-alert-action-confirm" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-body text-center py-4 px-4">
+                <div class="mb-3">
+                    <span id="alertActionIconWrap" class="d-inline-flex align-items-center justify-content-center rounded-circle bg-warning bg-opacity-10" style="width:52px;height:52px;">
+                        <i id="alertActionIcon" class="ti ti-alert-triangle text-warning fs-3"></i>
+                    </span>
+                </div>
+                <h6 class="fw-semibold mb-1" id="alertActionTitle">Confirm action?</h6>
+                <p class="text-muted small mb-4" id="alertActionMessage">Please confirm before continuing.</p>
+                <div class="d-flex gap-2 justify-content-center">
+                    <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-warning px-4" id="confirmAlertAction">Continue</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 {{-- ====================== DELETE MODAL ====================== --}}
 <div class="modal fade" id="modal-delete-alert" tabindex="-1">
     <div class="modal-dialog modal-sm modal-dialog-centered">
@@ -607,6 +628,45 @@ wakandajobs.com';
 $(function () {
 
     // ── Quick Add preset settings ────────────────────────────────────────────
+
+    const alertActionModalEl = document.getElementById('modal-alert-action-confirm');
+    const alertActionModal = alertActionModalEl ? new bootstrap.Modal(alertActionModalEl) : null;
+    let pendingAlertAction = null;
+
+    function showAlertActionConfirm(options) {
+        if (! alertActionModal) {
+            options.onConfirm();
+            return;
+        }
+
+        pendingAlertAction = options;
+        $('#alertActionTitle').text(options.title || 'Confirm action?');
+        $('#alertActionMessage').text(options.message || 'Please confirm before continuing.');
+        $('#alertActionIconWrap').attr('class', 'd-inline-flex align-items-center justify-content-center rounded-circle ' + (options.iconWrapClass || 'bg-warning bg-opacity-10'));
+        $('#alertActionIcon').attr('class', options.iconClass || 'ti ti-alert-triangle text-warning fs-3');
+        $('#confirmAlertAction').attr('class', 'btn px-4 ' + (options.confirmClass || 'btn-warning')).text(options.confirmText || 'Continue');
+        alertActionModal.show();
+    }
+
+    $('#confirmAlertAction').on('click', function () {
+        if (! pendingAlertAction) {
+            return;
+        }
+
+        const action = pendingAlertAction;
+        pendingAlertAction = null;
+        alertActionModal.hide();
+        action.onConfirm();
+    });
+
+    function setActionButtonLoading($btn) {
+        $btn.data('original-html', $btn.html());
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>');
+    }
+
+    function restoreActionButton($btn) {
+        $btn.prop('disabled', false).html($btn.data('original-html') || '');
+    }
 
     let quickAddPresetIndex = {{ count($keywordPresets) }};
 
@@ -1140,19 +1200,53 @@ $(function () {
         const url  = $btn.data('url');
         const name = $btn.data('name');
 
-        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+        showAlertActionConfirm({
+            title: 'Resend VIP welcome?',
+            message: 'Send the VIP welcome message to ' + name + '?',
+            confirmText: 'Send',
+            confirmClass: 'btn-warning',
+            iconWrapClass: 'bg-warning bg-opacity-10',
+            iconClass: 'ti ti-refresh text-warning fs-3',
+            onConfirm: function () {
+                setActionButtonLoading($btn);
+                $httpClient.make().post(url)
+                    .then(({ data: resp }) => {
+                        Botble.showSuccess(resp.message || 'Welcome message sent to ' + name + '.');
+                    })
+                    .catch(({ response }) => {
+                        const err = response?.data?.error || 'Failed to send. Check Whapi configuration.';
+                        Botble.showError(err);
+                    })
+                    .finally(() => restoreActionButton($btn));
+            }
+        });
+    });
 
-        $httpClient.make().post(url)
-            .then(({ data: resp }) => {
-                Botble.showSuccess(resp.message || 'Welcome message sent to ' + name + '.');
-            })
-            .catch(({ response }) => {
-                const err = response?.data?.error || 'Failed to send. Check Whapi configuration.';
-                Botble.showError(err);
-            })
-            .finally(() => {
-                $btn.prop('disabled', false).html('<i class="fab fa-whatsapp"></i>');
-            });
+    // ── Invite candidate to create account ───────────────────────────────────
+    $(document).on('click', '.btn-send-account-invite', function () {
+        const $btn = $(this);
+        const url = $btn.data('url');
+        const name = $btn.data('name');
+
+        showAlertActionConfirm({
+            title: 'Send account invite?',
+            message: 'Invite ' + name + ' to create a Wakanda Jobs account?',
+            confirmText: 'Send invite',
+            confirmClass: 'btn-secondary',
+            iconWrapClass: 'bg-secondary bg-opacity-10',
+            iconClass: 'ti ti-mail text-secondary fs-3',
+            onConfirm: function () {
+                setActionButtonLoading($btn);
+                $httpClient.make().post(url)
+                    .then(({ data: resp }) => {
+                        Botble.showSuccess(resp.message || 'Account invite sent to ' + name + '.');
+                    })
+                    .catch(({ response }) => {
+                        Botble.showError(response?.data?.error || 'Failed to send account invite.');
+                    })
+                    .finally(() => restoreActionButton($btn));
+            }
+        });
     });
 
     // -- Delete --

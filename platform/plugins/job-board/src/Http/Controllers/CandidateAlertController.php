@@ -610,13 +610,45 @@ class CandidateAlertController
             return response()->json(['error' => 'This VIP is already linked to a Wakanda Jobs account.'], 422);
         }
 
-        if (! $candidateAlert->candidate_email) {
-            return response()->json(['error' => 'This VIP does not have an email address on file.'], 422);
+        if (! $candidateAlert->candidate_email && ! $candidateAlert->recipientJids()) {
+            return response()->json(['error' => 'This VIP does not have an email address or WhatsApp number on file.'], 422);
         }
 
-        app(CandidateAlertAccountSyncService::class)->sendRegistrationPromptEmail($candidateAlert);
+        $emailError = null;
+        $whatsAppError = null;
+        $sentChannels = [];
 
-        return response()->json(['message' => "Account invite sent to {$candidateAlert->candidate_name}."]);
+        if ($candidateAlert->candidate_email) {
+            $emailSent = app(CandidateAlertAccountSyncService::class)->sendRegistrationPromptEmail($candidateAlert, $emailError);
+
+            if ($emailSent) {
+                $sentChannels[] = 'email';
+            }
+        }
+
+        $whatsAppSent = $this->sendAccountInviteWhatsApp($candidateAlert, $whatsAppError);
+
+        if ($whatsAppSent) {
+            $sentChannels[] = 'WhatsApp';
+        }
+
+        if ($sentChannels === []) {
+            $errors = array_filter([$emailError, $whatsAppError]);
+
+            return response()->json([
+                'error' => $errors
+                    ? 'Failed to send account invite: ' . implode(' | ', $errors)
+                    : "Failed to send account invite to {$candidateAlert->candidate_name}.",
+            ], 422);
+        }
+
+        $message = 'Account invite sent to ' . $candidateAlert->candidate_name . ' by ' . implode(' and ', $sentChannels) . '.';
+
+        if ($emailError || $whatsAppError) {
+            $message .= ' Some channels failed: ' . implode(' | ', array_filter([$emailError, $whatsAppError]));
+        }
+
+        return response()->json(['message' => $message]);
     }
 
     public function logs(CandidateAlert $candidateAlert): JsonResponse
@@ -1143,6 +1175,59 @@ class CandidateAlertController
                 }
             } catch (Throwable $exception) {
                 $lastError = 'Welcome send exception for ' . $jid . ': ' . $exception->getMessage();
+            }
+        }
+
+        $errorMessage = $lastError;
+
+        return $sentToAny;
+    }
+
+    private function sendAccountInviteWhatsApp(CandidateAlert $alert, ?string &$errorMessage = null): bool
+    {
+        [$token, $gatewayUrl] = $this->getWhapiCredentials();
+
+        if (! $token) {
+            $errorMessage = 'No active Whapi automation configured.';
+
+            return false;
+        }
+
+        $recipientJids = $alert->recipientJids();
+
+        if ($recipientJids === []) {
+            $errorMessage = 'This VIP does not have a WhatsApp number on file.';
+
+            return false;
+        }
+
+        $registerUrl = route('public.account.register');
+        $name = trim((string) $alert->candidate_name) ?: 'there';
+
+        $message = "Hi {$name},\n\n"
+            . "Your Wakanda Jobs VIP alert is active and you will continue receiving matching jobs on WhatsApp.\n\n"
+            . "Create your free Wakanda Jobs account so you can keep your CV/profile on file, apply faster, and update your skills for better matching.\n\n"
+            . "Create your account here:\n{$registerUrl}\n\n"
+            . "Wakanda Jobs - wakandajobs.com";
+
+        $sentToAny = false;
+        $lastError = null;
+
+        foreach ($recipientJids as $jid) {
+            try {
+                $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
+                    'to' => $jid,
+                    'body' => $message,
+                ]);
+
+                if ($response->successful()) {
+                    $sentToAny = true;
+                    $lastError = null;
+                } else {
+                    $lastError = 'WhatsApp invite failed for ' . $jid . ': HTTP ' . $response->status() . ' ' . str($response->body())->limit(250, '')->toString();
+                }
+            } catch (Throwable $exception) {
+                $lastError = 'WhatsApp invite exception for ' . $jid . ': ' . $exception->getMessage();
             }
         }
 

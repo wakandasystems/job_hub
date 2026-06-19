@@ -250,6 +250,27 @@
     </div>
 </div>
 
+{{-- ====================== ACTION CONFIRM MODAL ====================== --}}
+<div class="modal fade" id="modal-alert-action-confirm" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-body text-center py-4 px-4">
+                <div class="mb-3">
+                    <span id="alertActionIconWrap" class="d-inline-flex align-items-center justify-content-center rounded-circle bg-warning bg-opacity-10" style="width:52px;height:52px;">
+                        <i id="alertActionIcon" class="ti ti-alert-triangle text-warning fs-3"></i>
+                    </span>
+                </div>
+                <h6 class="fw-semibold mb-1" id="alertActionTitle">Confirm action?</h6>
+                <p class="text-muted small mb-4" id="alertActionMessage">Please confirm before continuing.</p>
+                <div class="d-flex gap-2 justify-content-center">
+                    <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-warning px-4" id="confirmAlertAction">Continue</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 @endsection
 
 @push('header')
@@ -280,6 +301,45 @@
 @push('footer')
 <script>
 $(function () {
+
+    const alertActionModalEl = document.getElementById('modal-alert-action-confirm');
+    const alertActionModal = alertActionModalEl ? new bootstrap.Modal(alertActionModalEl) : null;
+    let pendingAlertAction = null;
+
+    function showAlertActionConfirm(options) {
+        if (! alertActionModal) {
+            options.onConfirm();
+            return;
+        }
+
+        pendingAlertAction = options;
+        $('#alertActionTitle').text(options.title || 'Confirm action?');
+        $('#alertActionMessage').text(options.message || 'Please confirm before continuing.');
+        $('#alertActionIconWrap').attr('class', 'd-inline-flex align-items-center justify-content-center rounded-circle ' + (options.iconWrapClass || 'bg-warning bg-opacity-10'));
+        $('#alertActionIcon').attr('class', options.iconClass || 'ti ti-alert-triangle text-warning fs-3');
+        $('#confirmAlertAction').attr('class', 'btn px-4 ' + (options.confirmClass || 'btn-warning')).text(options.confirmText || 'Continue');
+        alertActionModal.show();
+    }
+
+    $('#confirmAlertAction').on('click', function () {
+        if (! pendingAlertAction) {
+            return;
+        }
+
+        const action = pendingAlertAction;
+        pendingAlertAction = null;
+        alertActionModal.hide();
+        action.onConfirm();
+    });
+
+    function setActionButtonLoading($btn) {
+        $btn.data('original-html', $btn.html());
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>');
+    }
+
+    function restoreActionButton($btn) {
+        $btn.prop('disabled', false).html($btn.data('original-html') || '');
+    }
 
     let quickAddPresetIndex = {{ count($keywordPresets) }};
     let quickAddPresetPage = 1;
@@ -720,11 +780,76 @@ $(function () {
     // Send welcome
     $(document).on('click', '.btn-send-welcome', function () {
         const $btn = $(this), url = $btn.data('url'), name = $btn.data('name');
-        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
-        $httpClient.make().post(url)
-            .then(({ data: resp }) => Botble.showSuccess(resp.message || 'Welcome message sent to ' + name + '.'))
-            .catch(({ response }) => Botble.showError(response?.data?.error || 'Failed to send.'))
-            .finally(() => $btn.prop('disabled', false).html('<svg class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21l1.65 -3.8a9 9 0 1 1 3.4 2.9l-5.05 .9"></path></svg>'));
+
+        showAlertActionConfirm({
+            title: 'Resend VIP welcome?',
+            message: 'Send the VIP welcome message to ' + name + '?',
+            confirmText: 'Send',
+            confirmClass: 'btn-warning',
+            iconWrapClass: 'bg-warning bg-opacity-10',
+            iconClass: 'ti ti-refresh text-warning fs-3',
+            onConfirm: function () {
+                setActionButtonLoading($btn);
+                $httpClient.make().post(url)
+                    .then(({ data: resp }) => Botble.showSuccess(resp.message || 'Welcome message sent to ' + name + '.'))
+                    .catch(({ response }) => Botble.showError(response?.data?.error || 'Failed to send.'))
+                    .finally(() => restoreActionButton($btn));
+            }
+        });
+    });
+
+    // Send account invite
+    $(document).on('click', '.btn-send-account-invite', function () {
+        const $btn = $(this), url = $btn.data('url'), name = $btn.data('name');
+
+        showAlertActionConfirm({
+            title: 'Send account invite?',
+            message: 'Invite ' + name + ' to create a Wakanda Jobs account?',
+            confirmText: 'Send invite',
+            confirmClass: 'btn-secondary',
+            iconWrapClass: 'bg-secondary bg-opacity-10',
+            iconClass: 'ti ti-mail text-secondary fs-3',
+            onConfirm: function () {
+                setActionButtonLoading($btn);
+                $httpClient.make().post(url)
+                    .then(({ data: resp }) => Botble.showSuccess(resp.message || 'Account invite sent to ' + name + '.'))
+                    .catch(({ response }) => Botble.showError(response?.data?.error || 'Failed to send account invite.'))
+                    .finally(() => restoreActionButton($btn));
+            }
+        });
+    });
+
+    // Delete alert
+    $(document).on('click', '.btn-delete-alert-modal', function () {
+        const $btn = $(this), url = $btn.data('url'), name = $btn.data('name');
+
+        showAlertActionConfirm({
+            title: 'Delete this alert?',
+            message: 'Delete alert for ' + name + '? This will also delete all send logs.',
+            confirmText: 'Delete',
+            confirmClass: 'btn-danger',
+            iconWrapClass: 'bg-danger bg-opacity-10',
+            iconClass: 'ti ti-trash text-danger fs-3',
+            onConfirm: function () {
+                setActionButtonLoading($btn);
+                $httpClient.make().delete(url)
+                    .then(() => {
+                        Botble.showSuccess('Alert deleted.');
+                        const tableSelector = '#botble-job-board-tables-candidate-alert-table';
+                        if ($.fn.DataTable && $.fn.DataTable.isDataTable(tableSelector)) {
+                            $(tableSelector).DataTable().ajax.reload(null, false);
+                        } else {
+                            $btn.closest('tr').fadeOut(200, function () {
+                                $(this).remove();
+                            });
+                        }
+                    })
+                    .catch(({ response }) => {
+                        Botble.showError(response?.data?.error || 'Could not delete alert.');
+                        restoreActionButton($btn);
+                    });
+            }
+        });
     });
 
     // ── Export CSV ────────────────────────────────────────────────────────────

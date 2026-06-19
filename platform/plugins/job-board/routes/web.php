@@ -111,18 +111,24 @@ AdminHelper::registerRoutes(function (): void {
     Route::group(['prefix' => 'job-board/candidate-alerts', 'as' => 'job-board.candidate-alerts.', 'middleware' => 'auth'], function (): void {
         Route::get('', [CandidateAlertController::class, 'index'])->name('index');
         Route::post('', [CandidateAlertController::class, 'store'])->name('store');
+        Route::put('quick-add-presets', [CandidateAlertController::class, 'updateKeywordPresets'])->name('quick-add-presets.update');
         Route::get('{candidateAlert}/edit', [CandidateAlertController::class, 'edit'])->name('edit')->wherePrimaryKey('candidateAlert');
+        Route::get('{candidateAlert}/edit-modal', [CandidateAlertController::class, 'editModal'])->name('edit-modal')->wherePrimaryKey('candidateAlert');
         Route::put('{candidateAlert}', [CandidateAlertController::class, 'update'])->name('update')->wherePrimaryKey('candidateAlert');
         Route::delete('{candidateAlert}', [CandidateAlertController::class, 'destroy'])->name('destroy')->wherePrimaryKey('candidateAlert');
         Route::post('{candidateAlert}/toggle', [CandidateAlertController::class, 'toggle'])->name('toggle')->wherePrimaryKey('candidateAlert');
         Route::get('{candidateAlert}/logs', [CandidateAlertController::class, 'logs'])->name('logs')->wherePrimaryKey('candidateAlert');
         Route::get('{candidateAlert}/preview', [CandidateAlertController::class, 'preview'])->name('preview')->wherePrimaryKey('candidateAlert');
+        Route::post('{candidateAlert}/send-account-invite', [CandidateAlertController::class, 'sendAccountInvite'])->name('send-account-invite')->wherePrimaryKey('candidateAlert');
+        Route::post('{candidateAlert}/analyze-existing-cv', [CandidateAlertController::class, 'analyzeExistingCv'])->name('analyze-existing-cv')->wherePrimaryKey('candidateAlert');
         Route::post('{candidateAlert}/send-now', [CandidateAlertController::class, 'sendNow'])->name('send-now')->wherePrimaryKey('candidateAlert');
         Route::post('{candidateAlert}/send-welcome', [CandidateAlertController::class, 'sendWelcome'])->name('send-welcome')->wherePrimaryKey('candidateAlert');
         Route::post('analyze-cv', [CandidateAlertController::class, 'analyzeCv'])->name('analyze-cv');
+        Route::post('analyze-account-cv', [CandidateAlertController::class, 'analyzeAccountCv'])->name('analyze-account-cv');
         Route::post('preview-filters', [CandidateAlertController::class, 'previewFilters'])->name('preview-filters');
         Route::post('send-discount-newsletter', [CandidateAlertController::class, 'sendDiscountNewsletter'])->name('send-discount-newsletter');
         Route::get('check-phone', [CandidateAlertController::class, 'checkPhone'])->name('check-phone');
+        Route::get('search-accounts', [CandidateAlertController::class, 'searchAccounts'])->name('search-accounts');
         Route::get('location/states', [CandidateAlertController::class, 'locationStates'])->name('location.states');
         Route::get('location/cities', [CandidateAlertController::class, 'locationCities'])->name('location.cities');
     });
