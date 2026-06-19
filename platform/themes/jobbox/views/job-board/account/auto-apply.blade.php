@@ -29,7 +29,11 @@
             <div class="card-body p-3 d-flex flex-wrap align-items-center justify-content-between gap-3">
                 <div class="d-flex flex-wrap gap-4">
                     <div>
-                        <span class="color-text-paragraph-2 font-xs d-block">{{ __('Applications sent this month') }}</span>
+                        <span class="color-text-paragraph-2 font-xs d-block">{{ __('Plan') }}</span>
+                        <span class="fw-semibold text-primary">{{ $activeOrder?->planLabel() ?? 'Active' }}</span>
+                    </div>
+                    <div>
+                        <span class="color-text-paragraph-2 font-xs d-block">{{ __('Applications sent this cycle') }}</span>
                         <span class="fw-semibold text-primary">{{ $quota->applications_sent }}</span>
                     </div>
                     <div>
@@ -43,9 +47,15 @@
                         </span>
                     </div>
                     <div>
-                        <span class="color-text-paragraph-2 font-xs d-block">{{ __('Period') }}</span>
+                        <span class="color-text-paragraph-2 font-xs d-block">{{ __('Current cycle') }}</span>
                         <span class="fw-semibold">{{ $period }}</span>
                     </div>
+                    @if($activeOrder?->expiresAt())
+                        <div>
+                            <span class="color-text-paragraph-2 font-xs d-block">{{ __('Expires') }}</span>
+                            <span class="fw-semibold">{{ $activeOrder->expiresAt()->toFormattedDateString() }}</span>
+                        </div>
+                    @endif
                 </div>
                 <a href="{{ route('public.auto-apply.plans') }}" class="btn btn-sm btn-outline-primary">
                     {{ __('Upgrade Plan') }}

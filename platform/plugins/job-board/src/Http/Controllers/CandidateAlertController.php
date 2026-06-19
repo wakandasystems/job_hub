@@ -5,6 +5,8 @@ namespace Botble\JobBoard\Http\Controllers;
 use Botble\JobBoard\Enums\JobStatusEnum;
 use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\CandidateAlert;
+use Botble\JobBoard\Models\CandidateAlertCvBuilderMessage;
+use Botble\JobBoard\Models\CandidateAlertCvBuilderSession;
 use Botble\JobBoard\Models\CandidateAlertCvAnalysisLog;
 use Botble\JobBoard\Models\CandidateAlertLog;
 use Botble\JobBoard\Models\Category;
@@ -13,6 +15,7 @@ use Botble\JobBoard\Models\JobExperience;
 use Botble\JobBoard\Models\JobType;
 use Botble\JobBoard\Models\SocialAutomation;
 use Botble\JobBoard\Services\CandidateAlertAccountSyncService;
+use Botble\JobBoard\Services\CandidateCvBuilderService;
 use Botble\JobBoard\Services\CvFilterAnalyzerService;
 use Botble\JobBoard\Services\CvScoringService;
 use Botble\JobBoard\Tables\CandidateAlertTable;
@@ -26,6 +29,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Throwable;
@@ -649,6 +653,135 @@ class CandidateAlertController
         }
 
         return response()->json(['message' => $message]);
+    }
+
+    public function cvBuilderSessions(CandidateAlert $candidateAlert): JsonResponse
+    {
+        $sessions = $candidateAlert->cvBuilderSessions()
+            ->with(['messages' => fn ($query) => $query->latest()->limit(5), 'aiLogs' => fn ($query) => $query->latest()->limit(3)])
+            ->latest()
+            ->limit(20)
+            ->get()
+            ->map(fn (CandidateAlertCvBuilderSession $session) => $this->formatCvBuilderSession($candidateAlert, $session));
+
+        return response()->json(['data' => $sessions]);
+    }
+
+    public function startCvBuilder(CandidateAlert $candidateAlert, Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'whatsapp_number' => ['required', 'string', 'max:40'],
+            'candidate_name' => ['nullable', 'string', 'max:150'],
+        ]);
+
+        $session = CandidateAlertCvBuilderSession::query()->create([
+            'candidate_alert_id' => $candidateAlert->getKey(),
+            'admin_id' => Auth::id(),
+            'candidate_name' => trim((string) ($data['candidate_name'] ?? '')) ?: $candidateAlert->candidate_name,
+            'whatsapp_number' => trim((string) $data['whatsapp_number']),
+            'status' => 'collecting',
+            'current_question_index' => 0,
+            'questions' => CandidateCvBuilderService::questions(),
+        ]);
+
+        $errorMessage = null;
+        $sent = $this->sendCvBuilderQuestionMessage($session, $errorMessage);
+
+        if (! $sent) {
+            $session->update([
+                'status' => 'failed',
+                'error_message' => $errorMessage ?: 'Failed to send the first CV question.',
+            ]);
+
+            return response()->json(['error' => $session->error_message], 422);
+        }
+
+        return response()->json([
+            'message' => 'CV builder started. First question sent on WhatsApp.',
+            'data' => $this->formatCvBuilderSession($candidateAlert, $session->fresh()),
+        ]);
+    }
+
+    public function sendCvBuilderQuestion(CandidateAlert $candidateAlert, CandidateAlertCvBuilderSession $session): JsonResponse
+    {
+        $this->assertCvBuilderSessionBelongsToAlert($candidateAlert, $session);
+
+        $errorMessage = null;
+        $sent = $this->sendCvBuilderQuestionMessage($session, $errorMessage);
+
+        if (! $sent) {
+            return response()->json(['error' => $errorMessage ?: 'Failed to send CV question.'], 422);
+        }
+
+        return response()->json([
+            'message' => 'Next CV question sent.',
+            'data' => $this->formatCvBuilderSession($candidateAlert, $session->fresh()),
+        ]);
+    }
+
+    public function generateCvFromChat(
+        CandidateAlert $candidateAlert,
+        CandidateAlertCvBuilderSession $session,
+        Request $request,
+        CandidateCvBuilderService $builder
+    ): JsonResponse {
+        $this->assertCvBuilderSessionBelongsToAlert($candidateAlert, $session);
+
+        $data = $request->validate([
+            'conversation_text' => ['required', 'string', 'min:50'],
+        ]);
+
+        $conversationText = trim((string) $data['conversation_text']);
+
+        CandidateAlertCvBuilderMessage::query()->create([
+            'session_id' => $session->getKey(),
+            'direction' => 'admin_paste',
+            'body' => $conversationText,
+        ]);
+
+        try {
+            $result = $builder->buildFromTranscript($session, $conversationText, Auth::id());
+        } catch (Throwable $exception) {
+            $session->update([
+                'status' => 'failed',
+                'error_message' => $exception->getMessage(),
+            ]);
+
+            $latestAiLog = $session->aiLogs()->latest()->first();
+
+            return response()->json([
+                'error' => $exception->getMessage(),
+                'ai_meta' => $latestAiLog ? $this->formatCvBuilderAiLog($latestAiLog) : null,
+            ], 422);
+        }
+
+        /** @var CandidateAlertCvBuilderSession $freshSession */
+        $freshSession = $result['session'];
+
+        return response()->json([
+            'message' => 'CV generated and stored.',
+            'data' => $this->formatCvBuilderSession($candidateAlert, $freshSession),
+            'cv' => $result['cv'],
+            'ai_meta' => $this->formatCvBuilderAiLog($result['ai_log']),
+        ]);
+    }
+
+    public function downloadBuiltCv(
+        CandidateAlert $candidateAlert,
+        CandidateAlertCvBuilderSession $session,
+        string $format
+    ) {
+        $this->assertCvBuilderSessionBelongsToAlert($candidateAlert, $session);
+
+        abort_unless(in_array($format, ['docx', 'pdf'], true), 404);
+
+        $path = $format === 'docx' ? $session->docx_path : $session->pdf_path;
+
+        abort_unless($path && Storage::disk('local')->exists($path), 404, 'CV file not found.');
+
+        $name = Str::slug((string) ($session->structured_cv['full_name'] ?? $session->candidate_name ?? 'candidate-cv')) ?: 'candidate-cv';
+
+        return Storage::disk('local')->download($path, "{$name}.{$format}");
     }
 
     public function logs(CandidateAlert $candidateAlert): JsonResponse
@@ -1461,6 +1594,138 @@ class CandidateAlertController
     private function filtersChanged(array $old, array $new): bool
     {
         return json_encode($old) !== json_encode($new);
+    }
+
+    private function assertCvBuilderSessionBelongsToAlert(CandidateAlert $alert, CandidateAlertCvBuilderSession $session): void
+    {
+        abort_unless((int) $session->candidate_alert_id === (int) $alert->getKey(), 404);
+    }
+
+    private function sendCvBuilderQuestionMessage(CandidateAlertCvBuilderSession $session, ?string &$errorMessage = null): bool
+    {
+        [$token, $gatewayUrl] = $this->getWhapiCredentials();
+
+        if (! $token) {
+            $errorMessage = 'No active Whapi automation configured.';
+
+            return false;
+        }
+
+        $questions = $session->questions ?: CandidateCvBuilderService::questions();
+        $index = (int) $session->current_question_index;
+        $total = count($questions);
+
+        if ($index >= $total) {
+            $session->update(['status' => 'ready']);
+            $errorMessage = 'All CV questions have already been sent. Paste the completed chat to generate the CV.';
+
+            return false;
+        }
+
+        $question = (string) ($questions[$index] ?? '');
+        $body = "Wakanda Jobs CV Builder\n\n"
+            . "Question " . ($index + 1) . " of {$total}:\n"
+            . $question . "\n\n"
+            . "Please reply to this question. We will send the next question after your answer.";
+
+        $jid = preg_replace('/\D/', '', (string) $session->whatsapp_number) . '@s.whatsapp.net';
+
+        try {
+            $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
+                'to' => $jid,
+                'body' => $body,
+            ]);
+        } catch (Throwable $exception) {
+            $errorMessage = 'CV question send exception: ' . $exception->getMessage();
+
+            return false;
+        }
+
+        CandidateAlertCvBuilderMessage::query()->create([
+            'session_id' => $session->getKey(),
+            'direction' => 'outbound',
+            'question_index' => $index,
+            'body' => $body,
+            'whapi_response' => [
+                'status' => $response->status(),
+                'body' => $response->json() ?: $response->body(),
+            ],
+            'sent_at' => now(),
+        ]);
+
+        if (! $response->successful()) {
+            $errorMessage = 'CV question send failed: HTTP ' . $response->status() . ' ' . Str::limit($response->body(), 250, '');
+
+            return false;
+        }
+
+        $nextIndex = $index + 1;
+        $session->update([
+            'current_question_index' => $nextIndex,
+            'status' => $nextIndex >= $total ? 'ready' : 'collecting',
+            'last_sent_at' => now(),
+            'error_message' => null,
+        ]);
+
+        return true;
+    }
+
+    private function formatCvBuilderSession(CandidateAlert $alert, CandidateAlertCvBuilderSession $session): array
+    {
+        $questionTotal = count($session->questions ?: CandidateCvBuilderService::questions());
+
+        return [
+            'id' => $session->id,
+            'candidate_name' => $session->candidate_name,
+            'whatsapp_number' => $session->whatsapp_number,
+            'status' => $session->status,
+            'current_question_index' => $session->current_question_index,
+            'question_total' => $questionTotal,
+            'next_question' => $session->current_question_index < $questionTotal
+                ? ($session->questions[$session->current_question_index] ?? null)
+                : null,
+            'last_sent_at' => $session->last_sent_at?->format('d M Y H:i'),
+            'completed_at' => $session->completed_at?->format('d M Y H:i'),
+            'error_message' => $session->error_message,
+            'has_docx' => (bool) $session->docx_path,
+            'has_pdf' => (bool) $session->pdf_path,
+            'docx_url' => $session->docx_path ? route('job-board.candidate-alerts.cv-builder.download', [$alert->id, $session->id, 'docx']) : null,
+            'pdf_url' => $session->pdf_path ? route('job-board.candidate-alerts.cv-builder.download', [$alert->id, $session->id, 'pdf']) : null,
+            'generate_url' => route('job-board.candidate-alerts.cv-builder.generate', [$alert->id, $session->id]),
+            'send_next_url' => route('job-board.candidate-alerts.cv-builder.send-question', [$alert->id, $session->id]),
+            'messages' => $session->relationLoaded('messages')
+                ? $session->messages->map(fn (CandidateAlertCvBuilderMessage $message) => [
+                    'direction' => $message->direction,
+                    'question_index' => $message->question_index,
+                    'body' => $message->body,
+                    'sent_at' => $message->sent_at?->format('d M Y H:i'),
+                ])->values()
+                : [],
+            'ai_logs' => $session->relationLoaded('aiLogs')
+                ? $session->aiLogs->map(fn ($log) => $this->formatCvBuilderAiLog($log))->values()
+                : [],
+        ];
+    }
+
+    private function formatCvBuilderAiLog($log): array
+    {
+        return [
+            'id' => $log->id,
+            'provider' => $log->ai_provider,
+            'model' => $log->ai_model,
+            'endpoint' => $log->endpoint,
+            'status' => $log->status,
+            'prompt_tokens' => $log->prompt_tokens,
+            'completion_tokens' => $log->completion_tokens,
+            'total_tokens' => $log->total_tokens,
+            'estimated_cost_usd' => $log->estimated_cost_usd,
+            'processing_ms' => $log->processing_ms,
+            'error_message' => $log->error_message,
+            'request_payload' => $log->request_payload,
+            'response_payload' => $log->response_payload,
+            'response_headers' => $log->response_headers,
+            'created_at' => $log->created_at?->format('d M Y H:i:s'),
+        ];
     }
 
     private function getWhapiCredentials(): array

@@ -818,6 +818,15 @@ class JobBoardServiceProvider extends ServiceProvider
                     'icon' => 'ti ti-book',
                     'url' => route('documentation.index'),
                     'permissions' => [],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-auto-cv-bot',
+                    'priority' => 6,
+                    'parent_id' => null,
+                    'name' => 'CV Bot',
+                    'icon' => 'ti ti-robot',
+                    'url' => route('job-board.auto-cv-bot.index'),
+                    'permissions' => ['auto-cv-bot.index'],
                 ]);
         });
 

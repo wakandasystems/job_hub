@@ -52,15 +52,6 @@ class SendCandidateAlertsCommand extends Command
 
     private function processAlert(CandidateAlert $alert, string $token, string $gatewayUrl, int $hours): int
     {
-        $alreadySentToday = $alert->logs()
-            ->where('status', 'sent')
-            ->whereDate('sent_at', today())
-            ->exists();
-
-        if ($alreadySentToday) {
-            return 0;
-        }
-
         $filters    = $alert->filters ?? [];
         $sentJobIds = $alert->logs()->pluck('job_id')->toArray();
 
@@ -77,7 +68,7 @@ class SendCandidateAlertsCommand extends Command
         if ($keywords) {
             $query->where(function ($q) use ($keywords) {
                 foreach ($keywords as $kw) {
-                    $pat = '\\b' . preg_quote(strtolower($kw), '/') . '\\b';
+                    $pat = $this->keywordRegexPattern($kw);
                     $q->orWhereRaw('LOWER(jb_jobs.name) REGEXP ?', [$pat])
                       ->orWhereRaw('LOWER(jb_jobs.description) REGEXP ?', [$pat])
                       ->orWhereRaw('LOWER(jb_jobs.address) REGEXP ?', [$pat]);
@@ -158,6 +149,18 @@ class SendCandidateAlertsCommand extends Command
         }
 
         return $ok ? $jobs->count() : 0;
+    }
+
+    private function keywordRegexPattern(string $keyword): string
+    {
+        $keyword = mb_strtolower(trim($keyword));
+        $pattern = preg_quote($keyword, '/');
+
+        if (preg_match('/[a-z]$/i', $keyword)) {
+            $pattern .= 's?';
+        }
+
+        return '\\b' . $pattern . '\\b';
     }
 
     private function sendDigestToCandidate(

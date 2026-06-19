@@ -259,6 +259,41 @@ app()->booted(function (): void {
                 Theme::partial('shortcodes.job-of-the-day-admin-config', compact('attributes', 'categories'));
         });
 
+        add_shortcode(
+            'job-social-spotlight',
+            __('Job Social Spotlight'),
+            __('Showcase AI-generated job visuals'),
+            function (Shortcode $shortcode) {
+                $selectedCountry = wakanda_selected_country();
+                $countryId = $selectedCountry ? $selectedCountry->id : null;
+
+                $jobs = Job::query()
+                    ->where('status', \Botble\JobBoard\Enums\JobStatusEnum::PUBLISHED)
+                    ->where('moderation_status', \Botble\JobBoard\Enums\ModerationStatusEnum::APPROVED)
+                    ->where(function ($q): void {
+                        $q->where('never_expired', true)
+                            ->orWhereNull('expire_date')
+                            ->orWhere('expire_date', '>=', now());
+                    })
+                    ->where(function ($q): void {
+                        foreach (['facebook_image', 'linkedin_image', 'twitter_image', 'whatsapp_image', 'tiktok_image'] as $field) {
+                            $q->orWhere(fn ($q2) => $q2->whereNotNull($field)->where($field, '!=', ''));
+                        }
+                    })
+                    ->when($countryId, fn ($q) => $q->where('country_id', $countryId))
+                    ->with(['slugable', 'company', 'company.slugable'])
+                    ->latest('created_at')
+                    ->limit((int) $shortcode->limit ?: 8)
+                    ->get();
+
+                return Theme::partial('shortcodes.job-social-spotlight', compact('shortcode', 'jobs'));
+            }
+        );
+
+        shortcode()->setAdminConfig('job-social-spotlight', function (array $attributes) {
+            return Theme::partial('shortcodes.job-social-spotlight-admin-config', compact('attributes'));
+        });
+
         add_shortcode('job-grid', __('Job grid banner'), __('Job grid banner'), function (Shortcode $shortcode) {
             return Theme::partial('shortcodes.job-grid', compact('shortcode'));
         });

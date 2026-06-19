@@ -176,6 +176,11 @@ class Company extends BaseModel
         return $this->belongsTo(User::class, 'verified_by');
     }
 
+    public function mergeLogsAsWinner(): HasMany
+    {
+        return $this->hasMany(CompanyMergeLog::class, 'winner_company_id')->latest();
+    }
+
     protected function badge(): Attribute
     {
         return Attribute::make(

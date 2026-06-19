@@ -9,6 +9,7 @@ use Botble\JobBoard\Models\AutoApplyPreference;
 use Botble\JobBoard\Models\AutoApplyQuota;
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\JobApplication;
+use Botble\JobBoard\Jobs\NotifyCandidateAutoApplySentJob;
 use Botble\Media\Facades\RvMedia;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -383,14 +384,9 @@ PROMPT;
      */
     public function hasQuota(int $accountId): bool
     {
-        $period = AutoApplyQuota::currentPeriod();
+        $quota = AutoApplyQuota::currentForAccount($accountId);
 
-        $quota = AutoApplyQuota::activePaid()
-            ->where('account_id', $accountId)
-            ->where('period', $period)
-            ->first();
-
-        return $quota && $quota->hasRemaining();
+        return $quota?->is_approved && $quota->hasRemaining();
     }
 
     /**
@@ -398,20 +394,13 @@ PROMPT;
      */
     public function deductQuota(int $accountId): bool
     {
-        $period = AutoApplyQuota::currentPeriod();
-
-        $quota = AutoApplyQuota::activePaid()
-            ->where('account_id', $accountId)
-            ->where('period', $period)
-            ->first();
+        $quota = AutoApplyQuota::currentForAccount($accountId);
 
         if (! $quota || ! $quota->hasRemaining()) {
             return false;
         }
 
-        $quota->increment('applications_sent');
-
-        return true;
+        return $quota->consumeOne();
     }
 
     /**
@@ -441,6 +430,19 @@ PROMPT;
         $toEmail = trim((string) $job->apply_email);
         if ($toEmail === '') {
             return null;
+        }
+
+        if (! $this->hasQuota($account->id)) {
+            return AutoApplyLog::create([
+                'account_id' => $account->id,
+                'job_id' => $job->id,
+                'email_sent_to' => $toEmail,
+                'ai_model_used' => $aiModel ?: AutoApplyOrder::globalAiModel(),
+                'match_score' => 0,
+                'status' => 'failed',
+                'error_message' => 'No active auto-apply quota available for the current billing cycle',
+                'sent_at' => now(),
+            ]);
         }
 
         // Generate AI email
@@ -511,7 +513,28 @@ PROMPT;
             $this->createJobApplication($account, $job, $result['body']);
 
             // Deduct quota
-            $this->deductQuota($account->id);
+            if (! $this->deductQuota($account->id)) {
+                return AutoApplyLog::create([
+                    'account_id'        => $account->id,
+                    'job_id'            => $job->id,
+                    'email_sent_to'     => $toEmail,
+                    'ai_email_subject'  => $result['subject'],
+                    'ai_email_body'     => $result['body'],
+                    'ai_model_used'     => $aiModel ?: AutoApplyOrder::globalAiModel(),
+                    'prompt_tokens'     => $result['prompt_tokens'] ?? null,
+                    'completion_tokens' => $result['completion_tokens'] ?? null,
+                    'total_tokens'      => $result['total_tokens'] ?? null,
+                    'ai_cost_usd'       => $result['cost'] ?? null,
+                    'match_score'       => $result['score'],
+                    'match_reasons'     => $result['reasons'],
+                    'status'            => 'failed',
+                    'error_message'     => 'Application email sent but quota deduction failed',
+                    'sent_at'           => now(),
+                ]);
+            }
+
+            // Let the candidate know — queued separately so it never blocks the auto-apply send itself
+            NotifyCandidateAutoApplySentJob::dispatch($account->id, $job->id)->onQueue('default');
         }
 
         return AutoApplyLog::create([

@@ -202,6 +202,17 @@ class JobCrawlerRunner
         ]);
     }
 
+    protected function normalizeExternalSourceId(mixed $value): string
+    {
+        $sourceId = trim((string) $value);
+
+        if (mb_strlen($sourceId) <= 255) {
+            return $sourceId;
+        }
+
+        return 'sha256:' . hash('sha256', $sourceId);
+    }
+
     protected function fetchItems(JobCrawler $crawler): array
     {
         if ($crawler->parser_type === 'gozambiajobs') {
@@ -1784,6 +1795,8 @@ class JobCrawlerRunner
             return;
         }
 
+        $job->external_source_id = $this->normalizeExternalSourceId($job->external_source_id);
+
         try {
             $job->save();
         } catch (\Illuminate\Database\QueryException $e) {
@@ -1927,7 +1940,7 @@ class JobCrawlerRunner
     {
         $normalizedName = $this->normalizeGoZambiaCompanyName($name);
 
-        return Company::query()
+        $company = Company::query()
             ->where(function ($query) use ($website, $name): void {
                 if ($website) {
                     $query->where('website', $website);
@@ -1941,6 +1954,14 @@ class JobCrawlerRunner
             })
             ->get()
             ->first(fn (Company $company) => $this->normalizeGoZambiaCompanyName((string) $company->name) === $normalizedName);
+
+        if ($company) {
+            return $company;
+        }
+
+        // No live company matches — check whether this name/website previously belonged to a
+        // company that has since been merged into another one, so we don't recreate a duplicate.
+        return app(CompanyMergeService::class)->resolveByNameOrWebsite($name, $website);
     }
 
     protected function normalizeGoZambiaCompanyName(string $name): string
@@ -6517,7 +6538,7 @@ class JobCrawlerRunner
             $newOnPage = 0;
 
             foreach ($pageJobs as $job) {
-                $slug = (string) data_get($job, 'slug');
+                $slug = $this->normalizeExternalSourceId(data_get($job, 'slug'));
                 if ($slug === '' || isset($seen[$slug])) {
                     continue;
                 }
@@ -6585,7 +6606,7 @@ class JobCrawlerRunner
         $existingItems = [];
 
         foreach ($items as $item) {
-            $slug = (string) data_get($item, 'slug');
+            $slug = $this->normalizeExternalSourceId(data_get($item, 'slug'));
             if ($slug !== '' && array_key_exists($slug, $existingIds)) {
                 $existingItems[] = $item;
             } else {
@@ -6597,7 +6618,7 @@ class JobCrawlerRunner
         $this->saveNewImportProgress(0, $newTotal, $stats);
 
         foreach ($newItems as $index => $item) {
-            $slug = (string) data_get($item, 'slug');
+            $slug = $this->normalizeExternalSourceId(data_get($item, 'slug'));
             $title = trim((string) data_get($item, 'title'));
 
             if ($slug === '' || $title === '') {
@@ -6639,7 +6660,7 @@ class JobCrawlerRunner
         $this->saveExistingUpdateProgress(0, $existingTotal, $stats);
 
         foreach ($existingItems as $index => $item) {
-            $slug = (string) data_get($item, 'slug');
+            $slug = $this->normalizeExternalSourceId(data_get($item, 'slug'));
             $job = Job::query()
                 ->where('crawler_id', $crawler->getKey())
                 ->where('external_source_id', $slug)
@@ -6686,7 +6707,7 @@ class JobCrawlerRunner
 
         return [
             'crawler_id' => $crawler->getKey(),
-            'external_source_id' => $slug,
+            'external_source_id' => $this->normalizeExternalSourceId($slug),
             'external_source_url' => 'https://ethiojobs.net/job/' . $slug,
             'name' => $this->limitGoZambiaField(trim((string) data_get($item, 'title')), 110),
             'description' => Str::limit(trim(strip_tags($description)), 400, ''),

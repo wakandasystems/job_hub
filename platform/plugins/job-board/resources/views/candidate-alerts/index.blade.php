@@ -2160,14 +2160,6 @@ $(function () {
         });
         $('.country-count-badge-' + prefix).text((data.country_ids || []).length + ' selected');
 
-        if (data.job_experience_id) {
-            $scope.find('select[name="filters[job_experience_id]"]').val(data.job_experience_id);
-        }
-
-        if (data.location_keyword) {
-            $scope.find('input[name="filters[location_keyword]"]').val(data.location_keyword);
-        }
-
         $scope.find('input[name="cv_analysis_payload"]').val(JSON.stringify(data));
 
         // Show result panel

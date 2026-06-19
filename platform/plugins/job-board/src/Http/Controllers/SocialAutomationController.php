@@ -10,6 +10,7 @@ use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\SocialAutomation;
 use Botble\JobBoard\Services\SocialPublisherService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\Rule;
@@ -737,25 +738,50 @@ class SocialAutomationController extends BaseController
         }
 
         $retryQueued = false;
+        $retryAlreadyQueued = false;
+        $retryAt = now()->addMinutes(2);
         $targetAlreadyQueued = collect($errors)->filter()->contains(
             fn ($error) => str_contains((string) $error, '"in_queue":true')
         );
+        $hasTikTokDailyLimit = $this->hasTikTokDailyApiLimitError($errors);
+
+        if ($hasTikTokDailyLimit) {
+            $retryAt = $this->nextPublerTikTokRetryWindow();
+        }
 
         if ($request->boolean('retry_background') && ! $targetAlreadyQueued) {
             foreach (array_unique($retryAutomationIds) as $automationId) {
+                $retryCacheKey = RetryPublerPostJob::retryCacheKey(
+                    $job->getKey(),
+                    $automationId,
+                    $preferredImageField,
+                    $excludeNetworks,
+                );
+
+                if (! Cache::add($retryCacheKey, true, now()->addHours(48))) {
+                    $retryAlreadyQueued = true;
+
+                    continue;
+                }
+
                 RetryPublerPostJob::dispatch(
                     $job->getKey(),
                     $automationId,
                     $preferredImageField,
                     $excludeNetworks,
-                )->delay(now()->addMinute());
+                )
+                    ->onQueue('publer')
+                    ->delay($retryAt);
                 $retryQueued = true;
             }
         }
 
-        $errorDetail = collect($errors)->filter()->unique()->implode("\n");
+        $errorDetail = $this->summarizePublerErrors($errors);
         $message = match (true) {
-            $retryQueued => 'Publer failed. One background retry has been queued.',
+            $retryQueued && $hasTikTokDailyLimit => 'TikTok daily posting limit reached. A Publer retry has been queued for ' . $retryAt->format('d M Y H:i') . '.',
+            $retryAlreadyQueued && $hasTikTokDailyLimit => 'TikTok daily posting limit reached. A retry is already queued, so no duplicate was added.',
+            $retryQueued => 'Publer needs a posting gap. A background retry has been queued for 2 minutes.',
+            $retryAlreadyQueued => 'Publer retry is already queued, so no duplicate was added.',
             $targetAlreadyQueued => 'TikTok was queued, but Publer reported errors for other accounts. No retry was queued to avoid a duplicate.',
             default => 'Failed to publish to Publer.',
         };
@@ -767,6 +793,72 @@ class SocialAutomationController extends BaseController
                 'error_detail' => $errorDetail ?: 'Publer did not return a detailed error.',
                 'retry_queued' => $retryQueued,
             ]);
+    }
+
+    private function hasTikTokDailyApiLimitError(array $errors): bool
+    {
+        return collect($errors)
+            ->filter()
+            ->contains(function ($error): bool {
+                $error = strtolower((string) $error);
+
+                return str_contains($error, 'too many posts via openapi')
+                    || str_contains($error, 'last 24 hours');
+            });
+    }
+
+    private function nextPublerTikTokRetryWindow(): \Illuminate\Support\Carbon
+    {
+        $retryAt = now()->addDay()->setTime(1, 0);
+
+        if ($retryAt->lessThanOrEqualTo(now()->addMinutes(5))) {
+            $retryAt->addDay();
+        }
+
+        return $retryAt;
+    }
+
+    private function summarizePublerErrors(array $errors): string
+    {
+        $messages = collect($errors)
+            ->filter()
+            ->flatMap(function ($error): array {
+                $decoded = json_decode((string) $error, true);
+
+                if (! is_array($decoded)) {
+                    return [(string) $error];
+                }
+
+                $items = array_is_list($decoded) ? $decoded : [$decoded];
+
+                return collect($items)
+                    ->map(fn (array $item): string => (string) (
+                        data_get($item, 'failure.message')
+                        ?: data_get($item, 'post.error')
+                        ?: data_get($item, 'post.details.error')
+                        ?: data_get($item, 'message')
+                        ?: ''
+                    ))
+                    ->filter()
+                    ->all();
+            })
+            ->map(function (string $message): string {
+                $lower = strtolower($message);
+
+                if (str_contains($lower, 'too many posts via openapi') || str_contains($lower, 'last 24 hours')) {
+                    return 'TikTok daily OpenAPI posting limit reached. This will be retried by the Publer queue the following day at 01:00.';
+                }
+
+                if (str_contains($lower, 'one minute gap') || str_contains($lower, 'another post at this time')) {
+                    return 'Publer requires at least one minute between posts. This will be retried shortly.';
+                }
+
+                return $message;
+            })
+            ->unique()
+            ->values();
+
+        return $messages->implode("\n");
     }
 
     public function publerSendPeriodJobs(SocialAutomation $automation, Request $request, SocialPublisherService $publisher)

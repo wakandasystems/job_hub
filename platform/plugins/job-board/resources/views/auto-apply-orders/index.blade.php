@@ -71,7 +71,7 @@
                             <th width="60">ID</th>
                             <th>Candidate</th>
                             <th>Plan</th>
-                            <th>Apps/Mo</th>
+                            <th>Limit</th>
                             <th>Amount</th>
                             <th>Payment</th>
                             <th>Status</th>
@@ -87,7 +87,13 @@
                             <tr @class(['table-danger' => ! $hasCv])>
                                 <td>#{{ $order->id }}</td>
                                 <td>
-                                    <div class="fw-medium">{{ $order->account?->name ?? 'Deleted' }}</div>
+                                    <div class="fw-medium">
+                                        @if($order->account)
+                                            <a href="{{ route('accounts.edit', $order->account_id) }}">{{ $order->account->name }}</a>
+                                        @else
+                                            Deleted
+                                        @endif
+                                    </div>
                                     <div class="text-muted small">{{ $order->account?->email }}</div>
                                     @if(! $hasCv)
                                         <span class="badge bg-danger text-white mt-1">Inactive · Missing CV</span>
@@ -97,11 +103,7 @@
                                     <span class="badge bg-primary text-white">{{ $order->planLabel() }} · {{ $order->duration_days }} days</span>
                                 </td>
                                 <td>
-                                    @if($order->plan === 'admin_granted')
-                                        {{ $order->applications_allowed > 0 ? $order->applications_allowed : 'Preference only' }}
-                                    @else
-                                        {{ $order->applications_allowed <= 0 ? 'Unlimited' : $order->applications_allowed }}
-                                    @endif
+                                        {{ $order->applicationsLabel() }}
                                 </td>
                                 <td>{{ $order->currency }} {{ number_format($order->amount, 2) }}</td>
                                 <td>
@@ -266,7 +268,13 @@
                                         <input type="hidden" name="keywords[]" id="editKeywordsHidden">
                                     </div>
                                     <div class="col-12">
-                                        <label class="form-label">Countries <span class="text-muted small">(leave empty to match any country)</span></label>
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <label class="form-label mb-0">Countries <span class="text-muted small">(leave empty to match any country)</span></label>
+                                            <div class="d-flex gap-2">
+                                                <button type="button" class="btn btn-link btn-sm p-0" id="editCountrySelectAllBtn">Select all</button>
+                                                <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="editCountryClearAllBtn">Clear all</button>
+                                            </div>
+                                        </div>
                                         <input type="text" class="form-control" id="editCountryInput" placeholder="Search countries…" autocomplete="off">
                                         <div class="border rounded mt-2 d-none" id="editCountryResultsBox">
                                             <div id="editCountryResultsList" class="list-group list-group-flush"></div>
@@ -380,7 +388,7 @@
                 <div class="modal-body text-center py-4 px-4">
                     <div class="mb-3">
                         <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-success bg-opacity-10" style="width:52px;height:52px;">
-                            <i class="ti ti-check text-success fs-3"></i>
+                            <x-core::icon name="ti ti-check" class="text-success" style="width:28px;height:28px;" />
                         </span>
                     </div>
                     <h6 class="fw-semibold mb-1">Activate Auto Apply?</h6>
@@ -404,7 +412,7 @@
                 <div class="modal-body text-center py-4 px-4">
                     <div class="mb-3">
                         <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger bg-opacity-10" style="width:52px;height:52px;">
-                            <i class="ti ti-x text-danger fs-3"></i>
+                            <x-core::icon name="ti ti-x" class="text-danger" style="width:28px;height:28px;" />
                         </span>
                     </div>
                     <h6 class="fw-semibold mb-1">Reject this order?</h6>
@@ -429,7 +437,7 @@
                 <div class="modal-body text-center py-4 px-4">
                     <div class="mb-3">
                         <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-warning bg-opacity-10" style="width:52px;height:52px;">
-                            <i class="ti ti-ban text-warning fs-3"></i>
+                            <x-core::icon name="ti ti-ban" class="text-warning" style="width:28px;height:28px;" />
                         </span>
                     </div>
                     <h6 class="fw-semibold mb-1">Disable Auto Apply?</h6>
@@ -454,7 +462,7 @@
                 <div class="modal-body text-center py-4 px-4">
                     <div class="mb-3">
                         <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger bg-opacity-10" style="width:52px;height:52px;">
-                            <i class="ti ti-trash text-danger fs-3"></i>
+                            <x-core::icon name="ti ti-trash" class="text-danger" style="width:28px;height:28px;" />
                         </span>
                     </div>
                     <h6 class="fw-semibold mb-1">Delete this order?</h6>
@@ -641,6 +649,17 @@
                     <div class="d-flex gap-2 mb-3">
                         <input type="text" class="form-control" id="activeJobsSearch" placeholder="Search active jobs...">
                         <button type="button" class="btn btn-outline-primary" id="activeJobsSearchBtn">Search</button>
+                        <button type="button" class="btn btn-success text-nowrap" id="activeJobsSendAllBtn" title="Send all unsent jobs currently shown on this page">
+                            <i class="ti ti-send me-1"></i> Send All
+                        </button>
+                    </div>
+                    <div id="activeJobsSendAllProgress" class="d-none mb-3">
+                        <div class="d-flex justify-content-between small text-muted mb-1">
+                            <span id="activeJobsSendAllStatusText">Sending…</span>
+                        </div>
+                        <div class="progress" style="height:8px;">
+                            <div id="activeJobsSendAllProgressBar" class="progress-bar bg-success progress-bar-striped progress-bar-animated" role="progressbar" style="width:0%"></div>
+                        </div>
                     </div>
                     <div id="activeJobsLoading" class="text-center py-3 d-none">
                         <div class="spinner-border text-primary"></div>
@@ -649,6 +668,7 @@
                         <table class="table table-vcenter table-striped">
                             <thead>
                                 <tr>
+                                    <th width="40">#</th>
                                     <th>Job</th>
                                     <th>Company</th>
                                     <th>Country</th>
@@ -660,7 +680,7 @@
                             </thead>
                             <tbody id="activeJobsList">
                                 <tr>
-                                    <td colspan="7" class="text-center text-muted py-4">Select a candidate row to load jobs.</td>
+                                    <td colspan="8" class="text-center text-muted py-4">Select a candidate row to load jobs.</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -748,7 +768,7 @@
                 <div class="modal-body text-center py-4 px-4">
                     <div class="mb-3">
                         <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-success bg-opacity-10" style="width:52px;height:52px;">
-                            <i class="ti ti-send text-success fs-3"></i>
+                            <x-core::icon name="ti ti-send" class="text-success" style="width:28px;height:28px;" />
                         </span>
                     </div>
                     <h6 class="fw-semibold mb-1">Send this auto apply?</h6>
@@ -761,6 +781,27 @@
                             <input type="hidden" name="job_id" id="sendAutoApplyJobId">
                             <button type="submit" class="btn btn-success px-4">Send</button>
                         </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- Send all auto applies confirm modal --}}
+    <div class="modal fade" id="sendAllAutoApplyModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content">
+                <div class="modal-body text-center py-4 px-4">
+                    <div class="mb-3">
+                        <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-success bg-opacity-10" style="width:52px;height:52px;">
+                            <x-core::icon name="ti ti-send" class="text-success" style="width:28px;height:28px;" />
+                        </span>
+                    </div>
+                    <h6 class="fw-semibold mb-1">Send all auto applies?</h6>
+                    <p class="text-muted small mb-4" id="sendAllAutoApplyLabel">This will generate and send applications for every unsent job on this page.</p>
+                    <div class="d-flex gap-2 justify-content-center">
+                        <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-success px-4" id="sendAllAutoApplyConfirmBtn">Send All</button>
                     </div>
                 </div>
             </div>
@@ -1187,6 +1228,23 @@
                 parseResponse: function (resp) { return (resp.data || resp).items || []; },
             });
 
+            document.getElementById('editCountrySelectAllBtn').addEventListener('click', function () {
+                fetch('{{ route('auto-apply-orders.search-countries') }}?all=1', {
+                    headers: { 'Accept': 'application/json' }
+                })
+                    .then(function (r) { return r.json(); })
+                    .then(function (resp) {
+                        editCountryPicker.setSelected((resp.data || resp).items || []);
+                    })
+                    .catch(function () {
+                        Botble.showError('Failed to load countries.');
+                    });
+            });
+
+            document.getElementById('editCountryClearAllBtn').addEventListener('click', function () {
+                editCountryPicker.clear();
+            });
+
             editCategoryPicker = setupAutoApplyChipPicker({
                 inputId: 'editCategoryInput',
                 resultsBoxId: 'editCategoryResultsBox',
@@ -1230,6 +1288,72 @@
                             "'": '&#039;'
                         }[char];
                     });
+                }
+
+                function renderScoreBadge(score, reasons) {
+                    if (typeof score !== 'number') {
+                        return '<span class="text-muted small">—</span>';
+                    }
+                    reasons = reasons || [];
+                    var reasonsText = reasons.length ? reasons.join('\n') : 'AI match score based on the candidate\'s CV vs this job description.';
+                    var badgeClass = score >= 70 ? 'bg-success' : (score >= 40 ? 'bg-warning' : 'bg-secondary');
+                    return '<span class="badge ' + badgeClass + '" title="' + escapeHtml(reasonsText) + '" style="cursor:help;color:#fff">' + score + '%</span>';
+                }
+
+                function setScoreCell(jobId, html) {
+                    var row = activeJobsList.querySelector('tr[data-job-id="' + jobId + '"]');
+                    if (!row) return;
+                    var cell = row.querySelector('.js-score-td');
+                    if (cell) cell.innerHTML = html;
+                }
+
+                function scoreJobAjax(jobId) {
+                    return fetch('{{ route("auto-apply-orders.preview") }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({ account_id: activeJobsAccountId, job_id: jobId, ai_model: 'gpt-4o-mini' })
+                    })
+                        .then(function (r) { return r.json(); })
+                        .then(function (resp) {
+                            if (resp.error) return { score: null, reasons: [] };
+                            var d = resp.data || {};
+                            return {
+                                score: (typeof d.score === 'number') ? d.score : null,
+                                reasons: d.reasons || []
+                            };
+                        })
+                        .catch(function () {
+                            return { score: null, reasons: [] };
+                        });
+                }
+
+                // AI-scores jobs that don't have a real score yet (i.e. never auto-applied to),
+                // a couple at a time so the table fills in progressively without firing every
+                // call at once. Results are cached server-side (AutoApplyPreview), so reopening
+                // the modal for the same candidate/job won't re-trigger a paid OpenAI call.
+                function scoreUnscoredJobs(jobsToScore) {
+                    if (!jobsToScore.length) return;
+
+                    var queue = jobsToScore.slice();
+
+                    function next() {
+                        if (!queue.length) return;
+                        var job = queue.shift();
+
+                        scoreJobAjax(job.id).then(function (result) {
+                            setScoreCell(job.id, result.score === null
+                                ? '<span class="text-muted small" title="AI scoring failed">—</span>'
+                                : renderScoreBadge(result.score, result.reasons));
+                            next();
+                        });
+                    }
+
+                    next();
+                    next();
                 }
 
                 function renderActiveJobsPagination(meta) {
@@ -1283,17 +1407,23 @@
                             activeJobsAccountId = data.account_id || activeJobsAccountId;
 
                             if (!jobs.length) {
-                                activeJobsList.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No active unprocessed jobs found.</td></tr>';
+                                activeJobsList.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No jobs found.</td></tr>';
                                 renderActiveJobsPagination(meta);
                                 return;
                             }
 
-                            activeJobsList.innerHTML = jobs.map(function (job) {
+                            var rowOffset = meta ? (meta.current_page - 1) * meta.per_page : 0;
+
+                            activeJobsList.innerHTML = jobs.map(function (job, idx) {
+                                var rowNumber = rowOffset + idx + 1;
                                 var companyCell = '<div class="text-muted small">—</div>';
                                 if (job.company) {
+                                    var companyNameHtml = job.company_url
+                                        ? '<a href="' + escapeHtml(job.company_url) + '" target="_blank" rel="noopener" class="small text-reset">' + escapeHtml(job.company) + '</a>'
+                                        : '<span class="small">' + escapeHtml(job.company) + '</span>';
                                     companyCell = '<div class="d-flex align-items-center gap-2">'
                                         + (job.company_logo ? '<img src="' + escapeHtml(job.company_logo) + '" alt="" style="width:28px;height:28px;object-fit:contain;border-radius:4px;border:1px solid #eee;background:#fff;padding:2px">' : '')
-                                        + '<span class="small">' + escapeHtml(job.company) + '</span>'
+                                        + companyNameHtml
                                         + '</div>';
                                 }
 
@@ -1307,31 +1437,59 @@
                                     + '<div><span class="text-muted">Closing:</span> ' + escapeHtml(job.closing_date || '—') + '</div>'
                                     + '</div>';
 
-                                var score = (typeof job.score === 'number') ? job.score : 100;
-                                var scoreBadgeClass = score >= 70 ? 'bg-success' : (score >= 40 ? 'bg-warning' : 'bg-secondary');
-                                var reasons = job.match_reasons || [];
-                                var reasonsText = reasons.length
-                                    ? reasons.map(function (r) { return 'Keyword "' + r.keyword + '" found in ' + r.field + ': ' + r.snippet; }).join('\n')
-                                    : 'No keyword filters set — matches all jobs in the selected country.';
-                                var scoreCell = '<span class="badge ' + scoreBadgeClass + '" title="' + escapeHtml(reasonsText) + '" style="cursor:help;color:#fff">' + score + '%</span>';
+                                var scoreCell = job.needs_ai_score
+                                    ? '<span class="text-muted small d-inline-flex align-items-center gap-1">'
+                                        + '<span class="spinner-border spinner-border-sm" style="width:.85rem;height:.85rem;"></span> Scoring…</span>'
+                                    : renderScoreBadge(job.score, job.match_reasons);
 
-                                return '<tr>'
-                                    + '<td><div class="fw-medium">' + escapeHtml(job.name) + '</div><div class="text-muted small">#' + job.id + '</div></td>'
+                                var logStatusBadges = {
+                                    sent: 'bg-success',
+                                    failed: 'bg-danger',
+                                    bounced: 'bg-danger',
+                                    skipped_low_score: 'bg-secondary'
+                                };
+                                var logStatusLabels = {
+                                    sent: 'Sent',
+                                    failed: 'Failed',
+                                    bounced: 'Bounced',
+                                    skipped_low_score: 'Skipped (low score)'
+                                };
+
+                                var actionsCell;
+                                if (job.log_status) {
+                                    var badgeClass = logStatusBadges[job.log_status] || 'bg-secondary';
+                                    var badgeLabel = logStatusLabels[job.log_status] || job.log_status;
+                                    var badgeTitle = job.log_sent_at ? 'On ' + job.log_sent_at : '';
+                                    if (job.log_error) {
+                                        badgeTitle += (badgeTitle ? ' — ' : '') + job.log_error;
+                                    }
+                                    actionsCell = '<div class="d-inline-flex gap-1 align-items-center">'
+                                        + '<button type="button" class="btn btn-sm btn-outline-info js-preview-active-job" title="Preview application" data-job-id="' + job.id + '" data-job-name="' + escapeHtml(job.name) + '">Preview</button>'
+                                        + '<span class="badge ' + badgeClass + '" title="' + escapeHtml(badgeTitle) + '" style="cursor:help;color:#fff">' + escapeHtml(badgeLabel) + '</span>'
+                                        + '</div>';
+                                } else {
+                                    actionsCell = '<div class="d-inline-flex gap-1">'
+                                        + '<button type="button" class="btn btn-sm btn-outline-info js-preview-active-job" title="Preview application" data-job-id="' + job.id + '" data-job-name="' + escapeHtml(job.name) + '">Preview</button>'
+                                        + '<button type="button" class="btn btn-sm btn-success js-send-active-job" title="Send application" data-bs-toggle="modal" data-bs-target="#sendAutoApplyModal" data-job-id="' + job.id + '" data-job-name="' + escapeHtml(job.name) + '">Send</button>'
+                                        + '</div>';
+                                }
+
+                                return '<tr data-job-id="' + job.id + '">'
+                                    + '<td class="text-muted">' + rowNumber + '</td>'
+                                    + '<td><div class="fw-medium">' + (job.url ? '<a href="' + escapeHtml(job.url) + '" target="_blank" rel="noopener" class="text-reset">' + escapeHtml(job.name) + '</a>' : escapeHtml(job.name)) + '</div><div class="text-muted small">#' + job.id + '</div></td>'
                                     + '<td>' + companyCell + '</td>'
                                     + '<td>' + countryCell + '</td>'
                                     + '<td class="text-muted small">' + escapeHtml(job.apply_email) + '</td>'
                                     + '<td>' + datesCell + '</td>'
-                                    + '<td>' + scoreCell + '</td>'
-                                    + '<td class="text-end"><div class="d-inline-flex gap-1">'
-                                    + '<button type="button" class="btn btn-sm btn-outline-info js-preview-active-job" title="Preview application" data-job-id="' + job.id + '" data-job-name="' + escapeHtml(job.name) + '">Preview</button>'
-                                    + '<button type="button" class="btn btn-sm btn-success js-send-active-job" title="Send application" data-bs-toggle="modal" data-bs-target="#sendAutoApplyModal" data-job-id="' + job.id + '" data-job-name="' + escapeHtml(job.name) + '">Send</button>'
-                                    + '</div></td>'
+                                    + '<td class="js-score-td">' + scoreCell + '</td>'
+                                    + '<td class="text-end">' + actionsCell + '</td>'
                                     + '</tr>';
                             }).join('');
                             renderActiveJobsPagination(meta);
+                            scoreUnscoredJobs(jobs.filter(function (j) { return j.needs_ai_score; }));
                         })
                         .catch(function () {
-                            activeJobsList.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-4">Failed to load active jobs.</td></tr>';
+                            activeJobsList.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-4">Failed to load active jobs.</td></tr>';
                             activeJobsPagination.innerHTML = '';
                         })
                         .finally(function () {
@@ -1466,6 +1624,152 @@
 
                 document.getElementById('cvPreviewModal').addEventListener('hidden.bs.modal', function () {
                     document.getElementById('cvPreviewFrame').src = '';
+                });
+
+                // Send all unsent jobs on the current page, one at a time, with a live progress bar.
+                var sendAllBtn = document.getElementById('activeJobsSendAllBtn');
+                var sendAllProgressWrap = document.getElementById('activeJobsSendAllProgress');
+                var sendAllProgressBar = document.getElementById('activeJobsSendAllProgressBar');
+                var sendAllStatusText = document.getElementById('activeJobsSendAllStatusText');
+                var sendAllConfirmBtn = document.getElementById('sendAllAutoApplyConfirmBtn');
+                var sendAllInProgress = false;
+
+                function setRowSending(jobId) {
+                    var row = activeJobsList.querySelector('tr[data-job-id="' + jobId + '"]');
+                    if (!row) return;
+                    var cell = row.querySelector('td:last-child');
+                    if (cell) {
+                        cell.innerHTML = '<div class="d-inline-flex align-items-center gap-2 text-muted small">'
+                            + '<span class="spinner-border spinner-border-sm text-success"></span> Sending…</div>';
+                    }
+                    row.style.transition = 'background-color .3s ease';
+                    row.style.backgroundColor = '#fff8e6';
+                }
+
+                function setRowResult(jobId, ok, message) {
+                    var row = activeJobsList.querySelector('tr[data-job-id="' + jobId + '"]');
+                    if (!row) return;
+                    var cell = row.querySelector('td:last-child');
+                    if (cell) {
+                        var badgeClass = ok ? 'bg-info' : 'bg-danger';
+                        var badgeLabel = ok ? 'Queued' : 'Failed';
+                        cell.innerHTML = '<div class="d-inline-flex gap-1 align-items-center">'
+                            + '<span class="badge ' + badgeClass + '" title="' + escapeHtml(message || '') + '" style="cursor:help;color:#fff">' + badgeLabel + '</span>'
+                            + '</div>';
+                    }
+                    row.style.backgroundColor = ok ? '#e9f9ee' : '#fdeceb';
+                    setTimeout(function () {
+                        row.style.backgroundColor = '';
+                    }, 1000);
+                }
+
+                function sendJobAjax(jobId) {
+                    var formData = new FormData();
+                    formData.append('account_id', activeJobsAccountId);
+                    formData.append('job_id', jobId);
+
+                    return fetch('{{ route('auto-apply-orders.send-job') }}', {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                            'Accept': 'application/json'
+                        },
+                        body: formData
+                    })
+                        .then(function (r) {
+                            return r.json().catch(function () { return {}; }).then(function (data) {
+                                return { ok: r.ok, data: data };
+                            });
+                        })
+                        .then(function (result) {
+                            var data = result.data || {};
+                            return { success: result.ok && !data.error, message: data.message || '' };
+                        })
+                        .catch(function () {
+                            return { success: false, message: 'Network error' };
+                        });
+                }
+
+                function runSendAll() {
+                    if (sendAllInProgress) return;
+
+                    var buttons = Array.prototype.slice.call(activeJobsList.querySelectorAll('.js-send-active-job'));
+                    var jobs = buttons.map(function (btn) {
+                        return { id: btn.dataset.jobId, name: btn.dataset.jobName || ('#' + btn.dataset.jobId) };
+                    });
+
+                    if (!jobs.length) return;
+
+                    sendAllInProgress = true;
+                    sendAllBtn.disabled = true;
+                    sendAllBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Sending…';
+                    sendAllProgressWrap.classList.remove('d-none');
+                    sendAllProgressBar.style.width = '0%';
+
+                    var total = jobs.length;
+                    var done = 0;
+                    var okCount = 0;
+                    var failCount = 0;
+
+                    function next() {
+                        if (done >= total) {
+                            sendAllInProgress = false;
+                            sendAllBtn.disabled = false;
+                            sendAllBtn.innerHTML = '<i class="ti ti-send me-1"></i> Send All';
+                            sendAllStatusText.textContent = 'Done — ' + okCount + ' queued, ' + failCount + ' failed.';
+
+                            if (okCount > 0) {
+                                Botble.showSuccess(okCount + ' application(s) queued for sending.');
+                            }
+                            if (failCount > 0) {
+                                Botble.showError(failCount + ' application(s) failed to queue.');
+                            }
+
+                            setTimeout(function () {
+                                sendAllProgressWrap.classList.add('d-none');
+                            }, 2500);
+                            return;
+                        }
+
+                        var job = jobs[done];
+                        setRowSending(job.id);
+                        sendAllStatusText.textContent = 'Sending ' + (done + 1) + ' / ' + total + ' — ' + job.name;
+
+                        sendJobAjax(job.id).then(function (result) {
+                            done++;
+                            if (result.success) {
+                                okCount++;
+                            } else {
+                                failCount++;
+                            }
+                            setRowResult(job.id, result.success, result.message);
+
+                            var pct = Math.round((done / total) * 100);
+                            sendAllProgressBar.style.width = pct + '%';
+
+                            setTimeout(next, 600);
+                        });
+                    }
+
+                    next();
+                }
+
+                sendAllBtn.addEventListener('click', function () {
+                    var pendingCount = activeJobsList.querySelectorAll('.js-send-active-job').length;
+                    if (!pendingCount) {
+                        Botble.showError('No unsent jobs on this page.');
+                        return;
+                    }
+                    document.getElementById('sendAllAutoApplyLabel').textContent =
+                        'Send applications for ' + activeJobsCandidateLabel + ' to ' + pendingCount + ' job(s) on this page?';
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('sendAllAutoApplyModal')).show();
+                });
+
+                sendAllConfirmBtn.addEventListener('click', function () {
+                    var modalEl = document.getElementById('sendAllAutoApplyModal');
+                    var modalInstance = bootstrap.Modal.getInstance(modalEl);
+                    if (modalInstance) modalInstance.hide();
+                    runSendAll();
                 });
             })();
 

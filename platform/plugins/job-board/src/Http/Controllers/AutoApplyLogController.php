@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Http\Controllers;
 
 use Botble\Base\Http\Controllers\BaseController;
+use Botble\Base\Http\Responses\BaseHttpResponse;
 use Botble\Base\Supports\Breadcrumb;
 use Botble\JobBoard\Models\AutoApplyLog;
 use Illuminate\Http\Request;
@@ -19,7 +20,7 @@ class AutoApplyLogController extends BaseController
     {
         $this->pageTitle('Auto Apply Logs');
 
-        $query = AutoApplyLog::query()->with(['account', 'job'])->latest();
+        $query = AutoApplyLog::query()->with(['account', 'job.company', 'job.country'])->latest();
 
         if ($status = $request->query('status')) {
             $query->where('status', $status);
@@ -43,7 +44,7 @@ class AutoApplyLogController extends BaseController
             $query->where('account_id', $accountId);
         }
 
-        $logs = $query->paginate(30)->withQueryString();
+        $logs = $query->paginate(10)->withQueryString();
 
         $stats = [
             'total'        => AutoApplyLog::count(),
@@ -55,5 +56,31 @@ class AutoApplyLogController extends BaseController
         ];
 
         return view('plugins/job-board::auto-apply-logs.index', compact('logs', 'stats'));
+    }
+
+    public function destroy(AutoApplyLog $autoApplyLog, BaseHttpResponse $response)
+    {
+        $autoApplyLog->delete();
+
+        return $response
+            ->setNextUrl(route('auto-apply-logs.index'))
+            ->setMessage('Auto Apply log deleted.');
+    }
+
+    public static function countryFlagEmoji(string $code): string
+    {
+        $code = strtoupper(trim($code));
+
+        if (! preg_match('/^[A-Z]{2}$/', $code)) {
+            return '';
+        }
+
+        $flag = '';
+
+        foreach (str_split($code) as $char) {
+            $flag .= mb_chr(127397 + ord($char), 'UTF-8');
+        }
+
+        return $flag;
     }
 }

@@ -1661,9 +1661,7 @@ PROMPT;
             $excludeNetworks
         );
 
-        return in_array('linkedin', $excludeNetworks, true)
-            ? $publish()
-            : $this->withLinkedInPublishLock($publish);
+        return $publish();
     }
 
     public function getLastPublerError(): ?string
@@ -1813,16 +1811,7 @@ PROMPT;
             $accounts = $this->fetchPublerAccounts($apiKey, $workspaceId);
             $allowedIds = collect($accounts)
                 ->filter(function (array $account) use ($targetNetworks): bool {
-                    $platform = strtolower((string) ($account['platform'] ?? ''));
-                    $type = strtolower((string) ($account['type'] ?? ''));
-
-                    if ($platform === '') {
-                        $platform = match (true) {
-                            str_starts_with($type, 'fb_') => 'facebook',
-                            str_starts_with($type, 'in_') => 'linkedin',
-                            default => $type,
-                        };
-                    }
+                    $platform = $this->normalizePublerAccountPlatform($account);
 
                     return in_array($platform, $targetNetworks, true);
                 })
@@ -1845,16 +1834,20 @@ PROMPT;
         }
     }
 
-    private function withLinkedInPublishLock(callable $callback): mixed
+    private function normalizePublerAccountPlatform(array $account): string
     {
-        return Cache::lock('job-board:publer-publish:linkedin', 1200)->block(900, function () use ($callback) {
-            try {
-                return $callback();
-            } finally {
-                // Publer reports LinkedIn's one-minute minimum gap between posts.
-                sleep(61);
-            }
-        });
+        $platform = strtolower((string) ($account['platform'] ?? ''));
+        $type = strtolower((string) ($account['type'] ?? ''));
+
+        if ($platform !== '') {
+            return $platform;
+        }
+
+        return match (true) {
+            str_starts_with($type, 'fb_') => 'facebook',
+            str_starts_with($type, 'in_') => 'linkedin',
+            default => $type,
+        };
     }
 
     private function publerPublishAndWait(string $apiKey, string $workspaceId, array $payload): array
@@ -2106,9 +2099,7 @@ PROMPT;
                     ],
                 ]);
 
-                [$postSuccess, $postError] = isset($publerPost['networks']['linkedin'])
-                    ? $this->withLinkedInPublishLock($publish)
-                    : $publish();
+                [$postSuccess, $postError] = $publish();
 
                 if (! $postSuccess) {
                     $errors[] = $postError;

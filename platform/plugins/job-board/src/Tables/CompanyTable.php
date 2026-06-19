@@ -8,6 +8,7 @@ use Botble\Table\Abstracts\TableAbstract;
 use Botble\Table\Actions\Action;
 use Botble\Table\Actions\DeleteAction;
 use Botble\Table\Actions\EditAction;
+use Botble\JobBoard\BulkActions\MergeCompaniesBulkAction;
 use Botble\Table\BulkActions\DeleteBulkAction;
 use Botble\Table\BulkChanges\CreatedAtBulkChange;
 use Botble\Table\BulkChanges\NameBulkChange;
@@ -31,6 +32,7 @@ class CompanyTable extends TableAbstract
     {
         $this
             ->model(Company::class)
+            ->setView('plugins/job-board::companies.table-view')
             ->displayActionsAsDropdown(false)
             ->addActions([
                 Action::make('view')
@@ -127,6 +129,14 @@ class CompanyTable extends TableAbstract
             ];
         }
 
+        if ($this->hasPermission('companies.destroy')) {
+            $buttons['merge_tool'] = [
+                'link' => '#',
+                'class' => 'btn-open-merge-tool',
+                'text' => BaseHelper::renderIcon('ti ti-git-merge') . 'Merge Tool',
+            ];
+        }
+
         return $buttons;
     }
 
@@ -134,6 +144,7 @@ class CompanyTable extends TableAbstract
     {
         return [
             DeleteBulkAction::make()->permission('companies.destroy'),
+            MergeCompaniesBulkAction::make()->permission('companies.destroy'),
         ];
     }
 

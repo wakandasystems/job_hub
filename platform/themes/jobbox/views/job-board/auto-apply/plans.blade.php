@@ -51,13 +51,19 @@
                         @endif
                         <div class="card-body p-4 pt-5 d-flex flex-column">
                             <div class="text-center mb-4">
-                                <div class="display-5 fw-bold text-dark">{{ $plan['currency'] }} {{ number_format($plan['price'], 2) }}</div>
+                                <div class="display-5 fw-bold text-dark">{{ $plan['displayCurrency'] }} {{ number_format($plan['displayPrice'], 2) }}</div>
                                 <div class="text-muted font-sm">{{ $plan['label'] }}</div>
                             </div>
                             <ul class="list-unstyled mb-4 flex-grow-1">
                                 <li class="mb-2"><i class="fi-rr-check text-success me-2"></i>{{ $plan['label'] }} subscription</li>
                                 <li class="mb-2"><i class="fi-rr-check text-success me-2"></i>
-                                    {{ $plan['applications_per_month'] === 0 ? 'Unlimited' : $plan['applications_per_month'] }} applications/month
+                                    @if($plan['applications_per_month'] === 0)
+                                        Unlimited applications
+                                    @elseif($plan['duration_days'] < 30)
+                                        {{ $plan['applications_per_month'] }} applications for the full plan
+                                    @else
+                                        {{ $plan['applications_per_month'] }} applications every 30 days
+                                    @endif
                                 </li>
                                 <li class="mb-2"><i class="fi-rr-check text-success me-2"></i>AI-crafted cover emails</li>
                                 <li class="mb-2"><i class="fi-rr-check text-success me-2"></i>CV auto-attached</li>
@@ -69,7 +75,7 @@
                             </ul>
                             <a href="{{ route('public.auto-apply.checkout', $planKey) }}"
                                class="btn w-100 btn-apply-big {{ $isPopular ? 'btn-primary' : 'btn-outline-primary' }}">
-                                Get Started — {{ $plan['currency'] }} {{ number_format($plan['price'], 2) }}
+                                Get Started — {{ $plan['displayCurrency'] }} {{ number_format($plan['displayPrice'], 2) }}
                             </a>
                         </div>
                     </div>

@@ -12,6 +12,7 @@ use Botble\JobBoard\Models\AutoApplyLog;
 use Botble\JobBoard\Models\AutoApplyOrder;
 use Botble\JobBoard\Models\AutoApplyPreference;
 use Botble\JobBoard\Models\AutoApplyPreview;
+use Botble\JobBoard\Models\AutoApplyQuota;
 use Botble\JobBoard\Models\Category;
 use Botble\JobBoard\Models\Company;
 use Botble\JobBoard\Models\Job;
@@ -153,7 +154,13 @@ class AutoApplyOrderController extends BaseController
             $query->where('name', 'LIKE', "%{$keyword}%");
         }
 
-        $countries = $query->orderBy('name')->limit(20)->get(['id', 'name']);
+        $query->orderBy('name');
+
+        if (! $request->boolean('all')) {
+            $query->limit(20);
+        }
+
+        $countries = $query->get(['id', 'name']);
 
         return $response->setData([
             'items' => $countries->map(fn ($country) => ['id' => $country->id, 'name' => $country->name])->values(),
@@ -266,18 +273,7 @@ class AutoApplyOrderController extends BaseController
         );
 
         if ($orderData['admin_status'] === 'approved') {
-            DB::table('jb_auto_apply_quotas')->updateOrInsert(
-                ['account_id' => $autoApplyOrder->account_id, 'period' => \Botble\JobBoard\Models\AutoApplyQuota::currentPeriod(), 'plan' => $data['plan']],
-                [
-                    'applications_allowed' => $this->quotaApplicationsAllowedFromPlan($data['plan']),
-                    'applications_sent'    => 0,
-                    'is_approved'          => (bool) ($data['is_active'] ?? false),
-                    'charge_id'            => $autoApplyOrder->charge_id,
-                    'payment_method'       => $orderData['payment_method'],
-                    'updated_at'           => now(),
-                    'created_at'           => now(),
-                ]
-            );
+            AutoApplyQuota::syncForAccount($autoApplyOrder->account_id);
         }
 
         return $response
@@ -299,7 +295,7 @@ class AutoApplyOrderController extends BaseController
             ->where('account_id', $autoApplyOrder->account_id)
             ->update(['is_active' => false]);
 
-        DB::table('jb_auto_apply_quotas')
+        AutoApplyQuota::query()
             ->where('account_id', $autoApplyOrder->account_id)
             ->update([
                 'is_approved' => false,
@@ -443,7 +439,11 @@ class AutoApplyOrderController extends BaseController
             ->where('status', JobStatusEnum::PUBLISHED)
             ->whereNotNull('apply_email')
             ->where('apply_email', '!=', '')
-            ->whereDoesntHave('autoApplyLogs', fn ($q) => $q->where('account_id', $autoApplyOrder->account_id))
+            ->with(['autoApplyLogs' => fn ($q) => $q->where('account_id', $autoApplyOrder->account_id)])
+            ->orderByRaw(
+                '(select count(*) from jb_auto_apply_logs where jb_auto_apply_logs.job_id = jb_jobs.id and jb_auto_apply_logs.account_id = ?) asc',
+                [$autoApplyOrder->account_id]
+            )
             ->latest();
 
         $preference = AutoApplyPreference::query()->where('account_id', $autoApplyOrder->account_id)->first();
@@ -472,49 +472,25 @@ class AutoApplyOrderController extends BaseController
 
         $selectColumns = ['id', 'name', 'description', 'address', 'apply_email', 'created_at', 'application_closing_date', 'company_id', 'country_id'];
 
-        if ($preferenceKeywords) {
-            // Score depends on PHP-side keyword matching, so sort in memory:
-            // fetch every job already narrowed by the SQL keyword filter above.
-            $allJobs = (clone $query)
-                ->with(['company:id,name,logo', 'country:id,name,code'])
-                ->get($selectColumns);
+        $paginator = $query
+            ->with([
+                'company' => fn ($q) => $q->select(['id', 'name', 'logo'])->with('slugable'),
+                'country:id,name,code',
+                'slugable',
+            ])
+            ->paginate($perPage, $selectColumns, 'page', $page);
 
-            $scoredJobs = $allJobs
-                ->map(function (Job $job) use ($preferenceKeywords) {
-                    return ['job' => $job, 'match' => $this->getMatchReasonsAndScore($job, $preferenceKeywords)];
-                })
-                ->sortByDesc(fn (array $row) => $row['match']['score'])
-                ->values();
+        $items = $paginator->getCollection()
+            ->map(fn (Job $job) => $this->formatActiveJobItem($job))
+            ->values();
 
-            $total = $scoredJobs->count();
-            $pageRows = $scoredJobs->slice(($page - 1) * $perPage, $perPage)->values();
-
-            $items = $pageRows->map(fn (array $row) => $this->formatActiveJobItem($row['job'], $row['match']))->values();
-
-            $pagination = [
-                'current_page' => $page,
-                'last_page' => max(1, (int) ceil($total / $perPage)),
-                'per_page' => $perPage,
-                'total' => $total,
-                'has_more_pages' => ($page * $perPage) < $total,
-            ];
-        } else {
-            $paginator = $query
-                ->with(['company:id,name,logo', 'country:id,name,code'])
-                ->paginate($perPage, $selectColumns, 'page', $page);
-
-            $items = $paginator->getCollection()
-                ->map(fn (Job $job) => $this->formatActiveJobItem($job, ['score' => 100, 'reasons' => []]))
-                ->values();
-
-            $pagination = [
-                'current_page' => $paginator->currentPage(),
-                'last_page' => $paginator->lastPage(),
-                'per_page' => $paginator->perPage(),
-                'total' => $paginator->total(),
-                'has_more_pages' => $paginator->hasMorePages(),
-            ];
-        }
+        $pagination = [
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+            'per_page' => $paginator->perPage(),
+            'total' => $paginator->total(),
+            'has_more_pages' => $paginator->hasMorePages(),
+        ];
 
         return $response->setData([
             'account_id' => $autoApplyOrder->account_id,
@@ -523,20 +499,34 @@ class AutoApplyOrderController extends BaseController
         ]);
     }
 
-    private function formatActiveJobItem(Job $job, array $match): array
+    /**
+     * Score shown here is the real AI-generated CV-vs-job-description match score (not a
+     * keyword heuristic). Already-processed jobs already have one recorded on their
+     * AutoApplyLog from the actual send; unprocessed jobs are scored on-demand client-side
+     * via the AI preview endpoint (which caches its result in AutoApplyPreview).
+     */
+    private function formatActiveJobItem(Job $job): array
     {
+        $log = $job->autoApplyLogs->first();
+
         return [
             'id' => $job->id,
             'name' => $job->name,
+            'url' => $job->url,
             'company' => $job->company?->name ?? '',
             'company_logo' => $job->company?->logo ? \Botble\Media\Facades\RvMedia::getImageUrl($job->company->logo) : null,
+            'company_url' => $job->company?->url,
             'country' => $job->country?->name ?? '',
             'country_flag' => $this->countryFlagEmoji((string) ($job->country?->code ?? '')),
             'apply_email' => $job->apply_email,
             'created_at' => $job->created_at?->toDateString(),
             'closing_date' => $job->application_closing_date?->toDateString(),
-            'score' => $match['score'],
-            'match_reasons' => $match['reasons'],
+            'score' => $log?->match_score,
+            'match_reasons' => $log?->match_reasons ?? [],
+            'needs_ai_score' => ! $log,
+            'log_status' => $log?->status,
+            'log_sent_at' => $log?->sent_at?->toDateString(),
+            'log_error' => $log?->error_message,
         ];
     }
 
@@ -561,18 +551,15 @@ class AutoApplyOrderController extends BaseController
             return $response->setError()->setNextUrl(route('auto-apply-orders.index'))->setMessage('This job has already been processed for this candidate.');
         }
 
-        $service = app(AutoApplyService::class);
-        $cvText = $service->extractCvText($account);
-        $profile = $service->buildCandidateProfile($account, $cvText);
-        $log = $service->processAutoApply($account, $job, $profile);
-
-        if (! $log) {
+        if (trim((string) $job->apply_email) === '') {
             return $response->setError()->setNextUrl(route('auto-apply-orders.index'))->setMessage('This job cannot be auto-applied because it has no application email.');
         }
 
+        \Botble\JobBoard\Jobs\ProcessAutoApplySendJob::dispatch($account->id, $job->id)->onQueue('emails');
+
         return $response
             ->setNextUrl(route('auto-apply-logs.index', ['account_id' => $account->id]))
-            ->setMessage('Auto Apply processed for selected job.');
+            ->setMessage('Auto Apply queued for sending — check the logs in a few seconds for the result.');
     }
 
     /**
@@ -624,18 +611,7 @@ class AutoApplyOrderController extends BaseController
             ]
         );
 
-        \Illuminate\Support\Facades\DB::table('jb_auto_apply_quotas')->updateOrInsert(
-            ['account_id' => $data['account_id'], 'period' => \Botble\JobBoard\Models\AutoApplyQuota::currentPeriod(), 'plan' => $data['plan']],
-            [
-                'applications_allowed' => $this->quotaApplicationsAllowedFromPlan($data['plan']),
-                'applications_sent'    => 0,
-                'is_approved'          => (bool) ($data['is_active'] ?? true),
-                'charge_id'            => null,
-                'payment_method'       => 'admin',
-                'updated_at'           => now(),
-                'created_at'           => now(),
-            ]
-        );
+        AutoApplyQuota::syncForAccount($data['account_id']);
 
         return $response
             ->setNextUrl(route('auto-apply-orders.index'))
@@ -654,73 +630,6 @@ class AutoApplyOrderController extends BaseController
             'amount'               => $plan['price'],
             'currency'             => $plan['currency'],
         ];
-    }
-
-    private function quotaApplicationsAllowedFromPlan(string $planKey): int
-    {
-        $plan = AutoApplyOrder::plan($planKey, includeDisabled: true);
-
-        abort_unless($plan, 422);
-
-        return $plan['applications_per_month'] === 0 ? -1 : $plan['applications_per_month'];
-    }
-
-    private function getMatchReasonsAndScore(Job $job, array $keywords): array
-    {
-        if (! $keywords) {
-            return ['score' => 100, 'reasons' => []];
-        }
-
-        $reasons = [];
-        $matchedKeywords = [];
-        $description = trim(preg_replace('/\s+/', ' ', strip_tags((string) ($job->description ?? ''))));
-
-        foreach ($keywords as $kw) {
-            $pattern = '/' . $this->keywordRegexPattern($kw) . '/iu';
-
-            if (preg_match($pattern, $job->name)) {
-                $reasons[] = ['field' => 'Job Title', 'keyword' => $kw, 'snippet' => $this->kwSnippet($job->name, $kw)];
-                $matchedKeywords[$kw] = true;
-            }
-
-            if ($description !== '' && preg_match($pattern, $description)) {
-                $reasons[] = ['field' => 'Description', 'keyword' => $kw, 'snippet' => $this->kwSnippet($description, $kw)];
-                $matchedKeywords[$kw] = true;
-            }
-
-            if ($job->address && preg_match($pattern, $job->address)) {
-                $reasons[] = ['field' => 'Address', 'keyword' => $kw, 'snippet' => $this->kwSnippet($job->address, $kw)];
-                $matchedKeywords[$kw] = true;
-            }
-        }
-
-        $score = (int) round(count($matchedKeywords) / count($keywords) * 100);
-
-        return ['score' => $score, 'reasons' => $reasons];
-    }
-
-    private function kwSnippet(string $text, string $keyword, int $context = 55): string
-    {
-        $text = trim(preg_replace('/\s+/', ' ', $text));
-        $pos = stripos($text, $keyword);
-
-        if ($pos === false) {
-            return mb_substr($text, 0, 100) . (mb_strlen($text) > 100 ? '…' : '');
-        }
-
-        $start = max(0, $pos - $context);
-        $end = min(mb_strlen($text), $pos + mb_strlen($keyword) + $context);
-        $snippet = mb_substr($text, $start, $end - $start);
-
-        if ($start > 0) {
-            $snippet = '…' . $snippet;
-        }
-
-        if ($end < mb_strlen($text)) {
-            $snippet .= '…';
-        }
-
-        return $snippet;
     }
 
     private function keywordRegexPattern(string $keyword): string
@@ -767,7 +676,8 @@ class AutoApplyOrderController extends BaseController
                 "Hi {$account->first_name},\n\n" .
                 "Your Wakanda Jobs Auto Apply subscription is now active!\n\n" .
                 "Plan: {$plan['label']}\n" .
-                "Applications per month: " . ($plan['applications_per_month'] ?? $order->applications_allowed) . "\n\n" .
+                "Usage limit: {$order->applicationsLabel()}\n" .
+                "Expires: " . ($order->expiresAt()?->toFormattedDateString() ?? 'N/A') . "\n\n" .
                 "The system will now automatically apply to matching jobs on your behalf using your CV and AI-crafted cover emails.\n\n" .
                 "You can manage your preferences and view sent applications in your account dashboard.\n\n" .
                 "Wakanda Jobs — wakandajobs.com",

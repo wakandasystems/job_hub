@@ -117,6 +117,11 @@ class Job extends BaseModel
         return $this->belongsTo(CareerLevel::class, 'career_level_id')->withDefault();
     }
 
+    public function autoApplyLogs(): HasMany
+    {
+        return $this->hasMany(AutoApplyLog::class, 'job_id');
+    }
+
     public function currency(): BelongsTo
     {
         return $this->belongsTo(Currency::class)->withDefault();

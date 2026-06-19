@@ -250,6 +250,71 @@
     </div>
 </div>
 
+{{-- ====================== CV BUILDER MODAL ====================== --}}
+<div class="modal fade" id="modal-cv-builder" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title d-flex align-items-center gap-2">
+                    <i class="ti ti-file-cv text-dark"></i>
+                    <span id="cvBuilderTitle">Build Candidate CV</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="cvBuilderError" class="alert alert-danger d-none py-2 px-3 small"></div>
+                <div class="row g-3">
+                    <div class="col-lg-4">
+                        <div class="border rounded p-3 h-100">
+                            <h6 class="fw-semibold mb-3">WhatsApp Interview</h6>
+                            <input type="hidden" id="cvBuilderStartUrl">
+                            <input type="hidden" id="cvBuilderSessionsUrl">
+                            <div class="mb-3">
+                                <label class="form-label">Candidate Name</label>
+                                <input type="text" id="cvBuilderCandidateName" class="form-control">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">WhatsApp Number</label>
+                                <input type="text" id="cvBuilderWhatsapp" class="form-control">
+                            </div>
+                            <div class="d-grid gap-2">
+                                <button type="button" class="btn btn-dark" id="btnStartCvBuilder">
+                                    <i class="ti ti-brand-whatsapp me-1"></i> Start &amp; Send Question 1
+                                </button>
+                                <button type="button" class="btn btn-outline-dark" id="btnSendNextCvQuestion" disabled>
+                                    <i class="ti ti-send me-1"></i> Send Next Question
+                                </button>
+                            </div>
+                            <div class="small text-muted mt-3" id="cvBuilderSessionStatus">No active CV session selected.</div>
+                            <div class="mt-3" id="cvBuilderDownloads"></div>
+                        </div>
+                    </div>
+                    <div class="col-lg-8">
+                        <div class="border rounded p-3">
+                            <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
+                                <h6 class="fw-semibold mb-0">Paste Completed WhatsApp Chat</h6>
+                                <button type="button" class="btn btn-primary btn-sm" id="btnGenerateCvFromChat" disabled>
+                                    <i class="ti ti-sparkles me-1"></i> Generate DOCX &amp; PDF
+                                </button>
+                            </div>
+                            <textarea id="cvBuilderConversation" class="form-control" rows="12" placeholder="Paste the whole WhatsApp chat here after all questions are answered."></textarea>
+                            <div class="form-text">The full pasted conversation is stored with this CV builder session.</div>
+                        </div>
+                        <div class="border rounded p-3 mt-3">
+                            <h6 class="fw-semibold mb-2">OpenAI Meta Response</h6>
+                            <pre id="cvBuilderAiMeta" class="bg-light rounded p-3 small mb-0" style="max-height:320px;overflow:auto">No OpenAI request yet.</pre>
+                        </div>
+                    </div>
+                </div>
+                <div class="border rounded p-3 mt-3">
+                    <h6 class="fw-semibold mb-2">Recent CV Sessions</h6>
+                    <div id="cvBuilderSessions" class="text-muted small">No sessions loaded.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 {{-- ====================== ACTION CONFIRM MODAL ====================== --}}
 <div class="modal fade" id="modal-alert-action-confirm" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-sm">
@@ -775,6 +840,205 @@ $(function () {
         $btn.prop('disabled', false).html('<i class="fab fa-whatsapp me-1"></i> Send All Matching');
         $('#btnExportCsv, #btnExportPdf, #forceResendCheck, #pv-country, #pv-company, #pv-period, #pv-clear-filters').prop('disabled', false);
         if (!failed) setTimeout(() => location.reload(), 1500);
+    });
+
+    // ── CV Builder ───────────────────────────────────────────────────────────
+    let cvBuilderSession = null;
+    let cvBuilderSessionsCache = [];
+
+    function setCvBuilderError(message) {
+        const $box = $('#cvBuilderError');
+        if (!message) {
+            $box.addClass('d-none').text('');
+            return;
+        }
+        $box.removeClass('d-none').text(message);
+    }
+
+    function renderCvBuilderSession(session) {
+        cvBuilderSession = session || null;
+
+        if (!session) {
+            $('#cvBuilderSessionStatus').text('No active CV session selected.');
+            $('#btnSendNextCvQuestion, #btnGenerateCvFromChat').prop('disabled', true);
+            $('#cvBuilderDownloads').empty();
+            return;
+        }
+
+        const sent = session.current_question_index || 0;
+        const total = session.question_total || 0;
+        const complete = sent >= total;
+        const statusLabel = complete
+            ? 'All questions sent. Paste the completed chat and generate the CV.'
+            : `Question ${sent + 1} of ${total} is next.`;
+
+        $('#cvBuilderSessionStatus').html(
+            `<div><strong>Session #${session.id}</strong> · ${escHtml(session.status)}</div>`
+            + `<div>${escHtml(statusLabel)}</div>`
+            + (session.next_question ? `<div class="mt-2 text-dark"><strong>Next:</strong> ${escHtml(session.next_question)}</div>` : '')
+        );
+
+        $('#btnSendNextCvQuestion').prop('disabled', complete || !session.send_next_url);
+        $('#btnGenerateCvFromChat').prop('disabled', !session.generate_url);
+
+        let downloads = '';
+        if (session.docx_url) {
+            downloads += `<a class="btn btn-outline-primary btn-sm me-1 mb-1" href="${escHtml(session.docx_url)}"><i class="ti ti-file-type-docx me-1"></i> DOCX</a>`;
+        }
+        if (session.pdf_url) {
+            downloads += `<a class="btn btn-outline-danger btn-sm me-1 mb-1" href="${escHtml(session.pdf_url)}"><i class="ti ti-file-type-pdf me-1"></i> PDF</a>`;
+        }
+        $('#cvBuilderDownloads').html(downloads);
+
+        if (session.ai_logs && session.ai_logs.length) {
+            $('#cvBuilderAiMeta').text(JSON.stringify(session.ai_logs[0], null, 2));
+        }
+    }
+
+    function renderCvBuilderSessions(sessions) {
+        cvBuilderSessionsCache = sessions;
+
+        if (!sessions.length) {
+            $('#cvBuilderSessions').html('<div class="text-muted small">No CV builder sessions yet.</div>');
+            return;
+        }
+
+        const html = sessions.map((session, index) => {
+            const downloads = [
+                session.docx_url ? `<a href="${escHtml(session.docx_url)}" class="btn btn-outline-primary btn-sm">DOCX</a>` : '',
+                session.pdf_url ? `<a href="${escHtml(session.pdf_url)}" class="btn btn-outline-danger btn-sm">PDF</a>` : '',
+            ].filter(Boolean).join(' ');
+
+            return `<div class="border rounded p-2 mb-2 cv-builder-session-row">
+                <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+                    <div>
+                        <div class="fw-semibold">Session #${session.id} · ${escHtml(session.status)}</div>
+                        <div class="text-muted small">${escHtml(session.candidate_name || '')} · ${escHtml(session.whatsapp_number || '')}</div>
+                        <div class="text-muted small">${session.current_question_index || 0}/${session.question_total || 0} questions sent${session.completed_at ? ' · completed ' + escHtml(session.completed_at) : ''}</div>
+                    </div>
+                    <div class="d-flex gap-1 flex-wrap">${downloads}<button type="button" class="btn btn-outline-secondary btn-sm btn-select-cv-session" data-index="${index}">Select</button></div>
+                </div>
+            </div>`;
+        }).join('');
+
+        $('#cvBuilderSessions').html(html);
+    }
+
+    function loadCvBuilderSessions() {
+        const url = $('#cvBuilderSessionsUrl').val();
+        if (!url) return;
+
+        $('#cvBuilderSessions').html('<div class="text-muted small"><i class="ti ti-loader-2 fa-spin me-1"></i> Loading sessions...</div>');
+
+        $httpClient.make().get(url)
+            .then(({ data: resp }) => {
+                const sessions = resp.data || [];
+                renderCvBuilderSessions(sessions);
+                renderCvBuilderSession(sessions[0] || null);
+            })
+            .catch(() => {
+                $('#cvBuilderSessions').html('<div class="text-danger small">Failed to load CV sessions.</div>');
+            });
+    }
+
+    $(document).on('click', '.btn-cv-builder', function () {
+        const $btn = $(this);
+
+        setCvBuilderError(null);
+        cvBuilderSession = null;
+        $('#cvBuilderTitle').text('Build CV — ' + ($btn.data('name') || 'Candidate'));
+        $('#cvBuilderCandidateName').val($btn.data('name') || '');
+        $('#cvBuilderWhatsapp').val($btn.data('phone') || '');
+        $('#cvBuilderStartUrl').val($btn.data('start-url') || '');
+        $('#cvBuilderSessionsUrl').val($btn.data('sessions-url') || '');
+        $('#cvBuilderConversation').val('');
+        $('#cvBuilderAiMeta').text('No OpenAI request yet.');
+        $('#cvBuilderDownloads').empty();
+        renderCvBuilderSession(null);
+
+        new bootstrap.Modal(document.getElementById('modal-cv-builder')).show();
+        loadCvBuilderSessions();
+    });
+
+    $(document).on('click', '.btn-select-cv-session', function () {
+        const index = parseInt($(this).data('index'), 10);
+        if (Number.isNaN(index) || !cvBuilderSessionsCache[index]) {
+            Botble.showError('Could not select CV session.');
+            return;
+        }
+
+        renderCvBuilderSession(cvBuilderSessionsCache[index]);
+    });
+
+    $('#btnStartCvBuilder').on('click', function () {
+        const $btn = $(this);
+        const url = $('#cvBuilderStartUrl').val();
+
+        setCvBuilderError(null);
+        setActionButtonLoading($btn);
+
+        $httpClient.make().post(url, {
+            candidate_name: $('#cvBuilderCandidateName').val(),
+            whatsapp_number: $('#cvBuilderWhatsapp').val()
+        })
+            .then(({ data: resp }) => {
+                Botble.showSuccess(resp.message || 'CV builder started.');
+                renderCvBuilderSession(resp.data);
+                loadCvBuilderSessions();
+            })
+            .catch(({ response }) => {
+                const message = response?.data?.error || 'Failed to start CV builder.';
+                setCvBuilderError(message);
+                Botble.showError(message);
+            })
+            .finally(() => restoreActionButton($btn));
+    });
+
+    $('#btnSendNextCvQuestion').on('click', function () {
+        if (!cvBuilderSession?.send_next_url) return;
+
+        const $btn = $(this);
+        setCvBuilderError(null);
+        setActionButtonLoading($btn);
+
+        $httpClient.make().post(cvBuilderSession.send_next_url)
+            .then(({ data: resp }) => {
+                Botble.showSuccess(resp.message || 'Question sent.');
+                renderCvBuilderSession(resp.data);
+                loadCvBuilderSessions();
+            })
+            .catch(({ response }) => {
+                const message = response?.data?.error || 'Failed to send next question.';
+                setCvBuilderError(message);
+                Botble.showError(message);
+            })
+            .finally(() => restoreActionButton($btn));
+    });
+
+    $('#btnGenerateCvFromChat').on('click', function () {
+        if (!cvBuilderSession?.generate_url) return;
+
+        const $btn = $(this);
+        setCvBuilderError(null);
+        setActionButtonLoading($btn);
+        $('#cvBuilderAiMeta').text('Generating CV with OpenAI...');
+
+        $httpClient.make().post(cvBuilderSession.generate_url, {
+            conversation_text: $('#cvBuilderConversation').val()
+        }, { timeout: 120000 })
+            .then(({ data: resp }) => {
+                Botble.showSuccess(resp.message || 'CV generated.');
+                renderCvBuilderSession(resp.data);
+                $('#cvBuilderAiMeta').text(JSON.stringify(resp.ai_meta || {}, null, 2));
+                loadCvBuilderSessions();
+            })
+            .catch(({ response }) => {
+                const message = response?.data?.error || 'Failed to generate CV.';
+                setCvBuilderError(message);
+                $('#cvBuilderAiMeta').text(response?.data?.ai_meta ? JSON.stringify(response.data.ai_meta, null, 2) : message);
+                Botble.showError(message);
+            })
+            .finally(() => restoreActionButton($btn));
     });
 
     // Send welcome

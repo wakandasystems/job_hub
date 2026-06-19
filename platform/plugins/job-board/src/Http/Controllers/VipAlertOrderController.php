@@ -86,12 +86,19 @@ class VipAlertOrderController extends BaseController
             ?? ['label' => $order->duration_days . ' days'];
 
         try {
+            $registerPrompt = $order->candidateAlert?->account_id
+                ? ''
+                : "\n\nWe also noticed you do not yet have a Wakanda Jobs account.\n"
+                    . "Create your free account for faster applications, one saved CV/profile, and more candidate benefits:\n"
+                    . route('public.account.register');
+
             Mail::raw(
                 "Hi {$order->candidate_name},\n\n" .
                 "Your Wakanda Jobs VIP Alert subscription is now active!\n\n" .
                 "Plan: {$plan['label']}\n" .
                 "Expires: " . now()->addDays($order->duration_days)->format('d M Y') . "\n\n" .
-                "You will start receiving matching job alerts on WhatsApp at {$order->candidate_phone}.\n\n" .
+                "You will start receiving matching job alerts on WhatsApp at {$order->candidate_phone}." .
+                $registerPrompt . "\n\n" .
                 "Wakanda Jobs — wakandajobs.com",
                 function ($msg) use ($order, $plan): void {
                     $msg->to($order->candidate_email, $order->candidate_name)

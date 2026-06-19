@@ -182,6 +182,11 @@ Route::get('jobs-archive', function (\Illuminate\Http\Request $request) {
 Route::post('telegram/webhook', [\Botble\JobBoard\Http\Controllers\TelegramWebhookController::class, 'handle'])
     ->name('public.telegram-webhook');
 
+// Whapi CV-bot webhook — no web/CSRF middleware; authenticated via secret embedded in the URL path
+// (Whapi's webhook config has no custom-header option, unlike Telegram's secret header above).
+Route::post('whapi/cv-bot/webhook/{secret}', [\Botble\JobBoard\Http\Controllers\AutoCvBotWebhookController::class, 'handle'])
+    ->name('public.auto-cv-bot-webhook');
+
 Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers', 'middleware' => ['web', 'core']], function (): void {
     Route::get('download-cv/{account}', [
         'as' => 'public.candidate.download-cv',

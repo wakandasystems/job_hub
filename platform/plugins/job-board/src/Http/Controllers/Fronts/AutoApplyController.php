@@ -35,11 +35,11 @@ class AutoApplyController extends BaseController
             ->take(50)
             ->get();
 
-        $period = AutoApplyQuota::currentPeriod();
-        $quota = AutoApplyQuota::activePaid()
-            ->where('account_id', $account->id)
-            ->where('period', $period)
-            ->first();
+        $quota = AutoApplyQuota::currentForAccount($account->id);
+        $activeOrder = AutoApplyOrder::activeForAccount($account->id);
+        $period = $quota && $quota->cycle_started_at && $quota->cycle_ends_at
+            ? $quota->cycle_started_at->format('d M Y') . ' - ' . $quota->cycle_ends_at->copy()->subDay()->format('d M Y')
+            : AutoApplyQuota::currentPeriod();
 
         $categories = Category::query()
             ->wherePublished()
@@ -59,7 +59,7 @@ class AutoApplyController extends BaseController
 
         return JobBoardHelper::scope(
             'account.auto-apply',
-            compact('account', 'preference', 'logs', 'quota', 'categories', 'countries', 'hasCv', 'plans', 'period')
+            compact('account', 'preference', 'logs', 'quota', 'activeOrder', 'categories', 'countries', 'hasCv', 'plans', 'period')
         );
     }
 

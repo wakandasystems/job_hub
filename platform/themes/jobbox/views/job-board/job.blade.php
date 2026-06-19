@@ -153,6 +153,16 @@
              ]) !!}
         </div>
         <div class="border-bottom pt-10 pb-10"></div>
+
+        @php
+            $jobShareImagePath = null;
+            foreach (['facebook_image', 'linkedin_image', 'twitter_image', 'whatsapp_image', 'tiktok_image'] as $jobShareImageField) {
+                if (! empty($job->{$jobShareImageField})) {
+                    $jobShareImagePath = $job->{$jobShareImageField};
+                    break;
+                }
+            }
+        @endphp
     </div>
 </section>
 
@@ -455,6 +465,15 @@
                                 </div>
                             </div>
                         </div>
+                        @if ($jobShareImagePath)
+                            <div class="sidebar-job-social-image">
+                                <img
+                                    src="{{ \Illuminate\Support\Facades\Storage::disk('public')->url($jobShareImagePath) }}"
+                                    alt="{{ $job->name }}"
+                                    loading="lazy"
+                                >
+                            </div>
+                        @endif
                         @include(Theme::getThemeNamespace('views.job-board.partials.share'), [
                             'job' => $job,
                             'containerClass' => 'sidebar-share',

@@ -179,7 +179,7 @@ class CandidateAlertTable extends TableAbstract
 
             FormattedColumn::make('operations')
                 ->title('Actions')
-                ->width(160)
+                ->width(220)
                 ->alignCenter()
                 ->orderable(false)
                 ->searchable(false)
@@ -193,6 +193,7 @@ class CandidateAlertTable extends TableAbstract
                     $eyeIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" style="' . $iconStyle . '"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
                     $refreshIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" style="' . $iconStyle . '"><path d="M21 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M3 12A9 9 0 0 1 18.5 5.64L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/></svg>';
                     $mailIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" style="' . $iconStyle . '"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>';
+                    $cvIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" style="' . $iconStyle . '"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z"/><path d="M9 13h6"/><path d="M9 17h6"/></svg>';
                     $trashIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" style="' . $iconStyle . '"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
 
                     $inviteButton = (! $alert->account_id && ($alert->candidate_email || $alert->candidate_phone))
@@ -206,6 +207,7 @@ class CandidateAlertTable extends TableAbstract
                         . '<button type="button" class="btn btn-sm btn-icon btn-info text-white btn-view-logs" style="color:#fff !important" data-bs-toggle="tooltip" title="View send logs" data-url="' . route('job-board.candidate-alerts.logs', $alert->id) . '" data-name="' . e($alert->candidate_name) . '">' . $historyIcon . '</button>'
                         . '<button type="button" class="btn btn-sm btn-icon btn-success text-white btn-preview-jobs" style="color:#fff !important" data-bs-toggle="tooltip" title="Preview &amp; send matching jobs" data-url="' . route('job-board.candidate-alerts.preview', $alert->id) . '" data-send-url="' . route('job-board.candidate-alerts.send-now', $alert->id) . '" data-name="' . e($alert->candidate_name) . '">' . $eyeIcon . '</button>'
                         . $welcomeButton
+                        . '<button type="button" class="btn btn-sm btn-icon btn-dark text-white btn-cv-builder" style="color:#fff !important" data-bs-toggle="tooltip" title="Build CV over WhatsApp" data-sessions-url="' . route('job-board.candidate-alerts.cv-builder.sessions', $alert->id) . '" data-start-url="' . route('job-board.candidate-alerts.cv-builder.start', $alert->id) . '" data-name="' . e($alert->candidate_name) . '" data-phone="' . e($alert->candidate_phone) . '">' . $cvIcon . '</button>'
                         . $inviteButton
                         . '<button type="button" class="btn btn-sm btn-icon btn-danger text-white btn-delete-alert-modal" style="color:#fff !important" data-bs-toggle="tooltip" title="Delete" data-url="' . route('job-board.candidate-alerts.destroy', $alert->id) . '" data-name="' . e($alert->candidate_name) . '">' . $trashIcon . '</button>'
                         . '</div>';

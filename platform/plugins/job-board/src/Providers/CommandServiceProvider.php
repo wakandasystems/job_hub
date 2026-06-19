@@ -24,6 +24,7 @@ use Botble\JobBoard\Console\Commands\ArchiveOldCrawledJobsCommand;
 use Botble\JobBoard\Console\Commands\GenerateSocialImagesCommand;
 use Botble\JobBoard\Console\Commands\SendAutoApplyDigestCommand;
 use Botble\JobBoard\Console\Commands\SocialPublishJobCommand;
+use Botble\JobBoard\Console\Commands\CheckAutoCvBotStallCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
 
@@ -58,6 +59,7 @@ class CommandServiceProvider extends ServiceProvider
             ArchiveOldCrawledJobsCommand::class,
             GenerateSocialImagesCommand::class,
             SendAutoApplyDigestCommand::class,
+            CheckAutoCvBotStallCommand::class,
         ]);
 
         $this->app->afterResolving(Schedule::class, function (Schedule $schedule): void {
@@ -85,6 +87,7 @@ class CommandServiceProvider extends ServiceProvider
                 ->withoutOverlapping();
             $schedule->command(SendAutoApplyDigestCommand::class)->weeklyOn(1, '09:30');
             $schedule->command('horizon:snapshot')->everyFiveMinutes();
+            $schedule->command(CheckAutoCvBotStallCommand::class)->everyFifteenMinutes()->withoutOverlapping();
         });
     }
 }

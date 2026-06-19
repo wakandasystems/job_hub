@@ -6,6 +6,7 @@ use Botble\Base\Http\Controllers\BaseController;
 use Botble\JobBoard\Facades\JobBoardHelper;
 use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\AutoApplyOrder;
+use Botble\JobBoard\Models\Currency;
 use Botble\SeoHelper\Facades\SeoHelper;
 use Botble\Theme\Facades\Theme;
 use Illuminate\Http\RedirectResponse;
@@ -17,6 +18,14 @@ class AutoApplyCheckoutController extends BaseController
     {
         SeoHelper::setTitle('Auto Apply Plans');
         $plans = AutoApplyOrder::plans();
+
+        $appCurrency = get_application_currency();
+        foreach ($plans as &$plan) {
+            [$plan['displayPrice'], $plan['displayCurrency']] = $this->convertPrice(
+                $plan['price'], $plan['currency'], $appCurrency
+            );
+        }
+        unset($plan);
 
         return Theme::scope('job-board.auto-apply.plans', compact('plans'))->render();
     }
@@ -30,6 +39,10 @@ class AutoApplyCheckoutController extends BaseController
         $account = auth('account')->user();
 
         SeoHelper::setTitle('Auto Apply — Checkout');
+
+        [$planData['displayPrice'], $planData['displayCurrency']] = $this->convertPrice(
+            $planData['price'], $planData['currency']
+        );
 
         return Theme::scope('job-board.auto-apply.checkout', compact('plan', 'planData', 'account'))->render();
     }
@@ -47,7 +60,7 @@ class AutoApplyCheckoutController extends BaseController
             'account_id'           => $account->id,
             'plan'                 => $plan,
             'duration_days'        => $planData['duration_days'],
-            'applications_allowed' => $planData['applications_per_month'] === 0 ? -1 : $planData['applications_per_month'],
+            'applications_allowed' => $planData['applications_per_month'],
             'amount'               => $planData['price'],
             'currency'             => $planData['currency'],
             'status'               => 'pending',
@@ -116,5 +129,24 @@ class AutoApplyCheckoutController extends BaseController
         $planData = AutoApplyOrder::plan($order->plan, includeDisabled: true);
 
         return Theme::scope('job-board.auto-apply.thanks', compact('order', 'planData'))->render();
+    }
+
+    private function convertPrice(float $price, string $currencyCode, ?Currency $appCurrency = null): array
+    {
+        $appCurrency  ??= get_application_currency();
+        $planCurrency   = Currency::query()->where('title', $currencyCode)->first();
+
+        if ($planCurrency && $appCurrency) {
+            $inDefault  = (!$planCurrency->is_default && $planCurrency->exchange_rate > 0)
+                ? $price / $planCurrency->exchange_rate
+                : $price;
+            $converted  = (!$appCurrency->is_default && $appCurrency->exchange_rate > 0)
+                ? $inDefault * $appCurrency->exchange_rate
+                : $inDefault;
+
+            return [$converted, $appCurrency->title];
+        }
+
+        return [$price, $currencyCode];
     }
 }

@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Models;
 
 use Botble\Base\Models\BaseModel;
+use Botble\JobBoard\Services\CandidateAlertAccountSyncService;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -115,12 +116,15 @@ class VipAlertOrder extends BaseModel
         }
 
         $now = now();
+        $accountSync = app(CandidateAlertAccountSyncService::class);
+        $account = $accountSync->resolveAccount($this->candidate_email, $this->candidate_phone);
 
         $alert = CandidateAlert::create([
             'label'           => $this->candidate_name,
             'candidate_name'  => $this->candidate_name,
             'candidate_phone' => $this->candidate_phone,
             'candidate_email' => $this->candidate_email,
+            'account_id'      => $account?->getKey(),
             'filters'         => $this->filters ?? [],
             'duration_days'   => $this->duration_days,
             'price'           => $this->amount,
@@ -136,6 +140,10 @@ class VipAlertOrder extends BaseModel
             'candidate_alert_id' => $alert->id,
             'approved_at'        => $now,
         ]);
+
+        if ($account) {
+            $accountSync->syncAlertWithAccount($alert, $account);
+        }
 
         $this->sendWelcomeMessage($alert);
     }

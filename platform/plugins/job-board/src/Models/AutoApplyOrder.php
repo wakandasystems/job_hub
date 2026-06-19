@@ -4,7 +4,7 @@ namespace Botble\JobBoard\Models;
 
 use Botble\Base\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Carbon;
 
 class AutoApplyOrder extends BaseModel
 {
@@ -31,9 +31,9 @@ class AutoApplyOrder extends BaseModel
     ];
 
     private const DEFAULT_PLANS = [
-        'weekly'   => ['label' => '1 Week',   'duration_days' => 7,  'price' => 5.00,   'currency' => 'USD', 'applications_per_month' => 10,  'badge' => null,           'enabled' => true],
-        'monthly'  => ['label' => '1 Month',  'duration_days' => 30, 'price' => 15.00,  'currency' => 'USD', 'applications_per_month' => 50,  'badge' => 'Most Popular', 'enabled' => true],
-        'one_time' => ['label' => '3 Months', 'duration_days' => 90, 'price' => 150.00, 'currency' => 'USD', 'applications_per_month' => 0,   'badge' => 'Best Value',   'enabled' => true],
+        'weekly'   => ['label' => '1 Week',   'duration_days' => 7,  'price' => 3.99,  'currency' => 'USD', 'applications_per_month' => 8,  'badge' => null,           'enabled' => true],
+        'monthly'  => ['label' => '1 Month',  'duration_days' => 30, 'price' => 12.99, 'currency' => 'USD', 'applications_per_month' => 30, 'badge' => 'Most Popular', 'enabled' => true],
+        'one_time' => ['label' => '3 Months', 'duration_days' => 90, 'price' => 29.99, 'currency' => 'USD', 'applications_per_month' => 40, 'badge' => 'Best Value',   'enabled' => true],
     ];
 
     public static function defaultPlans(): array
@@ -96,35 +96,129 @@ class AutoApplyOrder extends BaseModel
             return;
         }
 
-        $plan = self::plan($this->plan, includeDisabled: true);
-        $allowed = $plan ? ($plan['applications_per_month'] === 0 ? -1 : $plan['applications_per_month']) : $this->applications_allowed;
-
         $this->update([
             'status'       => 'approved',
             'admin_status' => 'approved',
             'approved_at'  => now(),
         ]);
 
-        $period = AutoApplyQuota::currentPeriod();
-
-        DB::table('jb_auto_apply_quotas')->updateOrInsert(
-            ['account_id' => $this->account_id, 'period' => $period, 'plan' => $this->plan],
-            [
-                'applications_allowed' => $allowed,
-                'applications_sent'    => 0,
-                'is_approved'          => true,
-                'charge_id'            => $this->charge_id,
-                'payment_method'       => $this->payment_method,
-                'updated_at'           => now(),
-                'created_at'           => now(),
-            ]
-        );
-
         // Activate the candidate's auto-apply preference
         AutoApplyPreference::updateOrCreate(
             ['account_id' => $this->account_id],
             ['is_active' => true]
         );
+
+        AutoApplyQuota::syncForAccount($this->account_id);
+    }
+
+    public function scopeApproved($query)
+    {
+        return $query
+            ->where('status', 'approved')
+            ->where('admin_status', 'approved')
+            ->whereNotNull('approved_at');
+    }
+
+    public static function activeForAccount(int $accountId, ?Carbon $at = null): ?self
+    {
+        $at ??= now();
+
+        return self::query()
+            ->approved()
+            ->where('account_id', $accountId)
+            ->orderByDesc('approved_at')
+            ->get()
+            ->first(fn (self $order) => $order->isActiveAt($at));
+    }
+
+    public function expiresAt(): ?Carbon
+    {
+        return $this->approved_at?->copy()->addDays($this->duration_days);
+    }
+
+    public function isActiveAt(?Carbon $at = null): bool
+    {
+        $at ??= now();
+
+        if ($this->status !== 'approved' || $this->admin_status !== 'approved' || ! $this->approved_at) {
+            return false;
+        }
+
+        $expiresAt = $this->expiresAt();
+
+        return $expiresAt && $at->gte($this->approved_at) && $at->lt($expiresAt);
+    }
+
+    public function cycleLengthDays(): int
+    {
+        return $this->duration_days < 30 ? max(1, $this->duration_days) : 30;
+    }
+
+    public function cycleCount(): int
+    {
+        return (int) ceil($this->duration_days / $this->cycleLengthDays());
+    }
+
+    public function cycleDetails(?Carbon $at = null): ?array
+    {
+        $at ??= now();
+
+        if (! $this->isActiveAt($at)) {
+            return null;
+        }
+
+        $cycleLength = $this->cycleLengthDays();
+        $elapsedDays = (int) $this->approved_at->diffInDays($at);
+        $cycleIndex = min($this->cycleCount() - 1, intdiv($elapsedDays, $cycleLength));
+        $cycleStart = $this->approved_at->copy()->addDays($cycleIndex * $cycleLength);
+        $cycleEnd = $cycleStart->copy()->addDays($cycleLength);
+        $expiresAt = $this->expiresAt();
+
+        if ($expiresAt && $cycleEnd->gt($expiresAt)) {
+            $cycleEnd = $expiresAt->copy();
+        }
+
+        return [
+            'key' => sprintf('order-%d-cycle-%d', $this->id, $cycleIndex + 1),
+            'index' => $cycleIndex,
+            'start' => $cycleStart,
+            'end' => $cycleEnd,
+            'period' => $cycleStart->format('Y-m'),
+            'applications_allowed' => $this->applicationsAllowedForCycle($cycleIndex),
+        ];
+    }
+
+    public function applicationsAllowedForCycle(int $cycleIndex): int
+    {
+        $rawAllowance = (int) $this->applications_allowed;
+
+        if ($rawAllowance <= 0) {
+            return -1;
+        }
+
+        if ($this->duration_days <= 30) {
+            return $rawAllowance;
+        }
+
+        $remainderDays = $this->duration_days % 30;
+        $lastCycleIndex = $this->cycleCount() - 1;
+
+        if ($remainderDays === 0 || $cycleIndex < $lastCycleIndex) {
+            return $rawAllowance;
+        }
+
+        return max(1, (int) ceil($rawAllowance * ($remainderDays / 30)));
+    }
+
+    public function applicationsLabel(): string
+    {
+        if ((int) $this->applications_allowed <= 0) {
+            return 'Unlimited';
+        }
+
+        return $this->duration_days < 30
+            ? $this->applications_allowed . ' per plan'
+            : $this->applications_allowed . ' per 30 days';
     }
 
     public static function statuses(): array

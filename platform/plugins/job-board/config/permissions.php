@@ -472,4 +472,13 @@ return [
         'flag' => 'job-board.reports',
         'parent_flag' => 'plugins.job-board',
     ],
+    [
+        'name' => 'CV Bot',
+        'flag' => 'auto-cv-bot.index',
+    ],
+    [
+        'name' => 'Start Session',
+        'flag' => 'auto-cv-bot.create',
+        'parent_flag' => 'auto-cv-bot.index',
+    ],
 ];

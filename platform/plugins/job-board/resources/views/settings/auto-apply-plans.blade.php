@@ -61,7 +61,7 @@
                             <th>Enabled</th>
                             <th>Plan</th>
                             <th style="width:120px">Duration (days)</th>
-                            <th style="width:130px">Apps/Month</th>
+                            <th style="width:130px">Usage Limit</th>
                             <th style="width:120px">Amount</th>
                             <th style="width:100px">Currency</th>
                             <th>Badge</th>
@@ -93,7 +93,7 @@
                                     <input type="number" class="form-control" min="0" required
                                         name="plans[{{ $key }}][applications_per_month]"
                                         value="{{ old("plans.{$key}.applications_per_month", $plan['applications_per_month']) }}">
-                                    <div class="form-text">0 = unlimited</div>
+                                    <div class="form-text">For plans under 30 days: total for the plan. For 30+ day plans: per 30-day cycle. 0 = unlimited.</div>
                                 </td>
                                 <td>
                                     <input type="number" class="form-control" min="0" step="0.01" required

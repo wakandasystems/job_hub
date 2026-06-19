@@ -123,6 +123,11 @@ AdminHelper::registerRoutes(function (): void {
         Route::post('{candidateAlert}/analyze-existing-cv', [CandidateAlertController::class, 'analyzeExistingCv'])->name('analyze-existing-cv')->wherePrimaryKey('candidateAlert');
         Route::post('{candidateAlert}/send-now', [CandidateAlertController::class, 'sendNow'])->name('send-now')->wherePrimaryKey('candidateAlert');
         Route::post('{candidateAlert}/send-welcome', [CandidateAlertController::class, 'sendWelcome'])->name('send-welcome')->wherePrimaryKey('candidateAlert');
+        Route::get('{candidateAlert}/cv-builder', [CandidateAlertController::class, 'cvBuilderSessions'])->name('cv-builder.sessions')->wherePrimaryKey('candidateAlert');
+        Route::post('{candidateAlert}/cv-builder/start', [CandidateAlertController::class, 'startCvBuilder'])->name('cv-builder.start')->wherePrimaryKey('candidateAlert');
+        Route::post('{candidateAlert}/cv-builder/{session}/send-question', [CandidateAlertController::class, 'sendCvBuilderQuestion'])->name('cv-builder.send-question')->wherePrimaryKey('candidateAlert')->whereNumber('session');
+        Route::post('{candidateAlert}/cv-builder/{session}/generate', [CandidateAlertController::class, 'generateCvFromChat'])->name('cv-builder.generate')->wherePrimaryKey('candidateAlert')->whereNumber('session');
+        Route::get('{candidateAlert}/cv-builder/{session}/download/{format}', [CandidateAlertController::class, 'downloadBuiltCv'])->name('cv-builder.download')->wherePrimaryKey('candidateAlert')->whereNumber('session')->whereIn('format', ['docx', 'pdf']);
         Route::post('analyze-cv', [CandidateAlertController::class, 'analyzeCv'])->name('analyze-cv');
         Route::post('analyze-account-cv', [CandidateAlertController::class, 'analyzeAccountCv'])->name('analyze-account-cv');
         Route::post('preview-filters', [CandidateAlertController::class, 'previewFilters'])->name('preview-filters');
@@ -147,20 +152,49 @@ AdminHelper::registerRoutes(function (): void {
 
     Route::group(['prefix' => 'auto-apply-orders', 'as' => 'auto-apply-orders.', 'middleware' => 'auth'], function (): void {
         Route::get('', [AutoApplyOrderController::class, 'index'])->name('index');
+        Route::put('{autoApplyOrder}', [AutoApplyOrderController::class, 'update'])->name('update');
         Route::post('{autoApplyOrder}/approve', [AutoApplyOrderController::class, 'approve'])->name('approve');
         Route::post('{autoApplyOrder}/reject', [AutoApplyOrderController::class, 'reject'])->name('reject');
+        Route::post('{autoApplyOrder}/disable', [AutoApplyOrderController::class, 'disable'])->name('disable');
+        Route::get('{autoApplyOrder}/active-jobs', [AutoApplyOrderController::class, 'activeJobs'])->name('active-jobs');
+        Route::post('send-job', [AutoApplyOrderController::class, 'sendJob'])->name('send-job');
+        Route::delete('{autoApplyOrder}', [AutoApplyOrderController::class, 'destroy'])->name('destroy');
         Route::post('preview', [AutoApplyOrderController::class, 'preview'])->name('preview');
         Route::post('setup-for-candidate', [AutoApplyOrderController::class, 'setupForCandidate'])->name('setup-for-candidate');
+        Route::get('search-candidates', [AutoApplyOrderController::class, 'searchCandidates'])->name('search-candidates');
+        Route::get('search-countries', [AutoApplyOrderController::class, 'searchCountries'])->name('search-countries');
+        Route::get('search-categories', [AutoApplyOrderController::class, 'searchCategories'])->name('search-categories');
     });
 
     Route::group(['prefix' => 'auto-apply-logs', 'as' => 'auto-apply-logs.', 'middleware' => 'auth'], function (): void {
         Route::get('', [AutoApplyLogController::class, 'index'])->name('index');
+        Route::delete('{autoApplyLog}', [AutoApplyLogController::class, 'destroy'])->name('destroy');
     });
 
     Route::prefix('credit-orders')->name('credit-orders.')->middleware('auth')->group(function (): void {
         Route::get('', [CreditOrderController::class, 'index'])->name('index');
         Route::post('{order}/approve', [CreditOrderController::class, 'approve'])->name('approve');
         Route::post('{order}/reject', [CreditOrderController::class, 'reject'])->name('reject');
+    });
+
+    Route::group(['prefix' => 'job-board/auto-cv-bot', 'as' => 'job-board.auto-cv-bot.', 'middleware' => 'auth'], function (): void {
+        Route::get('', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'index'])->name('index');
+        Route::post('start', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'start'])->name('start');
+        Route::get('sessions/poll', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'pollSessions'])->name('sessions.poll');
+        Route::get('{autoCvSession}', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'show'])->name('show')->whereNumber('autoCvSession');
+        Route::get('{autoCvSession}/poll', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'poll'])->name('poll')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/pause', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'pause'])->name('pause')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/resume', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'resume'])->name('resume')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/resend-question', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'resendQuestion'])->name('resend-question')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/request-section-information', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'requestSectionInformation'])->name('request-section-information')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/retry-generation', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'retryGeneration'])->name('retry-generation')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/generate-documents', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'generateDocuments'])->name('generate-documents')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/ask-candidate-to-resend', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'askCandidateToResend'])->name('ask-candidate-to-resend')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/continue-interview', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'continueInterview'])->name('continue-interview')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/end-conversation', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'endConversation'])->name('end-conversation')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/send-documents', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'sendDocuments'])->name('send-documents')->whereNumber('autoCvSession');
+        Route::get('{autoCvSession}/download/{format}/{design?}', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'download'])->name('download')->whereNumber('autoCvSession')->whereIn('format', ['docx', 'pdf'])->whereIn('design', ['premium', 'academic', 'creative']);
+        Route::delete('{autoCvSession}', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'destroy'])->name('destroy')->whereNumber('autoCvSession');
     });
 
     Route::group(['prefix' => 'documentation', 'as' => 'documentation.', 'middleware' => 'auth'], function (): void {
@@ -725,6 +759,33 @@ AdminHelper::registerRoutes(function (): void {
                 'uses' => 'CompanyController@unverify',
                 'permission' => 'companies.edit',
             ])->wherePrimaryKey();
+
+            Route::group(['prefix' => 'merge', 'as' => 'merge.', 'permission' => 'companies.destroy'], function (): void {
+                Route::get('/', [
+                    'as' => 'picker',
+                    'uses' => 'CompanyMergeController@picker',
+                ]);
+
+                Route::get('search', [
+                    'as' => 'search',
+                    'uses' => 'CompanyMergeController@search',
+                ]);
+
+                Route::get('compare', [
+                    'as' => 'compare',
+                    'uses' => 'CompanyMergeController@compare',
+                ]);
+
+                Route::post('/', [
+                    'as' => 'store',
+                    'uses' => 'CompanyMergeController@merge',
+                ]);
+
+                Route::post('{companyMergeLog}/undo', [
+                    'as' => 'undo',
+                    'uses' => 'CompanyMergeController@undo',
+                ])->wherePrimaryKey();
+            });
         });
 
         Route::get('ajax/companies/{company}', [

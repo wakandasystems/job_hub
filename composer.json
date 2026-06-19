@@ -35,6 +35,7 @@
         "laravel/tinker": "^2.10",
         "minishlink/web-push": "^10.0",
         "predis/predis": "^3.0",
+        "smalot/pdfparser": "^2.12",
         "wikimedia/composer-merge-plugin": "^2.1"
     },
     "require-dev": {

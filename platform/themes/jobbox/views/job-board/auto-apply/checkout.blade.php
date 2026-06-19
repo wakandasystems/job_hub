@@ -5,7 +5,7 @@
                 <h2 class="mb-2">Auto Apply — {{ $planData['label'] }}</h2>
                 <p class="font-md color-text-paragraph-2">
                     {{ $planData['applications_per_month'] === 0 ? 'Unlimited' : $planData['applications_per_month'] }} applications/month
-                    &middot; {{ $planData['currency'] }} {{ number_format($planData['price'], 2) }}
+                    &middot; {{ $planData['displayCurrency'] }} {{ number_format($planData['displayPrice'], 2) }}
                 </p>
             </div>
         </div>
@@ -44,7 +44,7 @@
                                         <i class="fi-rr-check me-1"></i> CV uploaded and ready to be sent with applications.
                                     </div>
                                     <button type="submit" class="btn btn-primary w-100 btn-apply-big">
-                                        Proceed to Payment — {{ $planData['currency'] }} {{ number_format($planData['price'], 2) }}
+                                        Proceed to Payment — {{ $planData['displayCurrency'] }} {{ number_format($planData['displayPrice'], 2) }}
                                     </button>
                                 @endif
                             </form>
