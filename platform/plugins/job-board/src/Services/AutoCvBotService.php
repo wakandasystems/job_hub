@@ -974,7 +974,7 @@ PROMPT;
 
         if ($path) {
             $text = str_contains(strtolower($mime), 'pdf') || str_ends_with(strtolower($filename), '.pdf')
-                ? $this->extractPdfText($path)
+                ? $this->extractPdfText($session, $path)
                 : $this->extractImageText($session, $path, $mime);
 
             if ($text !== '') {
@@ -1105,7 +1105,22 @@ PROMPT;
         return [Storage::disk('local')->path($relativePath), $filename, $mime];
     }
 
-    private function extractPdfText(string $path): string
+    private function extractPdfText(AutoCvSession $session, string $path): string
+    {
+        $text = $this->extractPdfTextLayer($path);
+
+        // Most certificates candidates send are scanned photos saved as PDF, with no real
+        // text layer — pdftotext returns empty or near-empty in that case. Fall back to
+        // rasterising the first page and reading it the same way we read photos (OCR via
+        // OpenAI vision) before giving up.
+        if (mb_strlen(trim($text)) >= 20) {
+            return $text;
+        }
+
+        return $this->extractScannedPdfTextViaVision($session, $path);
+    }
+
+    private function extractPdfTextLayer(string $path): string
     {
         if (! is_file($path)) {
             return '';
@@ -1153,6 +1168,62 @@ PROMPT;
         return Str::limit($text, 6000, '');
     }
 
+    private function extractScannedPdfTextViaVision(AutoCvSession $session, string $path): string
+    {
+        if (! is_file($path)) {
+            return '';
+        }
+
+        $binary = '/usr/bin/pdftoppm';
+
+        if (! is_executable($binary)) {
+            return '';
+        }
+
+        $imagePrefix = tempnam(sys_get_temp_dir(), 'auto-cv-pdf-page-');
+
+        if (! $imagePrefix) {
+            return '';
+        }
+
+        // tempnam() creates an empty placeholder file; pdftoppm -singlefile writes its own
+        // "<prefix>.png" next to it, so the placeholder must be removed first.
+        @unlink($imagePrefix);
+        $imagePath = $imagePrefix . '.png';
+
+        $process = proc_open(
+            [$binary, '-singlefile', '-png', '-r', '150', '-f', '1', $path, $imagePrefix],
+            [
+                0 => ['pipe', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w'],
+            ],
+            $pipes
+        );
+
+        if (! is_resource($process)) {
+            return '';
+        }
+
+        foreach ($pipes as $pipe) {
+            fclose($pipe);
+        }
+
+        $exitCode = proc_close($process);
+
+        if ($exitCode !== 0 || ! is_file($imagePath)) {
+            @unlink($imagePath);
+
+            return '';
+        }
+
+        $text = $this->extractImageText($session, $imagePath, 'image/png');
+
+        @unlink($imagePath);
+
+        return $text;
+    }
+
     private function extractImageText(AutoCvSession $session, string $path, string $mime): string
     {
         if (! is_file($path)) {
@@ -1179,7 +1250,7 @@ PROMPT;
                     'content' => [
                         [
                             'type' => 'text',
-                            'text' => 'Read this image and return {"text":"..."} with only useful CV details: certificate/licence/training name, issuing body, dates, licence numbers, expiry dates, qualification names, and any relevant names. If unreadable, return {"text":""}.',
+                            'text' => 'Read this image and return {"text":"..."} with only useful CV details: certificate/licence/training name, issuing body, dates, licence numbers, expiry dates, qualification names, and any relevant names. "text" must be a single plain string with each detail on its own line (e.g. "Certificate: ...\nIssued by: ...\nDate: ..."), never a nested JSON object. If unreadable, return {"text":""}.',
                         ],
                         [
                             'type' => 'image_url',
@@ -1211,7 +1282,33 @@ PROMPT;
             return '';
         }
 
-        return Str::limit(trim((string) ($decoded['text'] ?? '')), 6000, '');
+        return Str::limit(trim($this->flattenExtractedText($decoded['text'] ?? '')), 6000, '');
+    }
+
+    /**
+     * The model is told to return "text" as a single plain string, but vision models
+     * sometimes structure the details into a nested object anyway — flatten that into
+     * readable lines instead of letting it cast to the literal string "Array".
+     */
+    private function flattenExtractedText(mixed $value): string
+    {
+        if (is_string($value)) {
+            return $value;
+        }
+
+        if (! is_array($value)) {
+            return '';
+        }
+
+        return collect($value)
+            ->map(function ($v, $k) {
+                $label = is_string($k) ? Str::headline($k) : null;
+                $val = is_array($v) ? $this->flattenExtractedText($v) : (string) $v;
+
+                return $label ? "{$label}: {$val}" : $val;
+            })
+            ->filter(fn (string $line) => trim($line) !== '')
+            ->implode("\n");
     }
 
     private function sendWhapiDocument(string $whatsappNumber, string $path, string $filename, ?string &$errorMessage = null): bool
