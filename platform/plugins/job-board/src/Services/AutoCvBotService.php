@@ -877,7 +877,7 @@ PROMPT;
         }
 
         $message = $isCompleted
-            ? $this->finalConfirmationMessage($session)
+            ? $this->generateReopenAfterCompletionMessage($session)
             : ($question?->body ?: $this->nextWeakSectionQuestion($session));
 
         if (! $message) {
@@ -899,6 +899,78 @@ PROMPT;
         ])->save();
 
         return $this->resendCurrentQuestion($session->fresh());
+    }
+
+    /**
+     * Reopening a session that was already completed and sent means something was
+     * missed — generate a fresh, AI-phrased message each time rather than resending the
+     * generic "please confirm" text, so it reads as the assistant naturally picking the
+     * conversation back up, not a robotic reset.
+     */
+    private function generateReopenAfterCompletionMessage(AutoCvSession $session): string
+    {
+        $apiKey = (string) (setting('openai_api_key') ?: config('services.openai.key') ?: env('OPENAI_API_KEY'));
+
+        if ($apiKey === '') {
+            return $this->fallbackReopenAfterCompletionMessage($session);
+        }
+
+        $personaName = self::PERSONA_NAME;
+
+        $systemPrompt = <<<PROMPT
+You are writing a WhatsApp follow-up message on behalf of Wakanda Jobs. You already finished this candidate's CV and sent it to them, but something was left out, so the conversation is being reopened to add it.
+
+Your name is {$personaName}, Wakanda Jobs' AI assistant — say plainly you are an AI, never the word "bot". Some time has likely passed since you last spoke, so briefly reintroduce yourself in your own natural words — vary the wording every time, never reuse the exact same sentence twice.
+
+Write a short message that:
+- Briefly reintroduces yourself.
+- Lets the candidate know you're aware (or were told) that something didn't make it into their CV.
+- Asks them, warmly and simply, what that missing detail is, so you can add it.
+- Stays calm, warm, and natural — never robotic, corporate, or like a form.
+
+Rules:
+- 2-4 short sentences total.
+- Never use the word "bot".
+- Output ONLY the message text — no preamble, no quotes, no markdown fences.
+PROMPT;
+
+        try {
+            $response = Http::timeout(30)->withToken($apiKey)->acceptJson()
+                ->post('https://api.openai.com/v1/chat/completions', [
+                    'model' => self::MODEL,
+                    'temperature' => 0.9,
+                    'max_tokens' => 200,
+                    'messages' => [
+                        ['role' => 'system', 'content' => $systemPrompt],
+                        ['role' => 'user', 'content' => 'Candidate name: ' . ($session->candidate_name ?: '(not given)')],
+                    ],
+                ]);
+        } catch (Throwable) {
+            return $this->fallbackReopenAfterCompletionMessage($session);
+        }
+
+        if (! $response->successful()) {
+            return $this->fallbackReopenAfterCompletionMessage($session);
+        }
+
+        $text = trim((string) $response->json('choices.0.message.content', ''));
+        $text = trim((string) preg_replace('/^```[a-z]*\s*|\s*```$/i', '', $text));
+
+        if ($text === '') {
+            return $this->fallbackReopenAfterCompletionMessage($session);
+        }
+
+        $this->recordAiUsage($session, $response);
+
+        return $text;
+    }
+
+    private function fallbackReopenAfterCompletionMessage(AutoCvSession $session): string
+    {
+        $name = trim((string) explode(' ', (string) $session->candidate_name)[0]);
+
+        return 'Hi' . ($name ? " {$name}" : '') . "! It's " . self::PERSONA_NAME . ' again, the AI assistant from Wakanda Jobs. '
+            . "We noticed something didn't quite make it into your CV — what would you like me to add?";
     }
 
     public function endConversationNow(AutoCvSession $session, ?string $closingMessage = null): bool
