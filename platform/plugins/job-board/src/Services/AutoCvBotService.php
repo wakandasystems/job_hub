@@ -408,6 +408,32 @@ PROMPT;
             return;
         }
 
+        // Safety net: the model occasionally resends the same question verbatim instead of
+        // clarifying — e.g. a candidate politely asking "kindly clarify a bit on the projects"
+        // got the exact same question echoed straight back, which feels broken and ignores them.
+        // Force one explicit clarification retry rather than letting that go out to the candidate.
+        if ($this->isRepeatOfLastQuestion((string) $decoded['next_message'], $session->last_question_text)) {
+            $clarifyPayload = $payload;
+            $clarifyPayload['messages'][] = [
+                'role' => 'user',
+                'content' => 'Your next_message was the same (or almost the same) question you already asked, word for word. The candidate is confused or asked for clarification, not confirming they have nothing to add. Per rule 3, explain the SAME topic in simpler everyday language, break it into one small piece, and give a short concrete example that actually matches that topic — do not resend the same wording, and do not reuse an example written for a different topic.',
+            ];
+
+            try {
+                $clarifyResponse = Http::timeout(90)->withToken($apiKey)->acceptJson()
+                    ->post('https://api.openai.com/v1/chat/completions', $clarifyPayload);
+
+                $clarifyDecoded = $clarifyResponse->successful() ? $this->decodeAiJson($clarifyResponse) : null;
+
+                if (is_array($clarifyDecoded) && is_array($clarifyDecoded['structured_cv'] ?? null) && is_string($clarifyDecoded['next_message'] ?? null) && trim($clarifyDecoded['next_message']) !== '') {
+                    $decoded = $clarifyDecoded;
+                    $response = $clarifyResponse;
+                }
+            } catch (Throwable) {
+                // Fall through with the original (repeated) message rather than failing the turn.
+            }
+        }
+
         $this->recordAiUsage($session, $response);
 
         $totalTopics = count($session->topics ?: self::topics());
@@ -1277,7 +1303,7 @@ Given the full conversation so far, you must:
 2. Decide which topic numbers (1-12, matching the list above) are not yet adequately covered, and return them as "missing_topics". A topic only counts as "covered" once its own score under rule 9 would be 90 or above (a "green" score) — never remove a topic from "missing_topics" just because you asked about it, or because the candidate gave a vague or partial answer. Keep asking follow-up questions about a topic, one at a time, until you can honestly score it 90+.
 3. Read the candidate's latest reply carefully before deciding what to do next:
    - If it is a real, substantive answer (even if informal or incomplete), accept it, extract what you can, and move on per rule 5.
-   - If it is a confusion signal or a non-answer — e.g. "I don't understand", "huh?", "what do you mean", "skip", a one-word reply that doesn't address what was asked, an emoji, or anything unrelated — do NOT just reword the same question formally again. (Exception: a one-word decline like "no"/"none"/"nothing" given in reply to a yes/no "is there anything else to add?" confirmation question IS a real, complete answer — see rule 5 — not a confusion signal.) Instead, explain the SAME topic in the simplest possible everyday language, break it into one tiny piece at a time, and give a short concrete example of the kind of answer you want (e.g. "No problem! For example, you could just say: 'I studied at Kitwe Technical College, Diploma in IT, 2019 to 2021.' What school or college did you go to, and what did you study?"). Keep the topic and "missing_topics" unchanged in this case — you are still waiting for the same topic to be answered, not moving to a new question.
+   - If it is a confusion signal, a non-answer, OR a clarification request — e.g. "I don't understand", "huh?", "what do you mean", "skip", "kindly clarify", "can you explain that a bit more", "not sure what you mean by [topic]", "could you give an example", a one-word reply that doesn't address what was asked, an emoji, or anything unrelated — do NOT just reword or resend the same question again, and NEVER reply with text that is the same or almost the same as the question you already asked. A polite request to clarify (even one that names the topic, like "kindly clarify a bit on the projects") still counts here — it is asking you to explain differently, not confirming they have nothing to add. (Exception: a one-word decline like "no"/"none"/"nothing" given in reply to a yes/no "is there anything else to add?" confirmation question IS a real, complete answer — see rule 5 — not a confusion signal.) Instead, explain the SAME topic in the simplest possible everyday language, break it into one tiny piece at a time, and give a short concrete example of the kind of answer you want — make up your own example that fits the ACTUAL topic currently being clarified, never reuse an example written for a different topic. For instance, if the topic being clarified is education, you might say something like "No problem! For example, you could just say: 'I studied at Kitwe Technical College, Diploma in IT, 2019 to 2021.' What school or college did you go to, and what did you study?" — but if the topic is projects, your example must be about a project (e.g. "No problem! For example, you could just say: 'I built a small poultry-feeding business plan for a school project.' Have you done anything like that?"), not about education or anything unrelated. Keep the topic and "missing_topics" unchanged in this case — you are still waiting for the same topic to be answered, not moving to a new question.
    - Never present a simplified/example explanation as if it were a brand-new question — the candidate should clearly feel you are patiently re-explaining the same thing, not asking something different.
    - If the candidate gives only an abbreviation or acronym for the name of an institution, employer, or certifying body (e.g. "CBU", "UNZA", "NIPA", "BGS"), do not accept it and move straight to asking for other details (such as dates or job title) about that same entry, and do not silently expand it yourself even if you are confident you recognise it. Ask them directly to confirm or spell out the full name, by itself, before asking for any other details about that same entry — unless they explicitly say they don't know the full name or that there isn't a longer version, in which case accept the abbreviation as given and continue with the remaining details. Only put a full institution/employer name in structured_cv once the candidate has actually confirmed or typed it themselves. If the candidate names SEVERAL abbreviated institutions/employers in the same reply (e.g. "I worked at BGS and CBU"), ask them to confirm or spell out the full name for ALL of them together in that one clarifying message — and that message must contain ONLY the request for full names, nothing else. Do not combine it with a request for job titles, dates, or responsibilities; ask those only in a later message, once the full names are confirmed.
 4. Topic 2 (bio and contact details) bundles several distinct pieces of information — mobile number, email address, residential address/town or city, age, marital status, and LinkedIn URL. NEVER ask for more than one of these in the same message, even though they all belong to the same topic — candidates skip or forget fields when asked for several things at once. Ask for them ONE AT A TIME, in plain, friendly, everyday language rather than form-like wording (e.g. "What's the best mobile number to reach you on?" rather than "Please provide your mobile number"; "Which town or city do you live in?" rather than "residential address"). Ask in a sensible order: mobile number first (it's essential for contacting them), then email, then town/city, then age, then marital status, then LinkedIn last as a casual optional ask (e.g. "Do you have a LinkedIn profile? No worries if not, we can skip that one."). Only move to the next field once the candidate has answered or clearly declined the current one — never bundle two unanswered fields into a single follow-up. Topic 2 only counts as covered once every field has been asked about and either answered or explicitly declined.
@@ -1360,6 +1386,20 @@ PROMPT;
         }
 
         return (bool) preg_match('/\b(could you|please provide|please confirm|please list|what|when|where|which|who|do you|can you)\b/i', $message);
+    }
+
+    /** Catches the model echoing the exact same question back instead of clarifying. */
+    private function isRepeatOfLastQuestion(string $message, ?string $lastQuestion): bool
+    {
+        if (! $lastQuestion) {
+            return false;
+        }
+
+        $normalize = fn (string $text) => trim((string) preg_replace('/[^a-z0-9 ]/', '', strtolower($text)));
+
+        $normalizedMessage = $normalize($message);
+
+        return $normalizedMessage !== '' && $normalizedMessage === $normalize($lastQuestion);
     }
 
     private function finalConfirmationMessage(AutoCvSession $session): string
