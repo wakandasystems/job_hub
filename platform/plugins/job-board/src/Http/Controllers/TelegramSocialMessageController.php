@@ -63,6 +63,7 @@ class TelegramSocialMessageController extends BaseController
         $employerEmail  = null;
         $employerPhone  = null;
         $employerEmails = [];
+        $employerLastPitchAt = null;
 
         foreach (array_keys($jobImages) as $col) {
             if (! empty($job->{$col})) {
@@ -74,6 +75,7 @@ class TelegramSocialMessageController extends BaseController
             $employerEmails = collect($job->company->contact_emails ?? [])->filter()->values()->all();
             $employerEmail = $employerEmails[0] ?? $job->company->email;
             $employerPhone = collect($job->company->contact_numbers ?? [])->first() ?: $job->company->phone;
+            $employerLastPitchAt = $job->company->last_employer_pitch_at;
             if (! empty($job->company->logo)) {
                 $companyLogoUrl = \Botble\Media\Facades\RvMedia::getImageUrl($job->company->logo);
                 $companyName    = $job->company->name;
@@ -161,6 +163,7 @@ class TelegramSocialMessageController extends BaseController
             employerPhone: $employerPhone,
             sendToEmployerUrl: $sendToEmployerUrl,
             employerEmails: $employerEmails,
+            employerLastPitchAt: $employerLastPitchAt,
             generateUrls: $generateUrls,
             openAiConfigured: $openAiConfigured,
         ));
@@ -263,6 +266,7 @@ class TelegramSocialMessageController extends BaseController
         $employerEmail         = null;
         $employerPhone         = null;
         $employerEmails        = [];
+        $employerLastPitchAt   = null;
 
         if ($jobId) {
             try {
@@ -283,6 +287,7 @@ class TelegramSocialMessageController extends BaseController
                         $employerEmails = collect($liveJob->company->contact_emails ?? [])->filter()->values()->all();
                         $employerEmail = $employerEmails[0] ?? $liveJob->company->email;
                         $employerPhone = collect($liveJob->company->contact_numbers ?? [])->first() ?: $liveJob->company->phone;
+                        $employerLastPitchAt = $liveJob->company->last_employer_pitch_at;
                         $liveCompanyLogoUrl = ! empty($liveJob->company->logo)
                             ? \Botble\Media\Facades\RvMedia::getImageUrl($liveJob->company->logo)
                             : null;
@@ -471,8 +476,16 @@ class TelegramSocialMessageController extends BaseController
 
         // Employer pitch tab
         $escapedEmployerPitch = htmlspecialchars($employerPitchSafe, ENT_QUOTES, 'UTF-8');
+        // Auto-pitch (SocialPublisherService::autoPitchEmployerEmail) already emails the
+        // employer once per day after the AI image finishes generating. Disable the manual
+        // button when that's already happened today so we don't double-email the employer.
+        $employerPitchedToday = $employerLastPitchAt && $employerLastPitchAt->greaterThanOrEqualTo(now()->startOfDay());
         $employerEmailBtnHtml = $employerEmail
-            ? '<button class="btn btn-dark" onclick="sendToEmployer(\'email\',this)">📧 Email Employer</button>'
+            ? '<button class="btn btn-dark send-employer-email-btn" onclick="sendToEmployer(\'email\',this)"' . ($employerPitchedToday ? ' disabled' : '') . '>📧 Email Employer</button>'
+            : '';
+        $employerAlreadyPitchedHtml = $employerPitchedToday
+            ? '<div class="tip-blue">✅ Already emailed employer today at ' . $employerLastPitchAt->format('d M, H:i')
+                . '. <a href="#" onclick="this.closest(\'.card\').querySelector(\'.send-employer-email-btn\').disabled=false;this.remove();return false;" style="color:#7c3aed">Send again anyway</a></div>'
             : '';
         $employerWhatsappBtnHtml = $employerPhone
             ? '<button class="btn btn-purple" onclick="sendToEmployer(\'whatsapp\',this)">💬 WhatsApp Employer</button>'
@@ -1115,6 +1128,7 @@ class TelegramSocialMessageController extends BaseController
                     </div>
                     {$employerEmailsHtml}
                     {$employerNoContactHtml}
+                    {$employerAlreadyPitchedHtml}
                     <div class="btn-row">
                         {$employerEmailBtnHtml}
                         {$employerWhatsappBtnHtml}
@@ -1730,6 +1744,11 @@ class TelegramSocialMessageController extends BaseController
                 return response()->json(['ok' => false, 'message' => 'Failed to send email: ' . $e->getMessage()], 500);
             }
 
+            // Claim today's pitch slot so SocialPublisherService::autoPitchEmployerEmail
+            // (fired once the AI image finishes generating) skips this employer today —
+            // otherwise they'd get this same "job is live" pitch twice.
+            DB::table('jb_companies')->where('id', $company->getKey())->update(['last_employer_pitch_at' => now()]);
+
             $message = "Email sent to {$email}.";
             if ($ccEmails) {
                 $message .= ' CC: ' . implode(', ', $ccEmails) . '.';
@@ -1956,6 +1975,7 @@ class TelegramSocialMessageController extends BaseController
         ?string $employerPhone = null,
         ?string $sendToEmployerUrl = null,
         array $employerEmails = [],
+        $employerLastPitchAt = null,
         array $generateUrls = [],
         bool $openAiConfigured = false,
     ): string {
@@ -2026,8 +2046,16 @@ class TelegramSocialMessageController extends BaseController
 
         // Employer pitch tab
         $escapedEmployerPitch = htmlspecialchars($employerPitchSafe, ENT_QUOTES, 'UTF-8');
+        // Auto-pitch (SocialPublisherService::autoPitchEmployerEmail) already emails the
+        // employer once per day after the AI image finishes generating. Disable the manual
+        // button when that's already happened today so we don't double-email the employer.
+        $employerPitchedToday = $employerLastPitchAt && $employerLastPitchAt->greaterThanOrEqualTo(now()->startOfDay());
         $employerEmailBtnHtml = $employerEmail
-            ? '<button class="btn btn-dark" onclick="sendToEmployer(\'email\',this)">📧 Email Employer</button>'
+            ? '<button class="btn btn-dark send-employer-email-btn" onclick="sendToEmployer(\'email\',this)"' . ($employerPitchedToday ? ' disabled' : '') . '>📧 Email Employer</button>'
+            : '';
+        $employerAlreadyPitchedHtml = $employerPitchedToday
+            ? '<div class="tip-blue">✅ Already emailed employer today at ' . $employerLastPitchAt->format('d M, H:i')
+                . '. <a href="#" onclick="this.closest(\'.card\').querySelector(\'.send-employer-email-btn\').disabled=false;this.remove();return false;" style="color:#7c3aed">Send again anyway</a></div>'
             : '';
         $employerWhatsappBtnHtml = $employerPhone
             ? '<button class="btn btn-purple" onclick="sendToEmployer(\'whatsapp\',this)">💬 WhatsApp Employer</button>'
@@ -2743,6 +2771,7 @@ JSFN;
                     </div>
                     {$employerEmailsHtml}
                     {$employerNoContactHtml}
+                    {$employerAlreadyPitchedHtml}
                     <div class="btn-row">
                         {$employerEmailBtnHtml}
                         {$employerWhatsappBtnHtml}
