@@ -2182,6 +2182,55 @@ PROMPT;
     // (no Publer) to every active Facebook / LinkedIn / WhatsApp channel.
     // -------------------------------------------------------------------------
 
+    /**
+     * "AI Spice" — reword a recurring broadcast a little differently on each send so
+     * repeated posts don't read as identical copy-paste spam. Best-effort: falls back
+     * to the original message untouched on any failure or missing API key.
+     */
+    public function rephraseBroadcastMessage(string $message): string
+    {
+        $apiKey = setting('openai_api_key') ?: config('services.openai.key') ?: env('OPENAI_API_KEY');
+        if (! $apiKey) {
+            return $message;
+        }
+
+        $systemPrompt = <<<'PROMPT'
+You rewrite social-media broadcast messages for a job-board company so repeated posts don't read as identical copy-paste spam.
+
+Rules:
+- Keep the exact same meaning, facts, and call to action.
+- Keep ALL URLs, phone numbers, hashtags, and emoji-led labels EXACTLY character-for-character identical — never alter, shorten, or remove them.
+- Vary sentence structure and word choice a little — natural and on-brand, not gimmicky.
+- Keep roughly the same length.
+- Output ONLY the rewritten message text — no preamble, no quotes, no markdown fences.
+PROMPT;
+
+        try {
+            $response = Http::timeout(30)
+                ->withToken($apiKey)
+                ->post('https://api.openai.com/v1/chat/completions', [
+                    'model'       => 'gpt-4o-mini',
+                    'messages'    => [
+                        ['role' => 'system', 'content' => $systemPrompt],
+                        ['role' => 'user', 'content' => $message],
+                    ],
+                    'temperature' => 0.8,
+                    'max_tokens'  => 900,
+                ]);
+
+            if (! $response->successful()) {
+                return $message;
+            }
+
+            $rewritten = trim((string) $response->json('choices.0.message.content', ''));
+            $rewritten = preg_replace('/^```[a-z]*\s*|\s*```$/i', '', $rewritten ?? '');
+
+            return $rewritten !== '' ? $rewritten : $message;
+        } catch (Throwable) {
+            return $message;
+        }
+    }
+
     public function broadcastToChannels(string $message, ?string $imageUrl = null): array
     {
         $automations = SocialAutomation::query()

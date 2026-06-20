@@ -7,6 +7,7 @@ use Botble\Base\Supports\Breadcrumb;
 use Botble\JobBoard\Jobs\SendSocialBroadcastJob;
 use Botble\JobBoard\Models\SocialAutomation;
 use Botble\JobBoard\Models\SocialBroadcast;
+use Botble\JobBoard\Services\BroadcastRecurrenceService;
 use Botble\JobBoard\Services\SocialPublisherService;
 use Botble\JobBoard\Supports\EmployerContactAudience;
 use Illuminate\Http\Request;
@@ -94,25 +95,50 @@ class SocialBroadcastController extends BaseController
         ]);
     }
 
-    public function send(Request $request)
+    public function send(Request $request, BroadcastRecurrenceService $recurrence)
     {
         $validated = $request->validate([
-            'message'      => ['required', 'string', 'max:3000'],
-            'image_path'   => ['nullable', 'string', 'max:255'],
-            'scheduled_at' => ['nullable', 'date', 'after:now'],
-            'audience'     => ['required', 'in:channels'],
+            'message'                    => ['required', 'string', 'max:3000'],
+            'image_path'                 => ['nullable', 'string', 'max:255'],
+            'scheduled_at'                => ['nullable', 'date', 'after:now'],
+            'audience'                    => ['required', 'in:channels'],
+            'recurrence_type'             => ['nullable', 'in:fixed_daily,daily_around,random_per_day'],
+            'recurrence_time'             => ['required_if:recurrence_type,fixed_daily,daily_around', 'nullable', 'date_format:H:i'],
+            'recurrence_jitter_minutes'   => ['nullable', 'integer', 'min:1', 'max:240'],
+            'recurrence_times_per_day'    => ['required_if:recurrence_type,random_per_day', 'nullable', 'integer', 'min:1', 'max:6'],
+            'recurrence_window_start'     => ['nullable', 'integer', 'min:0', 'max:23'],
+            'recurrence_window_end'       => ['nullable', 'integer', 'min:1', 'max:24'],
+            'max_occurrences'             => ['nullable', 'integer', 'min:1', 'max:10000'],
+            'ai_spice'                    => ['nullable', 'boolean'],
         ]);
 
-        $scheduledAt = $validated['scheduled_at'] ?? null;
+        $scheduledAt     = $validated['scheduled_at'] ?? null;
+        $recurrenceType  = $validated['recurrence_type'] ?? null;
 
         $broadcast = SocialBroadcast::create([
-            'message'      => $validated['message'],
-            'image_path'   => $validated['image_path'] ?? null,
-            'audience'     => $validated['audience'],
-            'status'       => $scheduledAt ? 'scheduled' : 'pending',
-            'scheduled_at' => $scheduledAt,
-            'created_by'   => Auth::id(),
+            'message'                   => $validated['message'],
+            'image_path'                => $validated['image_path'] ?? null,
+            'audience'                  => $validated['audience'],
+            'status'                    => $recurrenceType ? 'recurring' : ($scheduledAt ? 'scheduled' : 'pending'),
+            'scheduled_at'              => $recurrenceType ? null : $scheduledAt,
+            'recurrence_type'           => $recurrenceType,
+            'recurrence_time'           => $validated['recurrence_time'] ?? null,
+            'recurrence_jitter_minutes' => $validated['recurrence_jitter_minutes'] ?? null,
+            'recurrence_times_per_day'  => $validated['recurrence_times_per_day'] ?? null,
+            'recurrence_window_start'   => $validated['recurrence_window_start'] ?? null,
+            'recurrence_window_end'     => $validated['recurrence_window_end'] ?? null,
+            'max_occurrences'           => $validated['max_occurrences'] ?? null,
+            'ai_spice'                  => (bool) ($validated['ai_spice'] ?? false),
+            'created_by'                => Auth::id(),
         ]);
+
+        if ($recurrenceType) {
+            $broadcast->update($recurrence->nextRun($broadcast, now()));
+
+            return $this->httpResponse()->setMessage(
+                'Broadcast set to repeat — first post goes out around ' . $broadcast->next_run_at->format('M j, Y \a\t g:i A') . '.'
+            );
+        }
 
         if ($scheduledAt) {
             $job = SendSocialBroadcastJob::dispatch($broadcast->getKey());
@@ -137,13 +163,14 @@ class SocialBroadcastController extends BaseController
 
     public function cancel(SocialBroadcast $broadcast)
     {
-        if ($broadcast->status !== 'scheduled') {
-            return $this->httpResponse()->setError()->setMessage('Only scheduled broadcasts can be cancelled.');
+        if (! in_array($broadcast->status, ['scheduled', 'recurring'], true)) {
+            return $this->httpResponse()->setError()->setMessage('Only scheduled or recurring broadcasts can be cancelled.');
         }
 
-        $broadcast->update(['status' => 'cancelled']);
+        $wasRecurring = $broadcast->isRecurring();
+        $broadcast->update(['status' => 'cancelled', 'next_run_at' => null]);
 
-        return $this->httpResponse()->setMessage('Scheduled broadcast cancelled.');
+        return $this->httpResponse()->setMessage($wasRecurring ? 'Recurring broadcast cancelled.' : 'Scheduled broadcast cancelled.');
     }
 
     public function destroy(SocialBroadcast $broadcast)

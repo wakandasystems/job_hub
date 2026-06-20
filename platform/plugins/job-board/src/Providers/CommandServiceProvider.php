@@ -25,6 +25,8 @@ use Botble\JobBoard\Console\Commands\GenerateSocialImagesCommand;
 use Botble\JobBoard\Console\Commands\SendAutoApplyDigestCommand;
 use Botble\JobBoard\Console\Commands\SocialPublishJobCommand;
 use Botble\JobBoard\Console\Commands\CheckAutoCvBotStallCommand;
+use Botble\JobBoard\Console\Commands\ProcessDueSocialBroadcastsCommand;
+use Botble\JobBoard\Console\Commands\SendCandidateFilterTipsCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
 
@@ -60,6 +62,8 @@ class CommandServiceProvider extends ServiceProvider
             GenerateSocialImagesCommand::class,
             SendAutoApplyDigestCommand::class,
             CheckAutoCvBotStallCommand::class,
+            ProcessDueSocialBroadcastsCommand::class,
+            SendCandidateFilterTipsCommand::class,
         ]);
 
         $this->app->afterResolving(Schedule::class, function (Schedule $schedule): void {
@@ -88,6 +92,8 @@ class CommandServiceProvider extends ServiceProvider
             $schedule->command(SendAutoApplyDigestCommand::class)->weeklyOn(1, '09:30');
             $schedule->command('horizon:snapshot')->everyFiveMinutes();
             $schedule->command(CheckAutoCvBotStallCommand::class)->everyFifteenMinutes()->withoutOverlapping();
+            $schedule->command(ProcessDueSocialBroadcastsCommand::class)->everyFiveMinutes()->withoutOverlapping();
+            $schedule->command(SendCandidateFilterTipsCommand::class)->everyThirtyMinutes()->withoutOverlapping();
         });
     }
 }

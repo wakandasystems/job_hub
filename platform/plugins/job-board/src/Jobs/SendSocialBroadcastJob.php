@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Jobs;
 
 use Botble\JobBoard\Models\SocialBroadcast;
+use Botble\JobBoard\Services\BroadcastRecurrenceService;
 use Botble\JobBoard\Services\SocialPublisherService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -19,23 +20,54 @@ class SendSocialBroadcastJob implements ShouldQueue
 
     public function __construct(private readonly int $broadcastId) {}
 
-    public function handle(SocialPublisherService $publisher): void
+    public function handle(SocialPublisherService $publisher, BroadcastRecurrenceService $recurrence): void
     {
         $broadcast = SocialBroadcast::find($this->broadcastId);
 
-        if (! $broadcast || ! in_array($broadcast->status, ['pending', 'scheduled'], true)) {
+        if (! $broadcast || ! in_array($broadcast->status, ['pending', 'scheduled', 'recurring'], true)) {
             return;
         }
 
         $imageUrl = $broadcast->image_path ? Storage::disk('public')->url($broadcast->image_path) : null;
 
-        $results    = $publisher->broadcastToChannels($broadcast->message, $imageUrl);
+        // AI Spice: reword the original template on each send so repeated recurring
+        // posts don't read as identical copy-paste. The stored `message` stays the
+        // immutable template — only the rendered/sent copy varies.
+        $messageToSend = $broadcast->ai_spice
+            ? $publisher->rephraseBroadcastMessage($broadcast->message)
+            : $broadcast->message;
+
+        $results    = $publisher->broadcastToChannels($messageToSend, $imageUrl);
         $anySuccess = collect($results)->contains(fn (array $r) => $r['success']);
 
-        $broadcast->update([
-            'status'  => $anySuccess ? 'sent' : 'failed',
-            'sent_at' => now(),
-            'results' => $results,
-        ]);
+        if (! $broadcast->isRecurring()) {
+            $broadcast->update([
+                'status'             => $anySuccess ? 'sent' : 'failed',
+                'sent_at'            => now(),
+                'results'            => $results,
+                'last_sent_message'  => $messageToSend,
+            ]);
+
+            return;
+        }
+
+        $occurrenceCount = $broadcast->occurrence_count + 1;
+        $reachedCap      = $broadcast->max_occurrences && $occurrenceCount >= $broadcast->max_occurrences;
+
+        $update = [
+            'sent_at'            => now(),
+            'results'            => $results,
+            'last_sent_message'  => $messageToSend,
+            'occurrence_count'   => $occurrenceCount,
+        ];
+
+        if ($reachedCap) {
+            $update['status']       = 'completed';
+            $update['next_run_at']  = null;
+        } else {
+            $update = array_merge($update, $recurrence->nextRun($broadcast, now()));
+        }
+
+        $broadcast->update($update);
     }
 }
