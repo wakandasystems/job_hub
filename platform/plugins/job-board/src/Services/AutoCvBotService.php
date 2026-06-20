@@ -287,6 +287,8 @@ PROMPT;
             'at' => now()->toDateTimeString(),
         ];
 
+        $wasAwaitingFinalConfirmation = (bool) $session->awaiting_final_confirmation;
+
         $session->forceFill([
             'status' => 'collecting',
             'answers' => $answers,
@@ -297,20 +299,22 @@ PROMPT;
             'error_trace' => null,
         ])->save();
 
-        if ($session->awaiting_final_confirmation && $this->isFinalConfirmation($body)) {
+        if ($wasAwaitingFinalConfirmation && $this->isFinalConfirmation($body)) {
             $this->completeAfterFinalConfirmation($session->fresh());
 
             return;
         }
 
-        if ($session->awaiting_final_confirmation) {
-            $session->forceFill(['awaiting_final_confirmation' => false])->save();
-        }
-
-        $this->processReplyWithAi($session->fresh());
+        // Candidates often send the extra details and "Done" as two separate WhatsApp
+        // messages seconds apart. Don't clear the confirmation flag just because this
+        // particular message wasn't "Done" — fold it in as extra detail (below) and
+        // re-show the same confirmation question, instead of letting the general
+        // interview engine wander off onto an unrelated follow-up that the candidate's
+        // next "Done" would then miss.
+        $this->processReplyWithAi($session->fresh(), $wasAwaitingFinalConfirmation);
     }
 
-    private function processReplyWithAi(AutoCvSession $session): void
+    private function processReplyWithAi(AutoCvSession $session, bool $forceReconfirm = false): void
     {
         $apiKey = (string) (setting('openai_api_key') ?: config('services.openai.key') ?: env('OPENAI_API_KEY'));
 
@@ -471,6 +475,14 @@ PROMPT;
         if ($nextMessage === '') {
             $isComplete = true;
             $nextMessage = "Thank you for all the details! I'm putting your CV together now.";
+        }
+
+        // The candidate was already at the final "reply DONE" step and sent something else
+        // instead — their extra detail has just been folded into structured_cv above, but
+        // the next thing they see must be the same confirmation question again, not a fresh
+        // interview question, so a quick follow-up "Done" right after still gets caught.
+        if ($forceReconfirm) {
+            $isComplete = true;
         }
 
         $session->forceFill([
@@ -1508,6 +1520,7 @@ PROMPT;
     private function isFinalConfirmation(string $body): bool
     {
         $normalized = strtolower(trim(preg_replace('/\s+/', ' ', $body) ?? $body));
+        $normalized = rtrim($normalized, ".!? ");
 
         return in_array($normalized, [
             'done',
@@ -1522,6 +1535,27 @@ PROMPT;
             'finish',
             'finished',
         ], true);
+    }
+
+    /**
+     * If a candidate never replies to the final "reply DONE" confirmation, assume they're
+     * happy with what they've already given rather than leaving the CV stuck forever — most
+     * candidates who reach this point have already provided everything needed.
+     */
+    public function completeTimedOutConfirmations(int $timeoutMinutes = 2): int
+    {
+        $sessions = AutoCvSession::query()
+            ->where('status', 'collecting')
+            ->where('awaiting_final_confirmation', true)
+            ->whereNotNull('last_question_sent_at')
+            ->where('last_question_sent_at', '<=', now()->subMinutes($timeoutMinutes))
+            ->get();
+
+        foreach ($sessions as $session) {
+            $this->completeAfterFinalConfirmation($session);
+        }
+
+        return $sessions->count();
     }
 
     private function completeAfterFinalConfirmation(AutoCvSession $session, ?string $closingMessage = null): void

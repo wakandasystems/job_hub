@@ -27,6 +27,7 @@ use Botble\JobBoard\Console\Commands\SocialPublishJobCommand;
 use Botble\JobBoard\Console\Commands\CheckAutoCvBotStallCommand;
 use Botble\JobBoard\Console\Commands\ProcessDueSocialBroadcastsCommand;
 use Botble\JobBoard\Console\Commands\SendCandidateFilterTipsCommand;
+use Botble\JobBoard\Console\Commands\CompleteAutoCvFinalConfirmationsCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
 
@@ -64,6 +65,7 @@ class CommandServiceProvider extends ServiceProvider
             CheckAutoCvBotStallCommand::class,
             ProcessDueSocialBroadcastsCommand::class,
             SendCandidateFilterTipsCommand::class,
+            CompleteAutoCvFinalConfirmationsCommand::class,
         ]);
 
         $this->app->afterResolving(Schedule::class, function (Schedule $schedule): void {
@@ -94,6 +96,7 @@ class CommandServiceProvider extends ServiceProvider
             $schedule->command(CheckAutoCvBotStallCommand::class)->everyFifteenMinutes()->withoutOverlapping();
             $schedule->command(ProcessDueSocialBroadcastsCommand::class)->everyFiveMinutes()->withoutOverlapping();
             $schedule->command(SendCandidateFilterTipsCommand::class)->everyThirtyMinutes()->withoutOverlapping();
+            $schedule->command(CompleteAutoCvFinalConfirmationsCommand::class)->everyMinute()->withoutOverlapping();
         });
     }
 }
