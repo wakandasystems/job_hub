@@ -8,15 +8,30 @@ use Botble\JobBoard\Models\CandidateAlert;
 use Botble\JobBoard\Models\CandidateAlertLog;
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\SocialAutomation;
+use Botble\JobBoard\Services\OpenAiImageService;
 use Botble\Media\Facades\RvMedia;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
 class SendVipCandidateAlertsListener implements ShouldQueue
 {
+    use InteractsWithQueue;
+
     public string $queue   = 'default';
-    public int    $tries   = 2;
+
+    /**
+     * Generous headroom above IMAGE_WAIT_MAX_ATTEMPTS so the queue's own max-attempts
+     * guard never cuts the image-wait loop short before it reaches its own cutoff below.
+     */
+    public int $tries = 10;
+
+    /** Seconds between checks while waiting for GenerateSocialImagesListener to finish. */
+    private const IMAGE_WAIT_INTERVAL = 20;
+
+    /** Give up waiting after this many checks (~100s) and send text-only instead. */
+    private const IMAGE_WAIT_MAX_ATTEMPTS = 6;
 
     public function handle(JobPublishedEvent $event): void
     {
@@ -29,6 +44,18 @@ class SendVipCandidateAlertsListener implements ShouldQueue
         // Skip jobs already past their deadline at publish time
         $deadline = $job->expire_date ?? null;
         if ($deadline && now()->gt($deadline)) {
+            return;
+        }
+
+        // GenerateSocialImagesListener generates job->whatsapp_image in a background
+        // process. Wait for it (re-checking on a delay) so the VIP WhatsApp message goes
+        // out WITH the image instead of racing ahead text-only — same fix already applied
+        // to the public social-channel post. We only ever READ whatsapp_image here; we
+        // never trigger generation ourselves. After IMAGE_WAIT_MAX_ATTEMPTS we give up and
+        // send text-only rather than delay VIP candidates indefinitely.
+        if ($this->isImagePending($job) && $this->attempts() < self::IMAGE_WAIT_MAX_ATTEMPTS) {
+            $this->release(self::IMAGE_WAIT_INTERVAL);
+
             return;
         }
 
@@ -54,11 +81,12 @@ class SendVipCandidateAlertsListener implements ShouldQueue
                 continue;
             }
 
-            if (! $this->jobMatchesFilters($job, $alert->filters ?? [])) {
+            $matchedKeyword = null;
+            if (! $this->jobMatchesFilters($job, $alert->filters ?? [], $matchedKeyword)) {
                 continue;
             }
 
-            $ok = $this->sendJobToCandidate($token, $gatewayUrl, $alert, $job);
+            $ok = $this->sendJobToCandidate($token, $gatewayUrl, $alert, $job, $matchedKeyword);
 
             CandidateAlertLog::create([
                 'candidate_alert_id' => $alert->id,
@@ -70,18 +98,51 @@ class SendVipCandidateAlertsListener implements ShouldQueue
         }
     }
 
-    private function jobMatchesFilters(Job $job, array $filters): bool
+    /**
+     * True while the job qualifies for AI image generation but the image hasn't
+     * landed on the model yet. Never initiates generation — purely a read check.
+     */
+    private function isImagePending(Job $job): bool
     {
+        if (trim((string) ($job->whatsapp_image ?? '')) !== '') {
+            return false;
+        }
+
+        return (bool) setting('ai_social_image_enabled') && app(OpenAiImageService::class)->isConfigured();
+    }
+
+    /**
+     * Plural-tolerant keyword pattern — kept in sync with
+     * SendCandidateAlertsCommand::keywordRegexPattern() so the instant
+     * listener and the daily digest match the same jobs.
+     */
+    private function keywordPattern(string $keyword): string
+    {
+        $keyword = trim($keyword);
+        $pattern = preg_quote($keyword, '/');
+
+        if (preg_match('/[a-z]$/i', $keyword)) {
+            $pattern .= 's?';
+        }
+
+        return '/\b' . $pattern . '\b/iu';
+    }
+
+    private function jobMatchesFilters(Job $job, array $filters, ?string &$matchedKeyword = null): bool
+    {
+        $matchedKeyword = null;
+
         // Keywords — OR logic across title, description, address (not company name)
         $keywords = array_values(array_filter(array_map('trim', (array) ($filters['keywords'] ?? (($filters['keyword'] ?? null) ? [$filters['keyword']] : [])))));
         if ($keywords) {
             $matched = false;
             foreach ($keywords as $kw) {
-                $kwPat = '/\b' . preg_quote($kw, '/') . '\b/iu';
+                $kwPat = $this->keywordPattern($kw);
                 if (preg_match($kwPat, $job->name)
                     || preg_match($kwPat, (string) ($job->description ?? ''))
                     || preg_match($kwPat, (string) ($job->address ?? ''))) {
                     $matched = true;
+                    $matchedKeyword = $kw;
                     break;
                 }
             }
@@ -146,7 +207,7 @@ class SendVipCandidateAlertsListener implements ShouldQueue
         return true;
     }
 
-    private function sendJobToCandidate(string $token, string $gatewayUrl, CandidateAlert $alert, Job $job): bool
+    private function sendJobToCandidate(string $token, string $gatewayUrl, CandidateAlert $alert, Job $job, ?string $matchedKeyword = null): bool
     {
         $jobUrl  = $job->slugable?->key ? url("/{$job->slugable->key}") : url('/jobs/' . $job->id);
         $company = $job->company?->name ?? '';
@@ -178,6 +239,9 @@ class SendVipCandidateAlertsListener implements ShouldQueue
         }
 
         $msg .= "\n👉 *Apply:* {$jobUrl}\n\n";
+        if ($matchedKeyword) {
+            $msg .= "_🔎 Matched: \"{$matchedKeyword}\"_\n";
+        }
         $msg .= "_Wakanda Jobs VIP Alert — wakandajobs.com_";
 
         $imgField = trim((string) ($job->whatsapp_image ?? ''));

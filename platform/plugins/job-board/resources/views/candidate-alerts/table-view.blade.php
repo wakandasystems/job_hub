@@ -694,7 +694,7 @@ $(function () {
         const $btn = $(this), url = $btn.data('url'), sendUrl = $btn.data('send-url'), name = $btn.data('name');
         $('#previewModalTitle').text('Matching Jobs — ' + name);
         $('#previewContent').html('<div class="p-3 text-center text-muted"><i class="ti ti-loader-2 fa-spin fs-3 d-block mb-2"></i> Searching matching jobs…</div>');
-        $('#btnSendNow').data('send-url', sendUrl);
+        $('#btnSendNow').data('send-url', sendUrl).data('preview-url', url);
         $('#forceResendCheck').prop('checked', false);
         new bootstrap.Modal(document.getElementById('modal-preview')).show();
         $httpClient.make().get(url)
@@ -791,10 +791,24 @@ $(function () {
 
     // Send Now
     $('#btnSendNow').on('click', async function () {
-        const $btn = $(this), sendUrl = $btn.data('send-url'), forceResend = $('#forceResendCheck').is(':checked'), BATCH = 3, BATCH_GAP = 400;
+        const $btn = $(this), sendUrl = $btn.data('send-url'), previewUrl = $btn.data('preview-url'), forceResend = $('#forceResendCheck').is(':checked'), BATCH = 3, BATCH_GAP = 400;
+
+        // Refresh "already sent" state first — the daily digest (or a real-time VIP
+        // alert) may have sent some of these jobs in the background since this preview
+        // was opened, and we don't want to report those as failures below.
+        if (previewUrl) {
+            $btn.prop('disabled', true).html('<i class="ti ti-loader-2 fa-spin me-1"></i> Checking…');
+            try {
+                const { data: resp } = await $httpClient.make().get(previewUrl);
+                const freshById = new Map((resp.data || []).map(j => [j.id, j.already_sent]));
+                previewAllJobs.forEach(j => { if (freshById.has(j.id)) j.already_sent = freshById.get(j.id); });
+                renderPreviewTable(previewAllJobs.length);
+            } catch (e) { /* non-fatal — fall back to the existing snapshot */ }
+        }
+
         const jobsToSend = forceResend ? [...previewAllJobs] : previewAllJobs.filter(j => !j.already_sent);
-        if (!jobsToSend.length) { Botble.showError('No new jobs to send.'); return; }
-        const total = jobsToSend.length; let done = 0, sent = 0, failed = 0; const failedJobs = [];
+        if (!jobsToSend.length) { Botble.showError('No new jobs to send.'); $btn.prop('disabled', false).html('<i class="fab fa-whatsapp me-1"></i> Send All Matching'); return; }
+        const total = jobsToSend.length; let done = 0, sent = 0, skipped = 0, failed = 0; const failedJobs = [];
         $btn.prop('disabled', true).html('<i class="fab fa-whatsapp me-1"></i> Sending…');
         $('#btnExportCsv, #btnExportPdf, #forceResendCheck, #pv-country, #pv-company, #pv-period, #pv-clear-filters').prop('disabled', true);
         $('#pv-send-progress').html(`<div class="px-3 pt-3 pb-2"><div class="d-flex align-items-center justify-content-between mb-1"><span class="small fw-semibold" id="pv-prog-label">Sending 0 of ${total}…</span><span class="small text-muted" id="pv-prog-counts">0 sent · 0 failed</span></div><div class="progress mb-1" style="height:8px"><div class="progress-bar progress-bar-striped progress-bar-animated bg-success" id="pv-prog-bar" role="progressbar" style="width:0%;transition:width .4s ease"></div></div><div class="text-muted small text-truncate" id="pv-prog-current" style="min-height:1.3em"></div></div>`).show();
@@ -809,7 +823,9 @@ $(function () {
             $('#pv-prog-current').html(`<i class="fas fa-paper-plane me-1 text-success"></i>${escHtml(job.name)}`);
             try {
                 const { data } = await $httpClient.make().post(sendUrl, { force_resend: forceResend ? 1 : 0, job_ids: [job.id] }, { timeout: 30000 });
-                sent++; job.already_sent = true;
+                const wasSkipped = Array.isArray(data?.skipped_jobs) && data.skipped_jobs.length > 0;
+                if (wasSkipped) { skipped++; } else { sent++; }
+                job.already_sent = true;
                 const $row = $(`tr[data-job-id="${job.id}"]`);
                 if ($row.length) { $row.css({ transition: 'opacity .3s ease, transform .3s ease', opacity: 0, transform: 'translateX(40px)' }); setTimeout(() => $row.remove(), 320); }
                 if (Array.isArray(data?.failed_jobs) && data.failed_jobs.length) {
@@ -826,17 +842,17 @@ $(function () {
             done++; const pct = Math.round((done/total)*100);
             $('#pv-prog-bar').css('width', pct + '%');
             $('#pv-prog-label').text(`Sending ${Math.min(done+BATCH,total)} of ${total}…`);
-            $('#pv-prog-counts').text(`${sent} sent · ${failed} failed`);
+            $('#pv-prog-counts').text(`${sent} sent · ${skipped} already sent · ${failed} failed`);
             renderFailedJobs();
         };
         for (let i = 0; i < jobsToSend.length; i += BATCH) {
             await Promise.all(jobsToSend.slice(i, i+BATCH).map(sendOne));
             if (i+BATCH < jobsToSend.length) await new Promise(r => setTimeout(r, BATCH_GAP));
         }
-        $('#pv-prog-label').text(`Done — ${sent} sent${failed ? `, ${failed} failed` : ''}.`);
+        $('#pv-prog-label').text(`Done — ${sent} sent${skipped ? `, ${skipped} already sent` : ''}${failed ? `, ${failed} failed` : ''}.`);
         $('#pv-prog-current').html(''); $('#pv-prog-bar').removeClass('progress-bar-animated progress-bar-striped').css('width','100%');
         renderFailedJobs();
-        failed ? Botble.showError(`${sent} sent, ${failed} failed.`) : Botble.showSuccess(`${sent} job(s) sent successfully.`);
+        failed ? Botble.showError(`${sent} sent, ${skipped} already sent, ${failed} failed.`) : Botble.showSuccess(`${sent} job(s) sent` + (skipped ? `, ${skipped} already sent (skipped)` : '') + '.');
         $btn.prop('disabled', false).html('<i class="fab fa-whatsapp me-1"></i> Send All Matching');
         $('#btnExportCsv, #btnExportPdf, #forceResendCheck, #pv-country, #pv-company, #pv-period, #pv-clear-filters').prop('disabled', false);
         if (!failed) setTimeout(() => location.reload(), 1500);
@@ -1384,22 +1400,13 @@ $(function () {
             $('.kw-count-badge-' + prefix).text(keywords.length);
         }
 
-        $('#jobtypes-box-' + prefix + ' input[type="checkbox"]').prop('checked', false);
-        (data.job_type_ids || []).forEach(id => $('#' + prefix + '-type-' + id).prop('checked', true));
-        $('.jt-count-badge-' + prefix).text((data.job_type_ids || []).length + ' selected');
-        $('[data-target="jobtypes-box-' + prefix + '"].btn-deselect-all-check.btn-outline-danger').prop('disabled', !(data.job_type_ids || []).length);
-
-        $('#categories-box-' + prefix + ' input[type="checkbox"]').prop('checked', false);
-        (data.category_ids || []).forEach(id => $('#' + prefix + '-cat-' + id).prop('checked', true));
-        $('.cat-count-badge-' + prefix).text((data.category_ids || []).length + ' selected');
-        $('[data-target="categories-box-' + prefix + '"].btn-deselect-all-check.btn-outline-danger').prop('disabled', !(data.category_ids || []).length);
-
+        // Job types, categories, experience level, and city/location are intentionally
+        // left alone — the admin picks those manually. The AI's suggestions for them are
+        // still shown as read-only badges in the result panel below.
         $('#countries-box-' + prefix + ' input[type="checkbox"]').prop('checked', false);
         (data.country_ids || []).forEach(id => $('#' + prefix + '-country-' + id + ', #add-country-' + id + ', #edit-country-' + id).prop('checked', true));
         $('.country-count-badge-' + prefix).text((data.country_ids || []).length + ' selected');
 
-        if (data.job_experience_id) $scope.find('select[name="filters[job_experience_id]"]').val(data.job_experience_id);
-        if (data.location_keyword) $scope.find('input[name="filters[location_keyword]"]').val(data.location_keyword);
         $scope.find('input[name="cv_analysis_payload"]').val(JSON.stringify(data));
 
         if (showPanel) {

@@ -859,9 +859,17 @@ class CandidateAlertController
 
         $sentCount = 0;
         $failedJobs = [];
+        $skippedJobs = [];
 
         foreach ($jobs as $job) {
             if (! $forceResend && $candidateAlert->logs()->where('job_id', $job->id)->where('status', 'sent')->exists()) {
+                // Already sent (e.g. by the daily digest while this preview was open) —
+                // this is not a failure, just nothing left to do for this job.
+                $skippedJobs[] = [
+                    'job_id'   => $job->id,
+                    'job_name' => $job->name,
+                ];
+
                 continue;
             }
 
@@ -887,18 +895,27 @@ class CandidateAlertController
             }
         }
 
-        if ($sentCount === 0) {
+        if ($sentCount === 0 && ! empty($failedJobs)) {
             return response()->json([
                 'error' => count($failedJobs) === 1
                     ? ($failedJobs[0]['error'] ?: 'Failed to send job via WhatsApp.')
                     : 'Failed to send job(s) via WhatsApp.',
                 'failed_jobs' => $failedJobs,
+                'skipped_jobs' => $skippedJobs,
             ], 422);
         }
 
+        $message = "Sent {$sentCount} job(s).";
+        if ($sentCount === 0 && ! empty($skippedJobs)) {
+            $message = count($skippedJobs) === 1
+                ? 'Already sent — skipped.'
+                : count($skippedJobs) . ' job(s) already sent — skipped.';
+        }
+
         return response()->json([
-            'message' => "Sent {$sentCount} job(s).",
+            'message' => $message,
             'failed_jobs' => $failedJobs,
+            'skipped_jobs' => $skippedJobs,
         ]);
     }
 
@@ -1188,6 +1205,23 @@ class CandidateAlertController
         return '\\b' . $pattern . '\\b';
     }
 
+    /** First keyword (from the alert's filters) that matched this job — shown subtly to the candidate. */
+    private function matchedKeywordFor(Job $job, array $filters): ?string
+    {
+        $keywords = array_values(array_filter(array_map('trim', (array) ($filters['keywords'] ?? (($filters['keyword'] ?? null) ? [$filters['keyword']] : [])))));
+
+        foreach ($keywords as $kw) {
+            $kwPat = '/' . $this->keywordRegexPattern($kw) . '/iu';
+            if (preg_match($kwPat, $job->name)
+                || preg_match($kwPat, (string) ($job->description ?? ''))
+                || preg_match($kwPat, (string) ($job->address ?? ''))) {
+                return $kw;
+            }
+        }
+
+        return null;
+    }
+
     private function sendJobMessage(string $token, string $gatewayUrl, CandidateAlert $alert, Job $job, ?string &$errorMessage = null): bool
     {
         $jobUrl  = $job->slugable?->key ? url("/{$job->slugable->key}") : url('/jobs/' . $job->id);
@@ -1220,6 +1254,9 @@ class CandidateAlertController
         }
 
         $msg .= "\n👉 *Apply:* {$jobUrl}\n\n";
+        if ($matchedKeyword = $this->matchedKeywordFor($job, $alert->filters ?? [])) {
+            $msg .= "_🔎 Matched: \"{$matchedKeyword}\"_\n";
+        }
         $msg .= "_Wakanda Jobs VIP Alert — wakandajobs.com_";
 
         $imgField = trim((string) ($job->whatsapp_image ?? ''));

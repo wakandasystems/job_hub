@@ -6,6 +6,7 @@ use Botble\JobBoard\Enums\JobStatusEnum;
 use Botble\JobBoard\Models\CandidateAlert;
 use Botble\JobBoard\Models\CandidateAlertLog;
 use Botble\JobBoard\Models\Job;
+use Botble\JobBoard\Models\JobApplication;
 use Botble\JobBoard\Models\SocialAutomation;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
@@ -163,6 +164,23 @@ class SendCandidateAlertsCommand extends Command
         return '\\b' . $pattern . '\\b';
     }
 
+    /** First keyword (from the alert's filters) that matched this job — shown subtly to the candidate. */
+    private function matchedKeywordFor(Job $job, array $filters): ?string
+    {
+        $keywords = array_values(array_filter(array_map('trim', (array) ($filters['keywords'] ?? (($filters['keyword'] ?? null) ? [$filters['keyword']] : [])))));
+
+        foreach ($keywords as $kw) {
+            $kwPat = '/' . $this->keywordRegexPattern($kw) . '/iu';
+            if (preg_match($kwPat, $job->name)
+                || preg_match($kwPat, (string) ($job->description ?? ''))
+                || preg_match($kwPat, (string) ($job->address ?? ''))) {
+                return $kw;
+            }
+        }
+
+        return null;
+    }
+
     private function sendDigestToCandidate(
         string $token,
         string $gatewayUrl,
@@ -172,6 +190,15 @@ class SendCandidateAlertsCommand extends Command
     {
         $message = "Hi {$alert->candidate_name},\n\n";
         $message .= "Here is your daily Wakanda Jobs summary based on the VIP job-alert preferences you requested.\n\n";
+
+        $appliedJobIds = $alert->candidate_email
+            ? JobApplication::where('email', $alert->candidate_email)
+                ->whereIn('job_id', $jobs->pluck('id'))
+                ->pluck('job_id')
+                ->all()
+            : [];
+
+        $filters = $alert->filters ?? [];
 
         foreach ($jobs as $index => $job) {
             $jobUrl = $job->slugable?->key ? url("/{$job->slugable->key}") : url('/jobs/' . $job->id);
@@ -185,7 +212,14 @@ class SendCandidateAlertsCommand extends Command
             if ($location) {
                 $message .= "{$location}\n";
             }
-            $message .= "{$jobUrl}\n\n";
+            if (in_array($job->id, $appliedJobIds)) {
+                $message .= "✅ You already applied to this job\n";
+            }
+            $message .= "{$jobUrl}\n";
+            if ($matchedKeyword = $this->matchedKeywordFor($job, $filters)) {
+                $message .= "_🔎 Matched: \"{$matchedKeyword}\"_\n";
+            }
+            $message .= "\n";
         }
 
         $message .= "You receive at most one job digest per day. To stop these alerts, contact Wakanda Jobs support.\n";

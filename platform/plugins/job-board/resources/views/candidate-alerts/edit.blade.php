@@ -296,22 +296,13 @@ $(function () {
             $('.kw-count-badge-' + prefix).text(keywords.length);
         }
 
-        $('#jobtypes-box-' + prefix + ' input[type="checkbox"]').prop('checked', false);
-        (data.job_type_ids || []).forEach(id => $('#' + prefix + '-type-' + id).prop('checked', true));
-        $('.jt-count-badge-' + prefix).text((data.job_type_ids || []).length + ' selected');
-        $('[data-target="jobtypes-box-' + prefix + '"].btn-deselect-all-check.btn-outline-danger').prop('disabled', !(data.job_type_ids || []).length);
-
-        $('#categories-box-' + prefix + ' input[type="checkbox"]').prop('checked', false);
-        (data.category_ids || []).forEach(id => $('#' + prefix + '-cat-' + id).prop('checked', true));
-        $('.cat-count-badge-' + prefix).text((data.category_ids || []).length + ' selected');
-        $('[data-target="categories-box-' + prefix + '"].btn-deselect-all-check.btn-outline-danger').prop('disabled', !(data.category_ids || []).length);
-
+        // Job types, categories, experience level, and city/location are intentionally
+        // left alone — the admin picks those manually. The AI's suggestions for them are
+        // still shown as read-only badges in the result panel below.
         $('#countries-box-' + prefix + ' input[type="checkbox"]').prop('checked', false);
         (data.country_ids || []).forEach(id => $('#' + prefix + '-country-' + id + ', #edit-country-' + id).prop('checked', true));
         $('.country-count-badge-' + prefix).text((data.country_ids || []).length + ' selected');
 
-        if (data.job_experience_id) $('select[name="filters[job_experience_id]"]').val(data.job_experience_id);
-        if (data.location_keyword) $('input[name="filters[location_keyword]"]').val(data.location_keyword);
         $('input[name="cv_analysis_payload"]').val(JSON.stringify(data));
         Botble.showSuccess('AI analysis complete. Filters applied — review and adjust as needed.');
     }
