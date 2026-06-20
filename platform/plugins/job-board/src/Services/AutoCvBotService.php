@@ -18,6 +18,9 @@ class AutoCvBotService
 {
     private const MODEL = 'gpt-4o-mini';
 
+    /** The AI assistant's name, shown to candidates — never refer to it as a "bot". */
+    private const PERSONA_NAME = 'Nakia';
+
     private const MODEL_PRICING_PER_MILLION = [
         'gpt-4o-mini' => [0.15, 0.60],
         'gpt-4o' => [2.50, 10.00],
@@ -55,9 +58,7 @@ class AutoCvBotService
             'answers' => [],
         ]);
 
-        $opening = "Hi" . ($candidateName ? " {$candidateName}" : '') . "! I'm the Wakanda Jobs CV Bot. "
-            . "I'll ask you a few questions to build your CV — just reply naturally, in your own words.\n\n"
-            . "First: " . self::topics()[0];
+        $opening = $this->generateOpeningMessage($session, $candidateName, self::topics()[0]);
 
         $errorMessage = null;
         $sent = $this->sendWhapiMessage($session->whatsapp_number, $opening, $errorMessage);
@@ -85,6 +86,77 @@ class AutoCvBotService
         ])->save();
 
         return [$session->fresh(), null];
+    }
+
+    /**
+     * Generates a fresh, AI-phrased opening message for every new session so it never
+     * reads as a canned script — candidates are often nervous about talking to an
+     * automated system, so the tone needs to stay calm, warm, and clearly human-like
+     * while still being honest that it's an AI, not a "bot".
+     */
+    private function generateOpeningMessage(AutoCvSession $session, ?string $candidateName, string $firstTopic): string
+    {
+        $apiKey = (string) (setting('openai_api_key') ?: config('services.openai.key') ?: env('OPENAI_API_KEY'));
+
+        if ($apiKey === '') {
+            return $this->fallbackOpeningMessage($candidateName, $firstTopic);
+        }
+
+        $personaName = self::PERSONA_NAME;
+
+        $systemPrompt = <<<PROMPT
+You are writing the very first WhatsApp message a job candidate in Zambia receives from Wakanda Jobs, introducing yourself before a short interview to build their CV.
+
+Your name is {$personaName}. You are Wakanda Jobs' AI assistant — always say plainly that you are an AI. Never use the word "bot" anywhere. Many candidates feel nervous messaging an automated system for the first time, so your tone must be warm, calm, reassuring, and natural, like a kind person — never robotic, corporate, or scripted.
+
+Write a short message that:
+- Greets the candidate by name if one is given, otherwise a warm general greeting.
+- Introduces yourself by name as Wakanda Jobs' AI assistant, phrased in your own natural words — vary the wording every time, never reuse the exact same sentence twice.
+- Reassures them this is easy and relaxed: a few simple questions, one at a time, and they can just reply naturally in their own words — there's no right or wrong way to answer.
+- Ends by asking exactly this first question, worded naturally in your own way but keeping its meaning exactly the same: "{$firstTopic}"
+
+Rules:
+- 3-5 short sentences total. Calm and conversational, not corporate.
+- Never use the word "bot".
+- Output ONLY the message text — no preamble, no quotes, no markdown fences.
+PROMPT;
+
+        try {
+            $response = Http::timeout(30)->withToken($apiKey)->acceptJson()
+                ->post('https://api.openai.com/v1/chat/completions', [
+                    'model' => self::MODEL,
+                    'temperature' => 0.9,
+                    'max_tokens' => 220,
+                    'messages' => [
+                        ['role' => 'system', 'content' => $systemPrompt],
+                        ['role' => 'user', 'content' => 'Candidate name: ' . ($candidateName ?: '(not given)')],
+                    ],
+                ]);
+        } catch (Throwable) {
+            return $this->fallbackOpeningMessage($candidateName, $firstTopic);
+        }
+
+        if (! $response->successful()) {
+            return $this->fallbackOpeningMessage($candidateName, $firstTopic);
+        }
+
+        $text = trim((string) $response->json('choices.0.message.content', ''));
+        $text = trim((string) preg_replace('/^```[a-z]*\s*|\s*```$/i', '', $text));
+
+        if ($text === '') {
+            return $this->fallbackOpeningMessage($candidateName, $firstTopic);
+        }
+
+        $this->recordAiUsage($session, $response);
+
+        return $text;
+    }
+
+    private function fallbackOpeningMessage(?string $candidateName, string $firstTopic): string
+    {
+        return "Hi" . ($candidateName ? " {$candidateName}" : '') . "! I'm " . self::PERSONA_NAME . ", the AI assistant for Wakanda Jobs. "
+            . "There's no pressure here — I'll just ask a few simple questions, one at a time, to help put your CV together. Reply however feels natural to you.\n\n"
+            . "To start: {$firstTopic}";
     }
 
     public function handleInboundReply(string $fromDigits, string $body, ?string $whapiMessageId): void
@@ -520,7 +592,7 @@ class AutoCvBotService
             . "We are still waiting for this information:\n{$session->last_question_text}";
 
         if ($nextCount >= 3) {
-            $message .= "\n\nThis is the final reminder. If you do not reply, we will pause the CV bot until you are ready.";
+            $message .= "\n\nThis is the final reminder. If you do not reply, I'll pause here until you're ready to continue.";
         }
 
         $errorMessage = null;
@@ -1202,20 +1274,21 @@ Topics to cover:
 
 Given the full conversation so far, you must:
 1. Re-derive the ENTIRE structured CV JSON from scratch using everything the candidate has said in the whole conversation, not just the latest reply. Never invent employers, schools, qualifications, dates, references, phone numbers, emails, addresses, ages, or marital status. Use empty strings/arrays for anything not yet provided. Marital status and age are sensitive personal details — only fill them in if the candidate actually states them; if they decline or skip, accept that and score the bio topic on the rest of the contact details instead.
-2. Decide which topic numbers (1-12, matching the list above) are not yet adequately covered, and return them as "missing_topics". A topic only counts as "covered" once its own score under rule 8 would be 90 or above (a "green" score) — never remove a topic from "missing_topics" just because you asked about it, or because the candidate gave a vague or partial answer. Keep asking follow-up questions about a topic, one at a time, until you can honestly score it 90+.
+2. Decide which topic numbers (1-12, matching the list above) are not yet adequately covered, and return them as "missing_topics". A topic only counts as "covered" once its own score under rule 9 would be 90 or above (a "green" score) — never remove a topic from "missing_topics" just because you asked about it, or because the candidate gave a vague or partial answer. Keep asking follow-up questions about a topic, one at a time, until you can honestly score it 90+.
 3. Read the candidate's latest reply carefully before deciding what to do next:
-   - If it is a real, substantive answer (even if informal or incomplete), accept it, extract what you can, and move on per rule 4.
-   - If it is a confusion signal or a non-answer — e.g. "I don't understand", "huh?", "what do you mean", "skip", a one-word reply that doesn't address what was asked, an emoji, or anything unrelated — do NOT just reword the same question formally again. (Exception: a one-word decline like "no"/"none"/"nothing" given in reply to a yes/no "is there anything else to add?" confirmation question IS a real, complete answer — see rule 4 — not a confusion signal.) Instead, explain the SAME topic in the simplest possible everyday language, break it into one tiny piece at a time, and give a short concrete example of the kind of answer you want (e.g. "No problem! For example, you could just say: 'I studied at Kitwe Technical College, Diploma in IT, 2019 to 2021.' What school or college did you go to, and what did you study?"). Keep the topic and "missing_topics" unchanged in this case — you are still waiting for the same topic to be answered, not moving to a new question.
+   - If it is a real, substantive answer (even if informal or incomplete), accept it, extract what you can, and move on per rule 5.
+   - If it is a confusion signal or a non-answer — e.g. "I don't understand", "huh?", "what do you mean", "skip", a one-word reply that doesn't address what was asked, an emoji, or anything unrelated — do NOT just reword the same question formally again. (Exception: a one-word decline like "no"/"none"/"nothing" given in reply to a yes/no "is there anything else to add?" confirmation question IS a real, complete answer — see rule 5 — not a confusion signal.) Instead, explain the SAME topic in the simplest possible everyday language, break it into one tiny piece at a time, and give a short concrete example of the kind of answer you want (e.g. "No problem! For example, you could just say: 'I studied at Kitwe Technical College, Diploma in IT, 2019 to 2021.' What school or college did you go to, and what did you study?"). Keep the topic and "missing_topics" unchanged in this case — you are still waiting for the same topic to be answered, not moving to a new question.
    - Never present a simplified/example explanation as if it were a brand-new question — the candidate should clearly feel you are patiently re-explaining the same thing, not asking something different.
    - If the candidate gives only an abbreviation or acronym for the name of an institution, employer, or certifying body (e.g. "CBU", "UNZA", "NIPA", "BGS"), do not accept it and move straight to asking for other details (such as dates or job title) about that same entry, and do not silently expand it yourself even if you are confident you recognise it. Ask them directly to confirm or spell out the full name, by itself, before asking for any other details about that same entry — unless they explicitly say they don't know the full name or that there isn't a longer version, in which case accept the abbreviation as given and continue with the remaining details. Only put a full institution/employer name in structured_cv once the candidate has actually confirmed or typed it themselves. If the candidate names SEVERAL abbreviated institutions/employers in the same reply (e.g. "I worked at BGS and CBU"), ask them to confirm or spell out the full name for ALL of them together in that one clarifying message — and that message must contain ONLY the request for full names, nothing else. Do not combine it with a request for job titles, dates, or responsibilities; ask those only in a later message, once the full names are confirmed.
-4. Topics 5 (education), 6 (work experience), 7 (internships/volunteer/projects), 9 (certificates/awards), and 11 (references) can have more than one entry:
+4. Topic 2 (bio and contact details) bundles several distinct pieces of information — mobile number, email address, residential address/town or city, age, marital status, and LinkedIn URL. NEVER ask for more than one of these in the same message, even though they all belong to the same topic — candidates skip or forget fields when asked for several things at once. Ask for them ONE AT A TIME, in plain, friendly, everyday language rather than form-like wording (e.g. "What's the best mobile number to reach you on?" rather than "Please provide your mobile number"; "Which town or city do you live in?" rather than "residential address"). Ask in a sensible order: mobile number first (it's essential for contacting them), then email, then town/city, then age, then marital status, then LinkedIn last as a casual optional ask (e.g. "Do you have a LinkedIn profile? No worries if not, we can skip that one."). Only move to the next field once the candidate has answered or clearly declined the current one — never bundle two unanswered fields into a single follow-up. Topic 2 only counts as covered once every field has been asked about and either answered or explicitly declined.
+5. Topics 5 (education), 6 (work experience), 7 (internships/volunteer/projects), 9 (certificates/awards), and 11 (references) can have more than one entry:
    - For each entry the candidate mentions, make sure you collect every key field before treating that entry as done: for work experience — full employer name, job title, start and end dates (or "present"), and what they did; for education — full institution name, qualification, field of study, and start/end years; for projects, certifications, and references — the equivalent key details (e.g. dates for projects, issuing body and year for certificates). If the candidate has given some but not all of these for an entry, ask specifically for the missing piece(s) next — do not skip ahead to a different entry or a different topic while details are still missing for the current one.
    - Once you believe every entry the candidate has mentioned so far for that topic is fully detailed, do NOT immediately mark the topic as covered or move to a different topic. First ask a short confirmation question such as "Is that all your work experience, or is there anything else to add?" Only remove the topic from "missing_topics" once the candidate gives a clear answer confirming there is nothing more — this includes short/one-word declines such as "no", "none", "nothing", "nope", "no more", "that's all", "I'm done", or the same word repeated/emphasised (e.g. "NO!", "nothing else"). Treat ANY one-word or short decline reply to this specific confirmation question as a valid "nothing more" answer, not as confusion under rule 3 — rule 3's "non-answer" handling is for when the candidate doesn't address what was asked at all, not for a plain no/none/nothing reply to a yes/no confirmation question. If they mention another entry instead of declining, treat it the same way (collect its full details, then ask again if that's everything).
-5. Once a topic has a real, complete answer (and, for the list-type topics above, once the candidate has confirmed there is nothing more to add), compose the single next WhatsApp message: a friendly, concise question about ONE topic that still needs covering. Never ask about more than one topic at a time. Prefer asking about a topic you haven't touched at all yet; but once every topic (1-12) has been asked about at least once, go back and revisit whichever topic currently has the LOWEST score with a clarifying follow-up — keep cycling back through the weak topics, one at a time, asking for more detail or clarity, until each one reaches 90+. Never skip a topic permanently just because the candidate's first answer to it was thin.
-6. Once every topic (1-12) would score 90 or above under rule 8, set "is_complete" to true and make "next_message" a short, friendly closing line thanking the candidate and saying their CV is being prepared. If even one topic is still below 90, keep "is_complete" false and keep working through rule 5 until it isn't.
-7. Rewrite informal answers into professional CV language when filling structured_cv. Use British English spelling. For "responsibilities" in work experience, write each as its own short bullet starting with a strong action verb (e.g. Led, Built, Reduced, Delivered, Automated, Designed, Managed) and include a number, percentage, time saved, or team size whenever the candidate's answer makes one available — never write generic duties-only phrasing like "Responsible for...". Use past tense for previous roles and present tense only for a role the candidate is still currently in.
-8. For EVERY topic number 1-12, return a "section_scores" entry keyed by that number, with a "label" (short name of the topic), a "score" from 0-100 rating how complete and useful the information given so far is for that topic (0 = nothing provided, 100 = clear and complete), and "improve" — a short, specific, actionable tip for what would make that section stronger (empty string if score is 90 or above). Score honestly based on what is actually known, not on intentions. IMPORTANT exception: if the candidate has clearly and directly stated they have NONE for a topic where that is a normal, valid answer (e.g. "no work experience, I'm a fresh graduate", "no certificates", "none" for internships/projects), that is a complete answer, not a missing one — score it 90-100, leave the corresponding structured_cv array empty, and move on. Do not keep asking about a topic the candidate has already clearly said does not apply to them.
-9. Based on everything known so far in structured_cv (skills, education, experience — even if still incomplete), suggest 3-5 realistic job positions in Zambia this candidate could apply for right now, as "suggested_job_positions": an array of {"title": "", "reason": ""} — "reason" is one short sentence on why it fits. Update this list every turn as more information comes in. If there isn't enough information yet to suggest anything sensible, return an empty array.
+6. Once a topic has a real, complete answer (and, for the list-type topics above, once the candidate has confirmed there is nothing more to add), compose the single next WhatsApp message: a friendly, concise question about ONE topic — and, per rule 4, at most ONE field within that topic — that still needs covering. Never ask about more than one topic, or more than one field of topic 2, at a time. Prefer asking about a topic you haven't touched at all yet; but once every topic (1-12) has been asked about at least once, go back and revisit whichever topic currently has the LOWEST score with a clarifying follow-up — keep cycling back through the weak topics, one at a time, asking for more detail or clarity, until each one reaches 90+. Never skip a topic permanently just because the candidate's first answer to it was thin. Many candidates have not been to college and some may be applying for senior roles despite that — always use simple, everyday words a primary-school reading level can follow, never jargon or "big" words (say "level" or "how well", not "proficiency"; say "skills, tools, or things you're good at", not "competencies"; say "your last job", not "most recent employment"). If a CV term has no simple everyday equivalent, briefly explain it in plain words the first time you use it.
+7. Once every topic (1-12) would score 90 or above under rule 9, set "is_complete" to true and make "next_message" a short, friendly closing line thanking the candidate and saying their CV is being prepared. If even one topic is still below 90, keep "is_complete" false and keep working through rule 6 until it isn't.
+8. Rewrite informal answers into professional CV language when filling structured_cv. Use British English spelling. For "responsibilities" in work experience, write each as its own short bullet starting with a strong action verb (e.g. Led, Built, Reduced, Delivered, Automated, Designed, Managed) and include a number, percentage, time saved, or team size whenever the candidate's answer makes one available — never write generic duties-only phrasing like "Responsible for...". Use past tense for previous roles and present tense only for a role the candidate is still currently in.
+9. For EVERY topic number 1-12, return a "section_scores" entry keyed by that number, with a "label" (short name of the topic), a "score" from 0-100 rating how complete and useful the information given so far is for that topic (0 = nothing provided, 100 = clear and complete), and "improve" — a short, specific, actionable tip for what would make that section stronger (empty string if score is 90 or above). Score honestly based on what is actually known, not on intentions. IMPORTANT exception: if the candidate has clearly and directly stated they have NONE for a topic where that is a normal, valid answer (e.g. "no work experience, I'm a fresh graduate", "no certificates", "none" for internships/projects), that is a complete answer, not a missing one — score it 90-100, leave the corresponding structured_cv array empty, and move on. Do not keep asking about a topic the candidate has already clearly said does not apply to them.
+10. Based on everything known so far in structured_cv (skills, education, experience — even if still incomplete), suggest 3-5 realistic job positions in Zambia this candidate could apply for right now, as "suggested_job_positions": an array of {"title": "", "reason": ""} — "reason" is one short sentence on why it fits. Update this list every turn as more information comes in. If there isn't enough information yet to suggest anything sensible, return an empty array.
 
 Return ONLY valid JSON, no markdown, in this exact shape:
 {
