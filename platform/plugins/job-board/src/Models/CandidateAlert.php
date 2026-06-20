@@ -50,6 +50,8 @@ class CandidateAlert extends BaseModel
         'notes',
         'cv_path',
         'cv_analysis',
+        'filter_tip_scheduled_at',
+        'filter_tip_sent_at',
     ];
 
     protected $casts = [
@@ -63,6 +65,8 @@ class CandidateAlert extends BaseModel
         'expires_at'          => 'datetime',
         'price'               => 'decimal:2',
         'cv_analysis'         => 'array',
+        'filter_tip_scheduled_at' => 'datetime',
+        'filter_tip_sent_at'      => 'datetime',
     ];
 
     public static array $durations = [
