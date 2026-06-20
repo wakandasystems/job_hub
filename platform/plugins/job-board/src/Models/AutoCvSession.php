@@ -39,6 +39,8 @@ class AutoCvSession extends BaseModel
         'candidate_reminder_count',
         'last_candidate_reminder_sent_at',
         'awaiting_final_confirmation',
+        'reopened_for_missing_detail',
+        'reopen_warning_sent_at',
     ];
 
     protected $casts = [
@@ -62,6 +64,8 @@ class AutoCvSession extends BaseModel
         'candidate_reminder_count' => 'integer',
         'last_candidate_reminder_sent_at' => 'datetime',
         'awaiting_final_confirmation' => 'boolean',
+        'reopened_for_missing_detail' => 'boolean',
+        'reopen_warning_sent_at' => 'datetime',
     ];
 
     public function messages(): HasMany

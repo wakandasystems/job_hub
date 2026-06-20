@@ -532,6 +532,9 @@ PROMPT;
             'last_question_text' => $nextMessage,
             'last_question_sent_at' => now(),
             'awaiting_final_confirmation' => true,
+            // A fresh prompt just went out, so any earlier "I'll wait 30 minutes" warning no
+            // longer applies — the timeout clock restarts from this message.
+            'reopen_warning_sent_at' => null,
             'candidate_reminder_count' => 0,
             'last_candidate_reminder_sent_at' => null,
         ])->save();
@@ -894,6 +897,11 @@ PROMPT;
             'candidate_reminder_count' => 0,
             'last_candidate_reminder_sent_at' => null,
             'awaiting_final_confirmation' => $isCompleted,
+            // Reopening after completion means we're waiting on real new content (not just a
+            // "Done" confirmation), so this session gets the longer 30-minute grace period —
+            // see completeTimedOutConfirmations().
+            'reopened_for_missing_detail' => $isCompleted,
+            'reopen_warning_sent_at' => null,
             'error_message' => null,
             'error_trace' => null,
         ])->save();
@@ -1614,20 +1622,141 @@ PROMPT;
      * happy with what they've already given rather than leaving the CV stuck forever — most
      * candidates who reach this point have already provided everything needed.
      */
+    private const REOPEN_WARNING_MINUTES = 2;
+
+    private const REOPEN_GRACE_MINUTES = 30;
+
     public function completeTimedOutConfirmations(int $timeoutMinutes = 2): int
     {
-        $sessions = AutoCvSession::query()
+        $completed = 0;
+
+        // Normal "reply DONE" confirmation after a full interview — short timeout, no
+        // warning needed, the candidate is only confirming, not writing new content.
+        $normalDue = AutoCvSession::query()
             ->where('status', 'collecting')
             ->where('awaiting_final_confirmation', true)
+            ->where('reopened_for_missing_detail', false)
             ->whereNotNull('last_question_sent_at')
             ->where('last_question_sent_at', '<=', now()->subMinutes($timeoutMinutes))
             ->get();
 
-        foreach ($sessions as $session) {
+        foreach ($normalDue as $session) {
             $this->completeAfterFinalConfirmation($session);
+            $completed++;
         }
 
-        return $sessions->count();
+        // Reopened because something was missing — give a longer grace period since the
+        // candidate needs time to type out real new content, with a heads-up warning partway
+        // through rather than going silent and then abruptly finishing without them.
+        $reopenedSessions = AutoCvSession::query()
+            ->where('status', 'collecting')
+            ->where('awaiting_final_confirmation', true)
+            ->where('reopened_for_missing_detail', true)
+            ->whereNotNull('last_question_sent_at')
+            ->get();
+
+        foreach ($reopenedSessions as $session) {
+            if (
+                ! $session->reopen_warning_sent_at
+                && $session->last_question_sent_at->lte(now()->subMinutes(self::REOPEN_WARNING_MINUTES))
+            ) {
+                $this->sendReopenGraceWarning($session);
+
+                continue;
+            }
+
+            if ($session->last_question_sent_at->lte(now()->subMinutes(self::REOPEN_GRACE_MINUTES))) {
+                $this->completeAfterFinalConfirmation($session);
+                $completed++;
+            }
+        }
+
+        return $completed;
+    }
+
+    private function sendReopenGraceWarning(AutoCvSession $session): void
+    {
+        $message = $this->generateReopenGraceWarningMessage($session);
+
+        $errorMessage = null;
+        $sent = $this->sendWhapiMessage($session->whatsapp_number, $message, $errorMessage);
+
+        if (! $sent) {
+            return;
+        }
+
+        AutoCvMessage::query()->create([
+            'session_id' => $session->getKey(),
+            'direction' => 'outbound',
+            'body' => $message,
+        ]);
+
+        $session->forceFill(['reopen_warning_sent_at' => now()])->save();
+    }
+
+    private function generateReopenGraceWarningMessage(AutoCvSession $session): string
+    {
+        $apiKey = (string) (setting('openai_api_key') ?: config('services.openai.key') ?: env('OPENAI_API_KEY'));
+
+        if ($apiKey === '') {
+            return $this->fallbackReopenGraceWarningMessage($session);
+        }
+
+        $personaName = self::PERSONA_NAME;
+        $graceMinutes = self::REOPEN_GRACE_MINUTES;
+
+        $systemPrompt = <<<PROMPT
+You are {$personaName}, Wakanda Jobs' AI assistant, writing a brief WhatsApp follow-up. You recently asked this candidate what detail was missing from their CV, but they haven't replied yet.
+
+Write a short, warm, patient message that:
+- Reassures them there's no rush.
+- Lets them know you'll keep waiting up to {$graceMinutes} minutes in total for their reply.
+- Says that if you don't hear back by then, you'll go ahead and finish their CV with what you already have.
+- Stays calm and natural — never robotic, corporate, or pushy.
+
+Rules:
+- 2-3 short sentences total.
+- Never use the word "bot".
+- Output ONLY the message text — no preamble, no quotes, no markdown fences.
+PROMPT;
+
+        try {
+            $response = Http::timeout(30)->withToken($apiKey)->acceptJson()
+                ->post('https://api.openai.com/v1/chat/completions', [
+                    'model' => self::MODEL,
+                    'temperature' => 0.9,
+                    'max_tokens' => 160,
+                    'messages' => [
+                        ['role' => 'system', 'content' => $systemPrompt],
+                        ['role' => 'user', 'content' => 'Candidate name: ' . ($session->candidate_name ?: '(not given)')],
+                    ],
+                ]);
+        } catch (Throwable) {
+            return $this->fallbackReopenGraceWarningMessage($session);
+        }
+
+        if (! $response->successful()) {
+            return $this->fallbackReopenGraceWarningMessage($session);
+        }
+
+        $text = trim((string) $response->json('choices.0.message.content', ''));
+        $text = trim((string) preg_replace('/^```[a-z]*\s*|\s*```$/i', '', $text));
+
+        if ($text === '') {
+            return $this->fallbackReopenGraceWarningMessage($session);
+        }
+
+        $this->recordAiUsage($session, $response);
+
+        return $text;
+    }
+
+    private function fallbackReopenGraceWarningMessage(AutoCvSession $session): string
+    {
+        $name = trim((string) explode(' ', (string) $session->candidate_name)[0]);
+
+        return 'No rush' . ($name ? ", {$name}" : '') . "! I'll wait up to " . self::REOPEN_GRACE_MINUTES
+            . " minutes for that detail — if I don't hear back by then, I'll go ahead and finish your CV with what we already have.";
     }
 
     private function completeAfterFinalConfirmation(AutoCvSession $session, ?string $closingMessage = null): void
@@ -1658,6 +1787,8 @@ PROMPT;
         $session->forceFill([
             'status' => 'ready',
             'awaiting_final_confirmation' => false,
+            'reopened_for_missing_detail' => false,
+            'reopen_warning_sent_at' => null,
             'conversation_text' => $this->buildTranscript($session),
         ])->save();
 
