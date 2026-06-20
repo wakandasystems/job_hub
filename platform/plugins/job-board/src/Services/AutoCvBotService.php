@@ -32,7 +32,7 @@ class AutoCvBotService
     {
         return [
             'Full name as it should appear on the CV',
-            'Bio and contact details: mobile number, email address, residential address, town/city, age, marital status, and LinkedIn profile URL if they have one',
+            'Bio and contact details: mobile number, email address, where they live (town/city), age, marital status, and LinkedIn profile link if they have one',
             'Job title or type of work being looked for',
             'Short personal profile: strengths and what kind of worker they are',
             'Education, highest qualification first (school/college, qualification, field, years)',
@@ -40,7 +40,7 @@ class AutoCvBotService
             'Internships, attachments, volunteer work, or projects — including a link to GitHub or live work if they have one',
             'Strongest skills, tools, software, machines, or languages they can use',
             'Certificates, licences, trainings, or awards',
-            'Languages spoken and proficiency level (e.g. fluent, intermediate, basic)',
+            'Languages they speak and how well they speak each one (e.g. fluent, okay, a little)',
             'References (name, role/company, phone, email) or "Available on request"',
             'Anything else important: achievements, leadership, availability, preferred location',
         ];
