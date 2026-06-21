@@ -125,15 +125,18 @@ class AutoApplyOrderController extends BaseController
         }
 
         $candidates = $query
-            ->select(['id', 'first_name', 'last_name', 'email'])
+            ->select(['id', 'first_name', 'last_name', 'email', 'resume', 'resume_name'])
             ->orderBy('first_name')
             ->paginate(3, ['*'], 'page', max((int) $request->query('page', 1), 1));
 
         return $response->setData([
             'items' => $candidates->getCollection()->map(fn (Account $account) => [
-                'id'    => $account->id,
-                'name'  => trim($account->first_name . ' ' . $account->last_name) ?: $account->email,
-                'email' => $account->email,
+                'id'         => $account->id,
+                'name'       => trim($account->first_name . ' ' . $account->last_name) ?: $account->email,
+                'email'      => $account->email,
+                'has_cv'     => (bool) $account->resume,
+                'resume_name' => $account->resume_name ?: ($account->resume ? basename($account->resume) : null),
+                'resume_url' => $account->resume ? \Botble\Media\Facades\RvMedia::getImageUrl($account->resume) : null,
             ])->values(),
             'current_page' => $candidates->currentPage(),
             'last_page'    => $candidates->lastPage(),
@@ -496,6 +499,78 @@ class AutoApplyOrderController extends BaseController
             'account_id' => $autoApplyOrder->account_id,
             'items' => $items,
             'pagination' => $pagination,
+        ]);
+    }
+
+    public function previewSetupJobs(Request $request, BaseHttpResponse $response)
+    {
+        $data = $request->validate([
+            'keywords'                => ['nullable', 'array'],
+            'keywords.*'              => ['nullable', 'string', 'max:120'],
+            'category_ids'            => ['nullable', 'array'],
+            'category_ids.*'          => ['nullable', 'integer'],
+            'country_ids'             => ['nullable', 'array'],
+            'country_ids.*'           => ['nullable', 'integer'],
+            'location_keyword'        => ['nullable', 'string', 'max:200'],
+            'job_experience_id'       => ['nullable', 'integer'],
+            'blacklisted_company_ids' => ['nullable', 'array'],
+            'blacklisted_company_ids.*' => ['nullable', 'integer'],
+        ]);
+
+        $keywords = array_values(array_filter(array_map('trim', (array) ($data['keywords'] ?? []))));
+        $countryIds = array_values(array_filter(array_map('intval', (array) ($data['country_ids'] ?? []))));
+        $categoryIds = array_values(array_filter(array_map('intval', (array) ($data['category_ids'] ?? []))));
+        $blacklistedCompanyIds = array_values(array_filter(array_map('intval', (array) ($data['blacklisted_company_ids'] ?? []))));
+        $locationKeyword = trim((string) ($data['location_keyword'] ?? ''));
+        $jobExperienceId = (int) ($data['job_experience_id'] ?? 0);
+
+        $query = Job::query()
+            ->where('status', JobStatusEnum::PUBLISHED)
+            ->whereNotNull('apply_email')
+            ->where('apply_email', '!=', '')
+            ->with([
+                'company' => fn ($q) => $q->select(['id', 'name', 'logo'])->with('slugable'),
+                'country:id,name,code',
+                'slugable',
+            ])
+            ->latest();
+
+        if ($keywords) {
+            $query->where(function ($q) use ($keywords): void {
+                foreach ($keywords as $keyword) {
+                    $pattern = $this->keywordRegexPattern($keyword);
+                    $q->orWhereRaw('LOWER(name) REGEXP ?', [$pattern])
+                        ->orWhereRaw('LOWER(description) REGEXP ?', [$pattern])
+                        ->orWhereRaw('LOWER(address) REGEXP ?', [$pattern]);
+                }
+            });
+        }
+
+        if ($countryIds) {
+            $query->whereIn('country_id', $countryIds);
+        }
+
+        if ($categoryIds) {
+            $query->whereHas('categories', fn ($q) => $q->whereIn('jb_categories.id', $categoryIds));
+        }
+
+        if ($locationKeyword !== '') {
+            $query->where('address', 'LIKE', "%{$locationKeyword}%");
+        }
+
+        if ($jobExperienceId > 0) {
+            $query->where('job_experience_id', $jobExperienceId);
+        }
+
+        if ($blacklistedCompanyIds) {
+            $query->whereNotIn('company_id', $blacklistedCompanyIds);
+        }
+
+        $jobs = $query->limit(100)->get(['id', 'name', 'description', 'address', 'apply_email', 'created_at', 'application_closing_date', 'company_id', 'country_id']);
+
+        return $response->setData([
+            'items' => $jobs->map(fn (Job $job) => $this->formatActiveJobItem($job))->values(),
+            'total' => $jobs->count(),
         ]);
     }
 

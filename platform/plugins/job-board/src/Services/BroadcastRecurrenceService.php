@@ -60,9 +60,14 @@ class BroadcastRecurrenceService
     /**
      * Spreads N sends across an "active hours" window each day (default 08:00–20:00)
      * instead of pure random-across-24h, so nothing ever fires at 3am looking like a
-     * bot. The window is split into N equal segments and we pick a random point in
-     * whichever segment is next, which naturally spaces sends out through the day
-     * instead of letting them cluster.
+     * bot. Rather than pre-splitting the full window into N fixed clock-time segments
+     * (which left almost no room for "today" once the day was partway through — e.g.
+     * a 08:00–14:00 first segment picked at 13:45 only had 15 minutes left to pick
+     * from, so unrelated broadcasts created minutes apart all got squeezed into the
+     * same few minutes), this divides whatever window time is still *ahead of now*
+     * by however many occurrences are still due today, and picks a random point in
+     * the first of those slices. That keeps later-in-the-day occurrences properly
+     * spread across the remaining hours instead of clustering near "now".
      */
     private function nextRandomPerDay(SocialBroadcast $broadcast, Carbon $after): array
     {
@@ -73,30 +78,28 @@ class BroadcastRecurrenceService
             $endHour = $startHour + 1;
         }
 
-        $today      = $after->copy()->startOfDay();
-        $sameDay    = $broadcast->today_date && $broadcast->today_date->isSameDay($today);
-        $doneToday  = $sameDay ? (int) $broadcast->today_occurrences : 0;
+        $today     = $after->copy()->startOfDay();
+        $sameDay   = $broadcast->today_date && $broadcast->today_date->isSameDay($today);
+        $doneToday = $sameDay ? (int) $broadcast->today_occurrences : 0;
+        $remaining = $perDay - $doneToday;
 
-        if ($doneToday < $perDay) {
-            $segment = $doneToday;
-            $day     = $today;
-        } else {
-            $segment   = 0;
-            $day       = $today->copy()->addDay();
-            $doneToday = 0;
+        $day          = $today;
+        $windowStart  = $day->copy()->addMinutes($startHour * 60);
+        $windowEnd    = $day->copy()->addMinutes($endHour * 60);
+        $earliest     = $windowStart->greaterThan($after) ? $windowStart : $after->copy()->addMinute();
+
+        // No occurrences left for today, or no time left in today's window — roll to tomorrow.
+        if ($remaining <= 0 || $earliest->greaterThanOrEqualTo($windowEnd)) {
+            $day         = $today->copy()->addDay();
+            $doneToday   = 0;
+            $remaining   = $perDay;
+            $windowStart = $day->copy()->addMinutes($startHour * 60);
+            $windowEnd   = $day->copy()->addMinutes($endHour * 60);
+            $earliest    = $windowStart;
         }
 
-        $windowMinutes  = ($endHour - $startHour) * 60;
-        $segmentMinutes = intdiv($windowMinutes, $perDay);
-        $segmentStart   = $startHour * 60 + $segment * $segmentMinutes;
-        $offsetMinutes  = random_int(0, max(1, $segmentMinutes - 1));
-
-        $next = $day->copy()->addMinutes($segmentStart + $offsetMinutes);
-
-        // Never land in the past or stack right on top of "now".
-        if ($next->lessThanOrEqualTo($after)) {
-            $next = $after->copy()->addMinutes(random_int(5, 20));
-        }
+        $sliceMinutes = max(1, intdiv($earliest->diffInMinutes($windowEnd), $remaining));
+        $next         = $earliest->copy()->addMinutes(random_int(0, $sliceMinutes - 1));
 
         return [
             'next_run_at'       => $next,

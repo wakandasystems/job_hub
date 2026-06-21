@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Console\Commands;
 
 use Botble\JobBoard\Http\Controllers\Settings\AiImageSettingController;
+use Botble\JobBoard\Jobs\GenerateSocialImagesJob;
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Services\OpenAiImageService;
 use Illuminate\Console\Command;
@@ -74,8 +75,9 @@ class GenerateSocialImagesCommand extends Command
     /**
      * Reschedule this command to run again after a cooldown, so a transient OpenAI rate
      * limit has time to reset before we regenerate the missing image(s) and then publish.
-     * Uses a detached background process (matching the rest of the publish pipeline); the
-     * cost guard in generateImages() skips slots that already succeeded, so retries only
+     * Dispatches a delayed queue job (Horizon-backed, so it survives PHP-FPM worker
+     * recycling — unlike the detached `sleep N; exec(...) &` this used to be); the cost
+     * guard in generateImages() skips slots that already succeeded, so retries only
      * re-request the still-missing images.
      */
     private function deferPublish(Job $job, int $attempt): void
@@ -90,21 +92,8 @@ class GenerateSocialImagesCommand extends Command
             self::MAX_ATTEMPTS
         ));
 
-        $php = PHP_BINARY;
-        if (str_contains($php, 'fpm') || ! is_executable($php)) {
-            $php = '/usr/bin/php';
-        }
-
-        $command = sprintf(
-            '(sleep %d; %s %s job-board:generate-social-images %d --publish --attempt=%d) > /dev/null 2>&1 &',
-            $cooldown,
-            escapeshellcmd($php),
-            escapeshellarg(base_path('artisan')),
-            $job->getKey(),
-            $attempt + 1
-        );
-
-        \exec($command);
+        GenerateSocialImagesJob::dispatch($job->getKey(), true, $attempt + 1)
+            ->delay(now()->addSeconds($cooldown));
     }
 
     private function generateImages(Job $job, OpenAiImageService $service): void

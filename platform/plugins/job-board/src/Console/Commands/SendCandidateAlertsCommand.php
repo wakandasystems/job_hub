@@ -201,7 +201,7 @@ class SendCandidateAlertsCommand extends Command
         $filters = $alert->filters ?? [];
 
         foreach ($jobs as $index => $job) {
-            $jobUrl = $job->slugable?->key ? url("/{$job->slugable->key}") : url('/jobs/' . $job->id);
+            $jobUrl = url('/jobs/' . ($job->slugable?->key ?? $job->id));
             $company = $job->company?->name;
             $location = $job->full_location ?? $job->address;
 

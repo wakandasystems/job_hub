@@ -112,7 +112,12 @@
         <div class="banner-hero banner-image-single">
            <div class="wrap-cover-image">
                @if($job->cover_image)
-                   <img src="{{ \Illuminate\Support\Facades\Storage::disk('public')->url($job->cover_image) }}" alt="{{ $job->name }}">
+                   @include(Theme::getThemeNamespace('views.job-board.partials.picture'), [
+                       'src' => $job->cover_image,
+                       'alt' => $job->name,
+                       'variants' => $job->imageVariantsFor('cover_image'),
+                       'lazy' => false,
+                   ])
                @elseif(! $job->hide_company && $company->id && $company->cover_image_url)
                    <img src="{{ $company->cover_image_url }}" alt="{{ $company->name }}">
                @elseif(theme_option('default_company_cover_image'))
@@ -467,11 +472,11 @@
                         </div>
                         @if ($jobShareImagePath)
                             <div class="sidebar-job-social-image">
-                                <img
-                                    src="{{ \Illuminate\Support\Facades\Storage::disk('public')->url($jobShareImagePath) }}"
-                                    alt="{{ $job->name }}"
-                                    loading="lazy"
-                                >
+                                @include(Theme::getThemeNamespace('views.job-board.partials.picture'), [
+                                    'src' => $jobShareImagePath,
+                                    'alt' => $job->name,
+                                    'variants' => $job->imageVariantsFor($jobShareImageField),
+                                ])
                             </div>
                         @endif
                         @include(Theme::getThemeNamespace('views.job-board.partials.share'), [

@@ -493,7 +493,12 @@
                     <div class="modal-body">
                         <ul class="nav nav-tabs mb-3" id="setupModalTabs" role="tablist">
                             <li class="nav-item" role="presentation">
-                                <button class="nav-link active" id="setup-tab-candidate" data-bs-toggle="tab" data-bs-target="#setup-pane-candidate" type="button" role="tab" aria-controls="setup-pane-candidate" aria-selected="true">Candidate</button>
+                                <button class="nav-link active" id="setup-tab-cv" data-bs-toggle="tab" data-bs-target="#setup-pane-cv" type="button" role="tab" aria-controls="setup-pane-cv" aria-selected="true">
+                                    <i class="ti ti-sparkles me-1"></i> CV & AI
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="setup-tab-candidate" data-bs-toggle="tab" data-bs-target="#setup-pane-candidate" type="button" role="tab" aria-controls="setup-pane-candidate" aria-selected="false">Candidate</button>
                             </li>
                             <li class="nav-item" role="presentation">
                                 <button class="nav-link" id="setup-tab-filters" data-bs-toggle="tab" data-bs-target="#setup-pane-filters" type="button" role="tab" aria-controls="setup-pane-filters" aria-selected="false">Filters</button>
@@ -503,7 +508,44 @@
                             </li>
                         </ul>
                         <div class="tab-content" id="setupModalTabContent">
-                            <div class="tab-pane fade show active" id="setup-pane-candidate" role="tabpanel" aria-labelledby="setup-tab-candidate">
+                            <div class="tab-pane fade show active" id="setup-pane-cv" role="tabpanel" aria-labelledby="setup-tab-cv">
+                                <div class="row g-3">
+                                    <div class="col-md-7">
+                                        <label class="form-label">Upload CV for AI filter setup <span class="text-muted small">(optional)</span></label>
+                                        <input type="file" class="form-control" id="setupCvFile" accept=".pdf,.doc,.docx,.txt" data-analyze-url="{{ route('auto-apply-orders.analyze-cv') }}">
+                                        <div class="form-text">Use this to generate keywords, country/category suggestions, location, and experience filters.</div>
+                                    </div>
+                                    <div class="col-md-5 d-flex align-items-end gap-2 flex-wrap">
+                                        <button type="button" class="btn btn-primary" id="setupAnalyzeCvBtn" disabled>
+                                            <i class="ti ti-sparkles me-1"></i> Analyse Uploaded CV
+                                        </button>
+                                        <button type="button" class="btn btn-outline-primary" id="setupAnalyzeAccountCvBtn" disabled data-url="{{ route('auto-apply-orders.analyze-account-cv') }}">
+                                            <i class="ti ti-file-spark me-1"></i> Analyse Account CV
+                                        </button>
+                                        <button type="button" class="btn btn-outline-secondary" id="setupPreviewCvBtn" disabled>
+                                            <i class="ti ti-file-text me-1"></i> Preview CV
+                                        </button>
+                                    </div>
+                                    <div class="col-12">
+                                        <div id="setupCvPrompt" class="alert alert-info py-2 px-3 mb-0 small">
+                                            Select a candidate with a CV on file or upload a CV here, then analyse it to prefill the filter tab.
+                                        </div>
+                                        <div id="setupAnalysisResult" class="border rounded p-3 mt-3 d-none"></div>
+                                    </div>
+                                    <div class="col-12">
+                                        <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-2">
+                                            <label class="form-label mb-0">Matching jobs preview</label>
+                                            <button type="button" class="btn btn-outline-success btn-sm" id="setupPreviewJobsBtn" data-url="{{ route('auto-apply-orders.preview-setup-jobs') }}">
+                                                <i class="ti ti-eye me-1"></i> Preview Jobs From Filters
+                                            </button>
+                                        </div>
+                                        <div id="setupPreviewJobsResult" class="border rounded p-3 text-muted small">
+                                            Analyse a CV or adjust filters, then preview matching jobs before saving.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="tab-pane fade" id="setup-pane-candidate" role="tabpanel" aria-labelledby="setup-tab-candidate">
                                 <div class="row g-3">
                                     <div class="col-12">
                                         <label class="form-label">Candidate</label>
@@ -865,6 +907,19 @@
             var editCountryPicker;
             var editCategoryPicker;
             var editBlacklistPicker;
+            var setupSelectedAccount = null;
+
+            function setupEscapeHtml(value) {
+                return String(value || '').replace(/[&<>"']/g, function (char) {
+                    return {
+                        '&': '&amp;',
+                        '<': '&lt;',
+                        '>': '&gt;',
+                        '"': '&quot;',
+                        "'": '&#039;'
+                    }[char];
+                });
+            }
 
             function autoApplyPlanApplicationsText(plan) {
                 if (!plan) return '';
@@ -1024,8 +1079,11 @@
                         var btn = document.createElement('button');
                         btn.type = 'button';
                         btn.className = 'list-group-item list-group-item-action';
-                        btn.innerHTML = '<div class="fw-medium">' + item.name + '</div>'
-                            + '<div class="text-muted small">' + item.email + '</div>';
+                        btn.innerHTML = '<div class="d-flex align-items-start justify-content-between gap-2">'
+                            + '<div><div class="fw-medium">' + setupEscapeHtml(item.name) + '</div>'
+                            + '<div class="text-muted small">' + setupEscapeHtml(item.email) + '</div></div>'
+                            + '<span class="badge ' + (item.has_cv ? 'bg-success' : 'bg-warning text-dark') + '">' + (item.has_cv ? 'Has CV' : 'No CV') + '</span>'
+                            + '</div>';
                         btn.addEventListener('click', function () {
                             selectCandidate(item);
                         });
@@ -1039,6 +1097,8 @@
                     selectedBox.classList.remove('d-none');
                     searchWrap.classList.add('d-none');
                     resultsBox.classList.add('d-none');
+                    setupSelectedAccount = item;
+                    if (window.onSetupCandidateSelected) window.onSetupCandidateSelected(item);
                 }
 
                 searchInput && searchInput.addEventListener('input', function () {
@@ -1060,6 +1120,8 @@
                     searchWrap.classList.remove('d-none');
                     searchInput.value = '';
                     resultsBox.classList.add('d-none');
+                    setupSelectedAccount = null;
+                    if (window.onSetupCandidateCleared) window.onSetupCandidateCleared();
                 });
 
                 document.getElementById('setupModal').addEventListener('hidden.bs.modal', function () {
@@ -1069,6 +1131,8 @@
                     searchInput.value = '';
                     resultsBox.classList.add('d-none');
                     resultsList.innerHTML = '';
+                    setupSelectedAccount = null;
+                    if (window.onSetupCandidateCleared) window.onSetupCandidateCleared();
                 });
             })();
 
@@ -1216,6 +1280,283 @@
                 url: '{{ route('companies.list') }}',
                 parseResponse: function (resp) { return resp.data && resp.data.data ? resp.data.data : (resp.data || []); },
             });
+
+            (function () {
+                var cvFileInput = document.getElementById('setupCvFile');
+                var analyzeCvBtn = document.getElementById('setupAnalyzeCvBtn');
+                var analyzeAccountCvBtn = document.getElementById('setupAnalyzeAccountCvBtn');
+                var previewCvBtn = document.getElementById('setupPreviewCvBtn');
+                var prompt = document.getElementById('setupCvPrompt');
+                var analysisPanel = document.getElementById('setupAnalysisResult');
+                var previewJobsBtn = document.getElementById('setupPreviewJobsBtn');
+                var previewJobsResult = document.getElementById('setupPreviewJobsResult');
+                var uploadedCvObjectUrl = '';
+
+                function selectedValues(containerId) {
+                    return Array.prototype.slice.call(document.querySelectorAll('#' + containerId + ' input[type="hidden"]'))
+                        .map(function (input) { return input.value; })
+                        .filter(Boolean);
+                }
+
+                function selectedObjects(ids, names) {
+                    ids = Array.isArray(ids) ? ids : [];
+                    names = Array.isArray(names) ? names : [];
+
+                    return ids.map(function (id, index) {
+                        return { id: id, name: names[index] || ('#' + id) };
+                    });
+                }
+
+                function currentCvPreviewUrl() {
+                    if (uploadedCvObjectUrl) return uploadedCvObjectUrl;
+                    return setupSelectedAccount && setupSelectedAccount.resume_url ? setupSelectedAccount.resume_url : '';
+                }
+
+                function updateCvActions() {
+                    var hasUpload = cvFileInput.files && cvFileInput.files.length > 0;
+                    var hasAccountCv = !!(setupSelectedAccount && setupSelectedAccount.has_cv);
+                    analyzeCvBtn.disabled = !hasUpload;
+                    analyzeAccountCvBtn.disabled = !hasAccountCv;
+                    previewCvBtn.disabled = !currentCvPreviewUrl();
+
+                    if (hasAccountCv) {
+                        prompt.className = 'alert alert-success py-2 px-3 mb-0 small';
+                        prompt.innerHTML = '<strong>Account CV found:</strong> ' + setupEscapeHtml(setupSelectedAccount.resume_name || 'CV on file') + '<div class="text-muted mt-1">Use it to auto-generate Auto Apply keywords and filters.</div>';
+                    } else if (setupSelectedAccount) {
+                        prompt.className = 'alert alert-warning py-2 px-3 mb-0 small';
+                        prompt.innerHTML = '<strong>No CV on this account.</strong> Upload a CV here to generate accurate filters.';
+                    } else {
+                        prompt.className = 'alert alert-info py-2 px-3 mb-0 small';
+                        prompt.textContent = 'Select a candidate with a CV on file or upload a CV here, then analyse it to prefill the filter tab.';
+                    }
+                }
+
+                function renderAnalysis(data) {
+                    var keywords = Array.isArray(data.keywords) && data.keywords.length ? data.keywords : (data.keyword ? [data.keyword] : []);
+                    var confidence = Number(data.confidence || 0);
+                    var confidenceClass = confidence >= 80 ? 'bg-success-subtle text-success' : (confidence >= 60 ? 'bg-warning-subtle text-warning' : 'bg-secondary-subtle text-secondary');
+                    var html = '<div class="d-flex align-items-center gap-2 mb-2">'
+                        + '<i class="ti ti-file-text text-primary"></i>'
+                        + '<strong class="small">AI Analysis Result</strong>'
+                        + '<span class="badge ' + confidenceClass + ' ms-auto">' + confidence + '% confidence</span>'
+                        + '</div>';
+
+                    if (data.candidate_type) html += '<div class="small fw-semibold mb-2">' + setupEscapeHtml(data.candidate_type) + '</div>';
+                    if (data.summary) html += '<p class="text-muted small mb-2">' + setupEscapeHtml(data.summary) + '</p>';
+
+                    html += '<div class="d-flex flex-wrap gap-1">';
+                    keywords.forEach(function (keyword) {
+                        html += '<span class="badge bg-dark text-white"><i class="ti ti-search me-1"></i>' + setupEscapeHtml(keyword) + '</span>';
+                    });
+                    (data.category_names || []).forEach(function (name) {
+                        html += '<span class="badge bg-secondary text-white">' + setupEscapeHtml(name) + '</span>';
+                    });
+                    (data.country_names || []).forEach(function (name) {
+                        html += '<span class="badge bg-info text-white">' + setupEscapeHtml(name) + '</span>';
+                    });
+                    if (data.location_keyword) {
+                        html += '<span class="badge bg-light border text-dark"><i class="ti ti-map-pin me-1"></i>' + setupEscapeHtml(data.location_keyword) + '</span>';
+                    }
+                    html += '</div>';
+
+                    if (data.usage && (data.usage.total_tokens || data.usage.estimated_cost_usd)) {
+                        var cost = data.usage.estimated_cost_usd ? Number(data.usage.estimated_cost_usd).toFixed(6) : null;
+                        html += '<div class="text-muted small mt-2">Usage: ' + setupEscapeHtml(String(data.usage.total_tokens || 0)) + ' tokens' + (cost ? ' · $' + setupEscapeHtml(cost) : '') + '</div>';
+                    }
+
+                    html += '<div class="text-success small mt-2"><i class="ti ti-check me-1"></i>Filters applied. Review and adjust before saving.</div>';
+                    analysisPanel.innerHTML = html;
+                    analysisPanel.classList.remove('d-none');
+                }
+
+                function applySetupAnalysis(data) {
+                    var keywords = Array.isArray(data.keywords) && data.keywords.length ? data.keywords : (data.keyword ? [data.keyword] : []);
+                    document.getElementById('keywordsInput').value = keywords.join(', ');
+
+                    if (data.location_keyword) {
+                        document.querySelector('#setup-pane-filters input[name="location_keyword"]').value = data.location_keyword;
+                    }
+
+                    if (data.job_experience_id) {
+                        document.querySelector('#setup-pane-filters select[name="job_experience_id"]').value = data.job_experience_id;
+                    }
+
+                    if (setupCountryPicker) {
+                        setupCountryPicker.setSelected(selectedObjects(data.country_ids || [], data.country_names || []));
+                    }
+
+                    if (setupCategoryPicker) {
+                        setupCategoryPicker.setSelected(selectedObjects(data.category_ids || [], data.category_names || []));
+                    }
+
+                    renderAnalysis(data);
+                    Botble.showSuccess('AI analysis complete. Auto Apply filters were filled in.');
+                }
+
+                function handleAnalysisResponse(resp) {
+                    if (resp.error) {
+                        Botble.showError(resp.error);
+                        return;
+                    }
+
+                    applySetupAnalysis(resp.data || {});
+                    bootstrap.Tab.getOrCreateInstance(document.getElementById('setup-tab-filters')).show();
+                }
+
+                cvFileInput.addEventListener('change', function () {
+                    if (uploadedCvObjectUrl) {
+                        URL.revokeObjectURL(uploadedCvObjectUrl);
+                        uploadedCvObjectUrl = '';
+                    }
+
+                    if (this.files && this.files.length) {
+                        uploadedCvObjectUrl = URL.createObjectURL(this.files[0]);
+                    }
+
+                    updateCvActions();
+                });
+
+                analyzeCvBtn.addEventListener('click', function () {
+                    if (!cvFileInput.files || !cvFileInput.files.length) {
+                        Botble.showError('Please select a CV file first.');
+                        return;
+                    }
+
+                    analyzeCvBtn.disabled = true;
+                    analyzeCvBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Analysing...';
+
+                    var formData = new FormData();
+                    formData.append('cv_file', cvFileInput.files[0]);
+                    formData.append('_token', document.querySelector('meta[name="csrf-token"]').content);
+
+                    fetch(cvFileInput.dataset.analyzeUrl, { method: 'POST', body: formData, headers: { 'Accept': 'application/json' } })
+                        .then(function (r) { return r.json(); })
+                        .then(handleAnalysisResponse)
+                        .catch(function () { Botble.showError('CV analysis failed.'); })
+                        .finally(function () {
+                            analyzeCvBtn.innerHTML = '<i class="ti ti-sparkles me-1"></i> Analyse Uploaded CV';
+                            updateCvActions();
+                        });
+                });
+
+                analyzeAccountCvBtn.addEventListener('click', function () {
+                    if (!setupSelectedAccount || !setupSelectedAccount.id) {
+                        Botble.showError('Select a candidate first.');
+                        return;
+                    }
+
+                    analyzeAccountCvBtn.disabled = true;
+                    analyzeAccountCvBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Analysing...';
+
+                    fetch(analyzeAccountCvBtn.dataset.url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({ account_id: setupSelectedAccount.id })
+                    })
+                        .then(function (r) { return r.json(); })
+                        .then(handleAnalysisResponse)
+                        .catch(function () { Botble.showError('Account CV analysis failed.'); })
+                        .finally(function () {
+                            analyzeAccountCvBtn.innerHTML = '<i class="ti ti-file-spark me-1"></i> Analyse Account CV';
+                            updateCvActions();
+                        });
+                });
+
+                previewCvBtn.addEventListener('click', function () {
+                    var url = currentCvPreviewUrl();
+                    if (!url) return;
+                    document.getElementById('cvPreviewFrame').src = url;
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('cvPreviewModal')).show();
+                });
+
+                previewJobsBtn.addEventListener('click', function () {
+                    var keywords = document.getElementById('keywordsInput').value.split(',').map(function (item) {
+                        return item.trim();
+                    }).filter(Boolean);
+
+                    previewJobsBtn.disabled = true;
+                    previewJobsBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Previewing...';
+                    previewJobsResult.innerHTML = '<div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-1"></span> Searching matching jobs...</div>';
+
+                    fetch(previewJobsBtn.dataset.url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            keywords: keywords,
+                            country_ids: selectedValues('setupCountryHidden'),
+                            category_ids: selectedValues('setupCategoryHidden'),
+                            blacklisted_company_ids: selectedValues('setupBlacklistHidden'),
+                            location_keyword: document.querySelector('#setup-pane-filters input[name="location_keyword"]').value,
+                            job_experience_id: document.querySelector('#setup-pane-filters select[name="job_experience_id"]').value
+                        })
+                    })
+                        .then(function (r) { return r.json(); })
+                        .then(function (resp) {
+                            if (resp.error) {
+                                Botble.showError(resp.message || 'Failed to preview jobs.');
+                                return;
+                            }
+
+                            var jobs = (resp.data && resp.data.items) || [];
+                            if (!jobs.length) {
+                                previewJobsResult.innerHTML = '<div class="text-center text-muted py-4"><i class="ti ti-search d-block fs-2 mb-2"></i>No matching jobs found.</div>';
+                                return;
+                            }
+
+                            var html = '<div class="d-flex justify-content-between align-items-center mb-2">'
+                                + '<strong>' + jobs.length + ' matching job(s)</strong>'
+                                + '<span class="text-muted small">Showing up to 100 latest jobs with application email</span>'
+                                + '</div>'
+                                + '<div class="table-responsive" style="max-height:360px;overflow:auto;">'
+                                + '<table class="table table-sm table-vcenter mb-0">'
+                                + '<thead><tr><th>Job</th><th>Company</th><th>Country</th><th>Posted</th></tr></thead><tbody>';
+
+                            jobs.forEach(function (job) {
+                                html += '<tr>'
+                                    + '<td><div class="fw-medium">' + (job.url ? '<a href="' + setupEscapeHtml(job.url) + '" target="_blank" rel="noopener">' + setupEscapeHtml(job.name) + '</a>' : setupEscapeHtml(job.name)) + '</div><div class="text-muted small">#' + setupEscapeHtml(job.id) + '</div></td>'
+                                    + '<td>' + setupEscapeHtml(job.company || '—') + '</td>'
+                                    + '<td>' + setupEscapeHtml([job.country_flag || '', job.country || ''].join(' ').trim() || '—') + '</td>'
+                                    + '<td class="text-muted small">' + setupEscapeHtml(job.created_at || '—') + '</td>'
+                                    + '</tr>';
+                            });
+
+                            html += '</tbody></table></div>';
+                            previewJobsResult.innerHTML = html;
+                        })
+                        .catch(function () {
+                            previewJobsResult.innerHTML = '<div class="text-danger text-center py-4">Failed to preview matching jobs.</div>';
+                        })
+                        .finally(function () {
+                            previewJobsBtn.disabled = false;
+                            previewJobsBtn.innerHTML = '<i class="ti ti-eye me-1"></i> Preview Jobs From Filters';
+                        });
+                });
+
+                window.onSetupCandidateSelected = updateCvActions;
+                window.onSetupCandidateCleared = updateCvActions;
+
+                document.getElementById('setupModal').addEventListener('hidden.bs.modal', function () {
+                    if (uploadedCvObjectUrl) {
+                        URL.revokeObjectURL(uploadedCvObjectUrl);
+                        uploadedCvObjectUrl = '';
+                    }
+                    cvFileInput.value = '';
+                    analysisPanel.classList.add('d-none');
+                    analysisPanel.innerHTML = '';
+                    previewJobsResult.innerHTML = 'Analyse a CV or adjust filters, then preview matching jobs before saving.';
+                    updateCvActions();
+                });
+
+                updateCvActions();
+            })();
 
             editCountryPicker = setupAutoApplyChipPicker({
                 inputId: 'editCountryInput',

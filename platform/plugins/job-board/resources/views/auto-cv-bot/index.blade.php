@@ -12,9 +12,14 @@
                         ready to check &amp; verify — no manual question-by-question work needed.
                     </p>
                 </div>
-                <button type="button" class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#startCvBotModal">
-                    <i class="ti ti-robot me-1"></i> Start New CV Bot
-                </button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#sendSampleCvModal">
+                        <i class="ti ti-file-text me-1"></i> Send Sample CV
+                    </button>
+                    <button type="button" class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#startCvBotModal">
+                        <i class="ti ti-robot me-1"></i> Start New CV Bot
+                    </button>
+                </div>
             </div>
 
             <div class="alert alert-light border mt-3 mb-0 small">
@@ -94,6 +99,35 @@
                         <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Cancel</button>
                         <button type="button" class="btn btn-success px-4" id="btnConfirmCvBotSessionAction">Approve</button>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="sendSampleCvModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Send Sample CV</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small">
+                        Sends a WhatsApp message with our 3 CV designs, prefilled with AI-generated example
+                        content for an Accounts/Finance Manager role — handy for convincing a prospect our CVs
+                        look good before they sign up.
+                    </p>
+                    <div id="sendSampleCvError" class="alert alert-danger d-none py-2 px-3 small"></div>
+                    <div class="mb-3">
+                        <label class="form-label">WhatsApp Number</label>
+                        <input type="text" id="sendSampleCvWhatsapp" class="form-control" placeholder="e.g. +260970766123">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-dark" id="btnSendSampleCv">
+                        <i class="ti ti-brand-whatsapp me-1"></i> Send Sample
+                    </button>
                 </div>
             </div>
         </div>
@@ -333,6 +367,44 @@
                     refreshSessions(currentPage, false);
                 }, 5000);
             })();
+
+            document.getElementById('btnSendSampleCv')?.addEventListener('click', function () {
+                var $error = $('#sendSampleCvError').addClass('d-none').text('');
+                var $btn = $(this).prop('disabled', true);
+
+                fetch('{{ route('job-board.auto-cv-bot.send-sample') }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'),
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        whatsapp_number: document.getElementById('sendSampleCvWhatsapp').value,
+                    }),
+                })
+                    .then(function (response) {
+                        return response.json().then(function (data) {
+                            return { ok: response.ok, data: data };
+                        });
+                    })
+                    .then(function (result) {
+                        $btn.prop('disabled', false);
+
+                        if (!result.ok) {
+                            $error.removeClass('d-none').text(result.data.error || 'Failed to send sample CV.');
+                            return;
+                        }
+
+                        bootstrap.Modal.getOrCreateInstance(document.getElementById('sendSampleCvModal')).hide();
+                        document.getElementById('sendSampleCvWhatsapp').value = '';
+                        Botble.showSuccess(result.data.message || 'Sample CV sent.');
+                    })
+                    .catch(function () {
+                        $btn.prop('disabled', false);
+                        $error.removeClass('d-none').text('Network error — please try again.');
+                    });
+            });
 
             document.getElementById('btnStartCvBot')?.addEventListener('click', function () {
                 var $error = $('#startCvBotError').addClass('d-none').text('');

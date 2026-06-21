@@ -34,7 +34,7 @@
         $score = (int) ($section['score'] ?? 0);
         $color = $score >= 90 ? 'success' : ($score >= 50 ? 'warning' : 'danger');
 
-        return ' <span class="badge bg-' . $color . '" title="Sufficient info gathered?">' . $score . '/100</span>';
+        return ' <span class="badge bg-' . $color . ' text-white" title="Sufficient info gathered?">' . $score . '/100</span>';
     };
 
     $sectionButton = function (int $topicNumber, string $label = 'Get More Info') use ($session) {
@@ -110,7 +110,7 @@
 @if (!empty($cv['skills']))
     <div>
         @foreach ($cv['skills'] as $skill)
-            <span class="badge bg-light text-dark border small">{{ $skill }}</span>
+            <span class="badge bg-dark text-white small">{{ $skill }}</span>
         @endforeach
     </div>
 @else
@@ -129,7 +129,7 @@
                     ? implode(' - ', array_filter([$cert['name'] ?? '', $cert['issuing_body'] ?? '', $cert['date'] ?? $cert['year'] ?? '']))
                     : (string) $cert;
             @endphp
-            <span class="badge bg-light text-dark border small">{{ $certLabel }}</span>
+            <span class="badge bg-dark text-white small">{{ $certLabel }}</span>
         @endforeach
     </div>
 @else
@@ -160,7 +160,7 @@
 @if ($languages->isNotEmpty())
     <div>
         @foreach ($languages as $row)
-            <span class="badge bg-light text-dark border small">{{ trim(($row['language'] ?? '') . ' - ' . ($row['proficiency'] ?? ''), ' -') }}</span>
+            <span class="badge bg-dark text-white small">{{ trim(($row['language'] ?? '') . ' - ' . ($row['proficiency'] ?? ''), ' -') }}</span>
         @endforeach
     </div>
 @else

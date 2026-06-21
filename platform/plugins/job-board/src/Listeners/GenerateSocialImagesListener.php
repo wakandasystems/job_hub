@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Listeners;
 
 use Botble\JobBoard\Events\JobPublishedEvent;
+use Botble\JobBoard\Jobs\GenerateSocialImagesJob;
 use Botble\JobBoard\Services\OpenAiImageService;
 
 class GenerateSocialImagesListener
@@ -14,22 +15,11 @@ class GenerateSocialImagesListener
             return;
         }
 
-        $php = PHP_BINARY;
-        if (str_contains($php, 'fpm') || ! is_executable($php)) {
-            $php = '/usr/bin/php';
-        }
-
-        $artisan = base_path('artisan');
-
-        // Run in the background so OpenAI calls never block the publish request.
-        // --publish chains the social-channel post to run after the image is saved,
+        // Queued (Horizon) so OpenAI calls never block the publish request, and so the
+        // job survives PHP-FPM worker recycling — unlike the detached exec() this used to
+        // be. --publish chains the social-channel post to run after the image is saved,
         // so the channel post carries the generated image instead of racing ahead
         // text-only. SocialPublishListener defers to this path while AI images are on.
-        \exec(sprintf(
-            '%s %s job-board:generate-social-images %d --publish > /dev/null 2>&1 &',
-            escapeshellcmd($php),
-            escapeshellarg($artisan),
-            $event->job->getKey()
-        ));
+        GenerateSocialImagesJob::dispatch($event->job->getKey(), true);
     }
 }

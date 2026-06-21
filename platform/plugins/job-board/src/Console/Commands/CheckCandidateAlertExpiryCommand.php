@@ -3,9 +3,12 @@
 namespace Botble\JobBoard\Console\Commands;
 
 use Botble\JobBoard\Models\CandidateAlert;
+use Botble\JobBoard\Models\Currency;
 use Botble\JobBoard\Models\SocialAutomation;
 use Botble\JobBoard\Models\VipAlertOrder;
+use Botble\JobBoard\Supports\CurrencySupport;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
@@ -84,7 +87,7 @@ class CheckCandidateAlertExpiryCommand extends Command
         $msg   .= "Hi {$alert->candidate_name}! 👋\n\n";
         $msg   .= "Your VIP Job Alert *\"{$alert->label}\"* expires in *2 days* on *{$expiry}*.\n\n";
         $msg   .= "🔄 *Renew now to keep receiving personalised job alerts:*\n\n";
-        $msg   .= VipAlertOrder::renewalPricingLines() . "\n\n";
+        $msg   .= VipAlertOrder::renewalPricingLines($this->currencyCodesForAlert($alert)) . "\n\n";
         $msg   .= "Reply *RENEW* or contact us today to stay ahead of new opportunities! 🚀\n\n";
         $msg   .= "_Wakanda Jobs — wakandajobs.com_";
 
@@ -99,7 +102,7 @@ class CheckCandidateAlertExpiryCommand extends Command
         $msg   .= "This is a final reminder — your VIP Job Alert *\"{$alert->label}\"* expires *today ({$expiry})*.\n\n";
         $msg   .= "After today you will stop receiving automatic job matches.\n\n";
         $msg   .= "🔄 *Renew right now to avoid any gap:*\n\n";
-        $msg   .= VipAlertOrder::renewalPricingLines() . "\n\n";
+        $msg   .= VipAlertOrder::renewalPricingLines($this->currencyCodesForAlert($alert)) . "\n\n";
         $msg   .= "Reply *RENEW* and we'll sort you out instantly! ✅\n\n";
         $msg   .= "_Wakanda Jobs — wakandajobs.com_";
 
@@ -113,7 +116,7 @@ class CheckCandidateAlertExpiryCommand extends Command
         $msg .= "Your VIP Job Alert *\"{$alert->label}\"* has now expired.\n\n";
         $msg .= "You will no longer receive automatic job alerts.\n\n";
         $msg .= "🔄 *Renew your subscription to stay on top of opportunities:*\n\n";
-        $msg .= VipAlertOrder::renewalPricingLines() . "\n\n";
+        $msg .= VipAlertOrder::renewalPricingLines($this->currencyCodesForAlert($alert)) . "\n\n";
         $msg .= "Reply *RENEW* or visit *wakandajobs.com* to get back on track! 🚀\n\n";
         $msg .= "_Wakanda Jobs — wakandajobs.com_";
 
@@ -144,6 +147,36 @@ class CheckCandidateAlertExpiryCommand extends Command
         $msg .= "🔗 *Manage alerts:* " . self::ADMIN_ALERT_URL;
 
         $this->dispatchWhatsApp($token, $gatewayUrl, $adminJid, $msg);
+    }
+
+    /**
+     * Picks renewal-pricing currencies from the alert's country filter: no filter (open to
+     * any country) or a currency we don't carry rates for falls back to USD; one matched
+     * country uses that country's currency; more than one shows all of them on each line.
+     */
+    private function currencyCodesForAlert(CandidateAlert $alert): array
+    {
+        $countryIds = array_filter(array_map('intval', (array) ($alert->filters['country_ids'] ?? [])));
+
+        if (! $countryIds) {
+            return ['USD'];
+        }
+
+        $countryCurrencies = (new CurrencySupport())->countryCurrencies();
+        $availableCurrencies = Currency::query()->pluck('title')->map(fn ($title) => strtoupper((string) $title))->all();
+
+        $codes = DB::table('countries')
+            ->whereIn('id', $countryIds)
+            ->pluck('code')
+            ->map(fn ($code) => $countryCurrencies[strtoupper((string) $code)] ?? null)
+            ->filter()
+            ->map(fn (string $code) => strtoupper($code))
+            ->filter(fn (string $code) => in_array($code, $availableCurrencies, true))
+            ->unique()
+            ->values()
+            ->all();
+
+        return $codes ?: ['USD'];
     }
 
     private function dispatchWhatsApp(string $token, string $gatewayUrl, string $to, string $body): void

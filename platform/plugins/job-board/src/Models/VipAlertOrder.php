@@ -83,17 +83,30 @@ class VipAlertOrder extends BaseModel
         return self::plans($includeDisabled)[$key] ?? null;
     }
 
-    public static function renewalPricingLines(): string
+    /**
+     * @param string[] $currencyCodes Target currencies to display each plan's price in. Defaults
+     *                                 to each plan's own configured currency when empty. When more
+     *                                 than one code is given, every plan line shows all of them.
+     */
+    public static function renewalPricingLines(array $currencyCodes = []): string
     {
         $plans = collect(self::plans())->sortBy('duration_days');
+        $currencyCodes = array_values(array_unique(array_map('strtoupper', $currencyCodes)));
 
         return $plans
-            ->map(function (array $plan): string {
-                $price = $plan['price'] == floor($plan['price'])
-                    ? number_format($plan['price'], 0)
-                    : number_format($plan['price'], 2);
+            ->map(function (array $plan) use ($currencyCodes): string {
+                $targets = $currencyCodes ?: [$plan['currency']];
 
-                return "• {$plan['duration_days']} Days — {$plan['currency']} {$price}";
+                $amounts = collect($targets)
+                    ->map(function (string $code) use ($plan): string {
+                        $price = Currency::convert((float) $plan['price'], $plan['currency'], $code);
+                        $formatted = $price == floor($price) ? number_format($price, 0) : number_format($price, 2);
+
+                        return "{$code} {$formatted}";
+                    })
+                    ->implode(' / ');
+
+                return "• {$plan['duration_days']} Days — {$amounts}";
             })
             ->implode("\n");
     }

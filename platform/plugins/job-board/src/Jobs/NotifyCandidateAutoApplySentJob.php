@@ -47,7 +47,7 @@ class NotifyCandidateAutoApplySentJob implements ShouldQueue
             return;
         }
 
-        $jobUrl = $job->slugable?->key ? url("/{$job->slugable->key}") : url('/jobs/' . $job->id);
+        $jobUrl = url('/jobs/' . ($job->slugable?->key ?? $job->id));
         $company = $job->company?->name;
 
         $body = "Hi {$account->first_name},\n\n"
@@ -81,7 +81,7 @@ class NotifyCandidateAutoApplySentJob implements ShouldQueue
             return;
         }
 
-        $jobUrl = $job->slugable?->key ? url("/{$job->slugable->key}") : url('/jobs/' . $job->id);
+        $jobUrl = url('/jobs/' . ($job->slugable?->key ?? $job->id));
         $company = $job->company?->name;
 
         $message = "Hi {$account->first_name},\n\n"

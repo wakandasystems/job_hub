@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Listeners;
 
 use Botble\JobBoard\Events\JobPublishedEvent;
+use Botble\JobBoard\Jobs\SendPushNotificationsJob;
 use Botble\JobBoard\Models\PushSubscription;
 
 class SendPushNotificationListener
@@ -21,16 +22,7 @@ class SendPushNotificationListener
             return;
         }
 
-        // Spawn a background process that sleeps a random 2–8 minutes then sends.
-        // Running in the background means the job-publish web request is never blocked.
-        $php    = is_executable(PHP_BINARY) && ! str_contains(PHP_BINARY, 'fpm') ? PHP_BINARY : '/usr/bin/php';
-        $artisan = base_path('artisan');
-
-        exec(sprintf(
-            '%s %s job-board:push-notify %d > /dev/null 2>&1 &',
-            escapeshellcmd($php),
-            escapeshellarg($artisan),
-            $job->getKey()
-        ));
+        SendPushNotificationsJob::dispatch($job->getKey())
+            ->delay(now()->addSeconds(random_int(120, 480)));
     }
 }

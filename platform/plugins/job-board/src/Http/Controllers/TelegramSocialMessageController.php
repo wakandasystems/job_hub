@@ -58,6 +58,7 @@ class TelegramSocialMessageController extends BaseController
             'twitter_image'  => null,
             'employer_image' => null,
         ];
+        $jobImagesLqip = [];
         $companyId = null;
         $jobUrl    = null;
         $employerEmail  = null;
@@ -68,17 +69,18 @@ class TelegramSocialMessageController extends BaseController
         foreach (array_keys($jobImages) as $col) {
             if (! empty($job->{$col})) {
                 $jobImages[$col] = \Botble\Media\Facades\RvMedia::getImageUrl($job->{$col});
+                $jobImagesLqip[$col] = $job->imageVariantsFor($col)['lqip'] ?? null;
             }
         }
         if ($job->company) {
             $companyId = $job->company->id;
+            $companyName = $job->company->name;
             $employerEmails = collect($job->company->contact_emails ?? [])->filter()->values()->all();
             $employerEmail = $employerEmails[0] ?? $job->company->email;
             $employerPhone = collect($job->company->contact_numbers ?? [])->first() ?: $job->company->phone;
             $employerLastPitchAt = $job->company->last_employer_pitch_at;
             if (! empty($job->company->logo)) {
                 $companyLogoUrl = \Botble\Media\Facades\RvMedia::getImageUrl($job->company->logo);
-                $companyName    = $job->company->name;
             }
         }
         $jobName = $job->name;
@@ -146,6 +148,7 @@ class TelegramSocialMessageController extends BaseController
             twitterImagePrompt: $twitterImagePrompt,
             platformPosts: $platformPosts,
             jobImages: $jobImages,
+            jobImagesLqip: $jobImagesLqip,
             companyLogoUrl: $companyLogoUrl,
             companyName: $companyName,
             jobName: $jobName,
@@ -259,6 +262,7 @@ class TelegramSocialMessageController extends BaseController
             'twitter_image'  => null,
             'employer_image' => null,
         ];
+        $jobImagesLqip = [];
         $companyId = null;
         $jobUrl    = null;
         $employerImagePrompt   = null;
@@ -280,6 +284,7 @@ class TelegramSocialMessageController extends BaseController
                     foreach (array_keys($jobImages) as $col) {
                         if (! empty($liveJob->{$col})) {
                             $jobImages[$col] = \Botble\Media\Facades\RvMedia::getImageUrl($liveJob->{$col});
+                            $jobImagesLqip[$col] = $liveJob->imageVariantsFor($col)['lqip'] ?? null;
                         }
                     }
                     if ($liveJob->company) {
@@ -425,6 +430,7 @@ class TelegramSocialMessageController extends BaseController
         $generateUrlsJson  = json_encode($generateUrls, JSON_UNESCAPED_UNICODE);
         $openAiConfiguredJson = $openAiConfigured ? 'true' : 'false';
         $jobImagesJson     = json_encode($jobImages, JSON_UNESCAPED_UNICODE);
+        $jobImagesLqipJson = json_encode($jobImagesLqip, JSON_UNESCAPED_UNICODE);
         $companyLogoJson   = json_encode($companyLogoUrl, JSON_UNESCAPED_UNICODE);
         $companyNameJson   = json_encode((string) ($companyName ?? ''), JSON_UNESCAPED_UNICODE);
         $csrfToken         = csrf_token();
@@ -470,8 +476,8 @@ class TelegramSocialMessageController extends BaseController
         $heroSubLine     = $escapedCompany ? "{$escapedJobName} &middot; {$escapedCompany}" : $escapedJobName;
         $heroCompanyHtml = $escapedCompany ? "<div class=\"hero-company\">🏢 {$escapedCompany}</div>" : '';
         $jobBtnHtml      = $escapedJobUrl ? "<a href=\"{$escapedJobUrl}\" target=\"_blank\" rel=\"noopener\" class=\"bb-job\">🔗 View Job</a>" : '';
-        $copyCompanyNameHtml = ! $companyLogoUrl && $escapedCompany
-            ? '<button type="button" class="img-copy-btn" onclick="doCopy(companyName,this,\'Copy company name\')" title="Copy company name">📋 Copy name</button>'
+        $copyCompanyNameHtml = $escapedCompany
+            ? '<button type="button" class="img-copy-btn" onclick="copyAndSearchCompany(companyName,this)" title="Copy company name and search it on Google">📋 Copy name</button>'
             : '';
 
         // Employer pitch tab
@@ -606,7 +612,8 @@ class TelegramSocialMessageController extends BaseController
 
                 /* Preview state */
                 .img-preview-wrap{position:relative;border-radius:10px;overflow:hidden;background:#0f172a;aspect-ratio:attr(data-ratio);min-height:80px}
-                .img-preview-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+                .img-preview-wrap img{width:100%;height:100%;object-fit:cover;display:block;background-color:#0f172a;transition:filter .25s ease}
+                .img-preview-wrap img:not(.is-loaded){filter:blur(1px)}
                 .img-preview-overlay{position:absolute;inset:0;background:rgba(0,0,0,.45);opacity:0;transition:opacity .18s;display:flex;align-items:center;justify-content:center}
                 .img-preview-wrap:hover .img-preview-overlay{opacity:1}
                 .img-replace-btn{background:rgba(255,255,255,.92);color:#1e293b;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px}
@@ -743,7 +750,7 @@ class TelegramSocialMessageController extends BaseController
                         <div class="img-slot-body">
                             <div id="preview-company_logo" style="display:none">
                                 <div class="img-preview-wrap" style="max-height:120px;aspect-ratio:auto">
-                                    <img id="img-company_logo" src="" alt="Company logo" style="height:120px;width:auto;margin:0 auto;display:block;object-fit:contain;background:#f8fafc;border-radius:8px">
+                                    <img id="img-company_logo" src="" alt="Company logo" loading="lazy" decoding="async" style="height:120px;width:auto;margin:0 auto;display:block;object-fit:contain;background:#f8fafc;border-radius:8px">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('company_logo')">🔄 Replace</button>
                                     </div>
@@ -777,7 +784,7 @@ class TelegramSocialMessageController extends BaseController
                         <div class="img-slot-body">
                             <div id="preview-cover_image" style="display:none">
                                 <div class="img-preview-wrap" style="aspect-ratio:10/3">
-                                    <img id="img-cover_image" src="" alt="Cover image">
+                                    <img id="img-cover_image" src="" alt="Cover image" loading="lazy" decoding="async">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('cover_image')">🔄 Replace</button>
                                     </div>
@@ -812,7 +819,7 @@ class TelegramSocialMessageController extends BaseController
                         <div class="img-slot-body">
                             <div id="preview-tiktok_image" style="display:none">
                                 <div class="img-preview-wrap" style="aspect-ratio:9/16">
-                                    <img id="img-tiktok_image" src="" alt="TikTok image">
+                                    <img id="img-tiktok_image" src="" alt="TikTok image" loading="lazy" decoding="async">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('tiktok_image')">🔄 Replace</button>
                                     </div>
@@ -849,7 +856,7 @@ class TelegramSocialMessageController extends BaseController
                         <div class="img-slot-body">
                             <div id="preview-whatsapp_image" style="display:none">
                                 <div class="img-preview-wrap" style="aspect-ratio:9/16">
-                                    <img id="img-whatsapp_image" src="" alt="WhatsApp image">
+                                    <img id="img-whatsapp_image" src="" alt="WhatsApp image" loading="lazy" decoding="async">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('whatsapp_image')">🔄 Replace</button>
                                     </div>
@@ -886,7 +893,7 @@ class TelegramSocialMessageController extends BaseController
                         <div class="img-slot-body">
                             <div id="preview-facebook_image" style="display:none">
                                 <div class="img-preview-wrap" style="aspect-ratio:1200/630">
-                                    <img id="img-facebook_image" src="" alt="Facebook image">
+                                    <img id="img-facebook_image" src="" alt="Facebook image" loading="lazy" decoding="async">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('facebook_image')">🔄 Replace</button>
                                     </div>
@@ -922,7 +929,7 @@ class TelegramSocialMessageController extends BaseController
                         <div class="img-slot-body">
                             <div id="preview-linkedin_image" style="display:none">
                                 <div class="img-preview-wrap" style="aspect-ratio:1200/627">
-                                    <img id="img-linkedin_image" src="" alt="LinkedIn image">
+                                    <img id="img-linkedin_image" src="" alt="LinkedIn image" loading="lazy" decoding="async">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('linkedin_image')">🔄 Replace</button>
                                     </div>
@@ -958,7 +965,7 @@ class TelegramSocialMessageController extends BaseController
                         <div class="img-slot-body">
                             <div id="preview-twitter_image" style="display:none">
                                 <div class="img-preview-wrap" style="aspect-ratio:16/9">
-                                    <img id="img-twitter_image" src="" alt="X / Twitter image">
+                                    <img id="img-twitter_image" src="" alt="X / Twitter image" loading="lazy" decoding="async">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('twitter_image')">🔄 Replace</button>
                                     </div>
@@ -1096,7 +1103,7 @@ class TelegramSocialMessageController extends BaseController
                         <div class="img-slot-body">
                             <div id="preview-employer_image" style="display:none">
                                 <div class="img-preview-wrap" style="aspect-ratio:1080/1350">
-                                    <img id="img-employer_image" src="" alt="Employer update image">
+                                    <img id="img-employer_image" src="" alt="Employer update image" loading="lazy" decoding="async">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('employer_image')">🔄 Replace</button>
                                     </div>
@@ -1159,6 +1166,7 @@ class TelegramSocialMessageController extends BaseController
             const generateUrls    = {$generateUrlsJson};
             const openAiConfigured = {$openAiConfiguredJson};
             const jobImages       = {$jobImagesJson};
+            const jobImagesLqip   = {$jobImagesLqipJson};
             const companyLogoUrl  = {$companyLogoJson};
             const companyName     = {$companyNameJson};
             const slotPrompts     = {$slotPromptsJson};
@@ -1185,12 +1193,12 @@ class TelegramSocialMessageController extends BaseController
                     employer_image: jobImages.employer_image,
                 };
                 for (const [key, url] of Object.entries(slots)) {
-                    if (url) showPreview(key, url);
+                    if (url) showPreview(key, url, jobImagesLqip[key]);
                 }
 
                 // No dedicated employer image yet — borrow the WhatsApp tab image as the default.
                 if (!jobImages.employer_image && jobImages.whatsapp_image) {
-                    showPreview('employer_image', jobImages.whatsapp_image);
+                    showPreview('employer_image', jobImages.whatsapp_image, jobImagesLqip.whatsapp_image);
                     const dl = document.getElementById('dl-employer_image');
                     if (dl) { dl.style.display = 'none'; }
                     const label = document.querySelector('#slot-employer_image .img-slot-label');
@@ -1198,12 +1206,26 @@ class TelegramSocialMessageController extends BaseController
                 }
             })();
 
-            function showPreview(key, url) {
+            function showPreview(key, url, lqip) {
                 const img  = document.getElementById('img-' + key);
                 const prev = document.getElementById('preview-' + key);
                 const zone = document.getElementById('zone-' + key);
                 const dl   = document.getElementById('dl-' + key);
                 if (!img || !prev) return;
+                // Progressive loading: show the blurred low-quality placeholder immediately,
+                // swap it out once the full-size image has actually finished loading.
+                img.classList.remove('is-loaded');
+                if (lqip) {
+                    img.style.backgroundImage = "url('" + lqip + "')";
+                    img.style.backgroundSize = 'cover';
+                    img.style.backgroundPosition = 'center';
+                } else {
+                    img.style.backgroundImage = 'none';
+                }
+                img.onload = function () {
+                    img.style.backgroundImage = 'none';
+                    img.classList.add('is-loaded');
+                };
                 img.src = url;
                 prev.style.display = 'block';
                 if (zone) zone.style.display = 'none';
@@ -1211,7 +1233,7 @@ class TelegramSocialMessageController extends BaseController
                 const rp = document.getElementById('repost-' + key);
                 if (rp) rp.style.display = ((key === 'whatsapp_image' && whapiSendUrl) || (key === 'tiktok_image' && publerSendUrl)) ? '' : 'none';
                 const slot = document.getElementById('slot-' + key);
-                if (slot) { const cb = slot.querySelector('.img-copy-btn'); if (cb) cb.style.display = 'none'; }
+                if (key !== 'company_logo' && slot) { const cb = slot.querySelector('.img-copy-btn'); if (cb) cb.style.display = 'none'; }
             }
 
             function copySlotPost(key, btn) {
@@ -1444,7 +1466,7 @@ class TelegramSocialMessageController extends BaseController
                 }).then(function (res) {
                     const d = res.d || {};
                     if (res.ok && d.ok !== false && d.url) {
-                        showPreview(key, d.url);
+                        showPreview(key, d.url, d.lqip);
                         setProgress(key, 100, 'done', '✅ Generated!');
                         if (key === 'whatsapp_image' || key === 'tiktok_image') playUploadSound();
                         setTimeout(function () {
@@ -1562,6 +1584,10 @@ class TelegramSocialMessageController extends BaseController
                 } else {
                     legacyCopy(text, btn, resetLabel);
                 }
+            }
+            function copyAndSearchCompany(text, btn) {
+                window.open('https://www.google.com/search?q=' + encodeURIComponent(text), '_blank', 'noopener');
+                doCopy(text, btn, 'Copy company name');
             }
             function legacyCopy(text, btn, resetLabel) {
                 const ta = document.createElement('textarea');
@@ -1958,6 +1984,7 @@ class TelegramSocialMessageController extends BaseController
         ?string $twitterImagePrompt,
         array $platformPosts,
         array $jobImages,
+        array $jobImagesLqip,
         ?string $companyLogoUrl,
         ?string $companyName,
         ?string $jobName,
@@ -1998,6 +2025,7 @@ class TelegramSocialMessageController extends BaseController
         $generateUrlsJson  = json_encode($generateUrls, JSON_UNESCAPED_UNICODE);
         $openAiConfiguredJson = $openAiConfigured ? 'true' : 'false';
         $jobImagesJson     = json_encode($jobImages, JSON_UNESCAPED_UNICODE);
+        $jobImagesLqipJson = json_encode($jobImagesLqip, JSON_UNESCAPED_UNICODE);
         $companyLogoJson   = json_encode($companyLogoUrl, JSON_UNESCAPED_UNICODE);
         $companyNameJson   = json_encode((string) ($companyName ?? ''), JSON_UNESCAPED_UNICODE);
         $whapiSendUrlJson  = json_encode($whapiSendUrl, JSON_UNESCAPED_UNICODE);
@@ -2040,8 +2068,8 @@ class TelegramSocialMessageController extends BaseController
         $heroCompanyHtml = $escapedCompany ? "<div class=\"hero-company\">🏢 {$escapedCompany}</div>" : '';
         $jobBtnHtml      = $escapedJobUrl ? "<a href=\"{$escapedJobUrl}\" target=\"_blank\" rel=\"noopener\" class=\"bb-job\">🔗 View Job</a>" : '';
         $escapedHeroBadge = htmlspecialchars($heroBadge, ENT_QUOTES, 'UTF-8');
-        $copyCompanyNameHtml = ! $companyLogoUrl && $escapedCompany
-            ? '<button type="button" class="img-copy-btn" onclick="doCopy(companyName,this,\'Copy company name\')" title="Copy company name">📋 Copy name</button>'
+        $copyCompanyNameHtml = $escapedCompany
+            ? '<button type="button" class="img-copy-btn" onclick="copyAndSearchCompany(companyName,this)" title="Copy company name and search it on Google">📋 Copy name</button>'
             : '';
 
         // Employer pitch tab
@@ -2219,7 +2247,8 @@ JSFN;
 
                 /* Preview state */
                 .img-preview-wrap{position:relative;border-radius:10px;overflow:hidden;background:#0f172a;aspect-ratio:attr(data-ratio);min-height:80px}
-                .img-preview-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+                .img-preview-wrap img{width:100%;height:100%;object-fit:cover;display:block;background-color:#0f172a;transition:filter .25s ease}
+                .img-preview-wrap img:not(.is-loaded){filter:blur(1px)}
                 .img-preview-overlay{position:absolute;inset:0;background:rgba(0,0,0,.45);opacity:0;transition:opacity .18s;display:flex;align-items:center;justify-content:center}
                 .img-preview-wrap:hover .img-preview-overlay{opacity:1}
                 .img-replace-btn{background:rgba(255,255,255,.92);color:#1e293b;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px}
@@ -2384,7 +2413,7 @@ JSFN;
                         <div class="img-slot-body">
                             <div id="preview-company_logo" style="display:none">
                                 <div class="img-preview-wrap" style="max-height:120px;aspect-ratio:auto">
-                                    <img id="img-company_logo" src="" alt="Company logo" style="height:120px;width:auto;margin:0 auto;display:block;object-fit:contain;background:#f8fafc;border-radius:8px">
+                                    <img id="img-company_logo" src="" alt="Company logo" loading="lazy" decoding="async" style="height:120px;width:auto;margin:0 auto;display:block;object-fit:contain;background:#f8fafc;border-radius:8px">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('company_logo')">🔄 Replace</button>
                                     </div>
@@ -2418,7 +2447,7 @@ JSFN;
                         <div class="img-slot-body">
                             <div id="preview-cover_image" style="display:none">
                                 <div class="img-preview-wrap" style="aspect-ratio:10/3">
-                                    <img id="img-cover_image" src="" alt="Cover image">
+                                    <img id="img-cover_image" src="" alt="Cover image" loading="lazy" decoding="async">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('cover_image')">🔄 Replace</button>
                                     </div>
@@ -2453,7 +2482,7 @@ JSFN;
                         <div class="img-slot-body">
                             <div id="preview-tiktok_image" style="display:none">
                                 <div class="img-preview-wrap" style="aspect-ratio:9/16">
-                                    <img id="img-tiktok_image" src="" alt="TikTok image">
+                                    <img id="img-tiktok_image" src="" alt="TikTok image" loading="lazy" decoding="async">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('tiktok_image')">🔄 Replace</button>
                                     </div>
@@ -2490,7 +2519,7 @@ JSFN;
                         <div class="img-slot-body">
                             <div id="preview-whatsapp_image" style="display:none">
                                 <div class="img-preview-wrap" style="aspect-ratio:9/16">
-                                    <img id="img-whatsapp_image" src="" alt="WhatsApp image">
+                                    <img id="img-whatsapp_image" src="" alt="WhatsApp image" loading="lazy" decoding="async">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('whatsapp_image')">🔄 Replace</button>
                                     </div>
@@ -2527,7 +2556,7 @@ JSFN;
                         <div class="img-slot-body">
                             <div id="preview-facebook_image" style="display:none">
                                 <div class="img-preview-wrap" style="aspect-ratio:1200/630">
-                                    <img id="img-facebook_image" src="" alt="Facebook image">
+                                    <img id="img-facebook_image" src="" alt="Facebook image" loading="lazy" decoding="async">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('facebook_image')">🔄 Replace</button>
                                     </div>
@@ -2563,7 +2592,7 @@ JSFN;
                         <div class="img-slot-body">
                             <div id="preview-linkedin_image" style="display:none">
                                 <div class="img-preview-wrap" style="aspect-ratio:1200/627">
-                                    <img id="img-linkedin_image" src="" alt="LinkedIn image">
+                                    <img id="img-linkedin_image" src="" alt="LinkedIn image" loading="lazy" decoding="async">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('linkedin_image')">🔄 Replace</button>
                                     </div>
@@ -2599,7 +2628,7 @@ JSFN;
                         <div class="img-slot-body">
                             <div id="preview-twitter_image" style="display:none">
                                 <div class="img-preview-wrap" style="aspect-ratio:16/9">
-                                    <img id="img-twitter_image" src="" alt="X / Twitter image">
+                                    <img id="img-twitter_image" src="" alt="X / Twitter image" loading="lazy" decoding="async">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('twitter_image')">🔄 Replace</button>
                                     </div>
@@ -2739,7 +2768,7 @@ JSFN;
                         <div class="img-slot-body">
                             <div id="preview-employer_image" style="display:none">
                                 <div class="img-preview-wrap" style="aspect-ratio:1080/1350">
-                                    <img id="img-employer_image" src="" alt="Employer update image">
+                                    <img id="img-employer_image" src="" alt="Employer update image" loading="lazy" decoding="async">
                                     <div class="img-preview-overlay">
                                         <button class="img-replace-btn" onclick="triggerUpload('employer_image')">🔄 Replace</button>
                                     </div>
@@ -2802,6 +2831,7 @@ JSFN;
             const generateUrls    = {$generateUrlsJson};
             const openAiConfigured = {$openAiConfiguredJson};
             const jobImages       = {$jobImagesJson};
+            const jobImagesLqip   = {$jobImagesLqipJson};
             const companyLogoUrl  = {$companyLogoJson};
             const companyName     = {$companyNameJson};
             const slotPrompts     = {$slotPromptsJson};
@@ -2828,12 +2858,12 @@ JSFN;
                     employer_image: jobImages.employer_image,
                 };
                 for (const [key, url] of Object.entries(slots)) {
-                    if (url) showPreview(key, url);
+                    if (url) showPreview(key, url, jobImagesLqip[key]);
                 }
 
                 // No dedicated employer image yet — borrow the WhatsApp tab image as the default.
                 if (!jobImages.employer_image && jobImages.whatsapp_image) {
-                    showPreview('employer_image', jobImages.whatsapp_image);
+                    showPreview('employer_image', jobImages.whatsapp_image, jobImagesLqip.whatsapp_image);
                     const dl = document.getElementById('dl-employer_image');
                     if (dl) { dl.style.display = 'none'; }
                     const label = document.querySelector('#slot-employer_image .img-slot-label');
@@ -2841,12 +2871,26 @@ JSFN;
                 }
             })();
 
-            function showPreview(key, url) {
+            function showPreview(key, url, lqip) {
                 const img  = document.getElementById('img-' + key);
                 const prev = document.getElementById('preview-' + key);
                 const zone = document.getElementById('zone-' + key);
                 const dl   = document.getElementById('dl-' + key);
                 if (!img || !prev) return;
+                // Progressive loading: show the blurred low-quality placeholder immediately,
+                // swap it out once the full-size image has actually finished loading.
+                img.classList.remove('is-loaded');
+                if (lqip) {
+                    img.style.backgroundImage = "url('" + lqip + "')";
+                    img.style.backgroundSize = 'cover';
+                    img.style.backgroundPosition = 'center';
+                } else {
+                    img.style.backgroundImage = 'none';
+                }
+                img.onload = function () {
+                    img.style.backgroundImage = 'none';
+                    img.classList.add('is-loaded');
+                };
                 img.src = url;
                 prev.style.display = 'block';
                 if (zone) zone.style.display = 'none';
@@ -2854,7 +2898,7 @@ JSFN;
                 const rp = document.getElementById('repost-' + key);
                 if (rp) rp.style.display = ((key === 'whatsapp_image' && whapiSendUrl) || (key === 'tiktok_image' && publerSendUrl)) ? '' : 'none';
                 const slot = document.getElementById('slot-' + key);
-                if (slot) { const cb = slot.querySelector('.img-copy-btn'); if (cb) cb.style.display = 'none'; }
+                if (key !== 'company_logo' && slot) { const cb = slot.querySelector('.img-copy-btn'); if (cb) cb.style.display = 'none'; }
             }
 
             function copySlotPost(key, btn) {
@@ -3085,7 +3129,7 @@ JSFN;
                 }).then(function (res) {
                     const d = res.d || {};
                     if (res.ok && d.ok !== false && d.url) {
-                        showPreview(key, d.url);
+                        showPreview(key, d.url, d.lqip);
                         setProgress(key, 100, 'done', '✅ Generated!');
                         if (key === 'whatsapp_image' || key === 'tiktok_image') playUploadSound();
                         setTimeout(function () {
@@ -3168,6 +3212,10 @@ JSFN;
                 } else {
                     legacyCopy(text, btn, resetLabel);
                 }
+            }
+            function copyAndSearchCompany(text, btn) {
+                window.open('https://www.google.com/search?q=' + encodeURIComponent(text), '_blank', 'noopener');
+                doCopy(text, btn, 'Copy company name');
             }
             function legacyCopy(text, btn, resetLabel) {
                 const ta = document.createElement('textarea');

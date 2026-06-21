@@ -511,9 +511,18 @@ class JobBoardServiceProvider extends ServiceProvider
                     'permissions' => ['job-alert-orders.index'],
                 ])
                 ->registerItem([
+                    'id'          => 'cms-plugins-job-board-vip-alerts',
+                    'priority'    => 6,
+                    'parent_id'   => null,
+                    'name'        => 'VIP',
+                    'icon'        => 'ti ti-crown',
+                    'url'         => route('vip-alert-orders.index'),
+                    'permissions' => ['vip-alert-orders.index'],
+                ])
+                ->registerItem([
                     'id'          => 'cms-plugins-job-board-vip-alert-orders',
-                    'priority'    => 7,
-                    'parent_id'   => 'cms-plugins-job-board-main',
+                    'priority'    => 1,
+                    'parent_id'   => 'cms-plugins-job-board-vip-alerts',
                     'name'        => 'VIP Alert Orders',
                     'icon'        => 'ti ti-star-filled',
                     'url'         => route('vip-alert-orders.index'),
@@ -521,8 +530,8 @@ class JobBoardServiceProvider extends ServiceProvider
                 ])
                 ->registerItem([
                     'id'          => 'cms-plugins-job-board-vip-alert-plans',
-                    'priority'    => 7,
-                    'parent_id'   => 'cms-plugins-job-board-main',
+                    'priority'    => 2,
+                    'parent_id'   => 'cms-plugins-job-board-vip-alerts',
                     'name'        => 'VIP Alert Plans',
                     'icon'        => 'ti ti-settings-dollar',
                     'url'         => route('job-board.settings.vip-alert-plans'),
@@ -538,18 +547,27 @@ class JobBoardServiceProvider extends ServiceProvider
                     'permissions' => ['job-board.automations.index'],
                 ])
                 ->registerItem([
+                    'id'          => 'cms-plugins-job-board-ai-apply',
+                    'priority'    => 6,
+                    'parent_id'   => null,
+                    'name'        => 'AI Apply',
+                    'icon'        => 'ti ti-sparkles',
+                    'url'         => route('auto-apply-orders.index'),
+                    'permissions' => ['auto-apply-orders.index'],
+                ])
+                ->registerItem([
                     'id'          => 'cms-plugins-job-board-auto-apply-orders',
-                    'priority'    => 8,
-                    'parent_id'   => 'cms-plugins-job-board-main',
+                    'priority'    => 1,
+                    'parent_id'   => 'cms-plugins-job-board-ai-apply',
                     'name'        => 'Auto Apply Orders',
-                    'icon'        => 'ti ti-paper-airplane',
+                    'icon'        => 'ti ti-send-2',
                     'url'         => route('auto-apply-orders.index'),
                     'permissions' => ['auto-apply-orders.index'],
                 ])
                 ->registerItem([
                     'id'          => 'cms-plugins-job-board-auto-apply-plans',
-                    'priority'    => 8,
-                    'parent_id'   => 'cms-plugins-job-board-main',
+                    'priority'    => 2,
+                    'parent_id'   => 'cms-plugins-job-board-ai-apply',
                     'name'        => 'Auto Apply Plans',
                     'icon'        => 'ti ti-settings-automation',
                     'url'         => route('job-board.settings.auto-apply-plans'),
@@ -557,8 +575,8 @@ class JobBoardServiceProvider extends ServiceProvider
                 ])
                 ->registerItem([
                     'id'          => 'cms-plugins-job-board-auto-apply-logs',
-                    'priority'    => 8,
-                    'parent_id'   => 'cms-plugins-job-board-main',
+                    'priority'    => 3,
+                    'parent_id'   => 'cms-plugins-job-board-ai-apply',
                     'name'        => 'Auto Apply Logs',
                     'icon'        => 'ti ti-list-details',
                     'url'         => route('auto-apply-logs.index'),
@@ -566,8 +584,8 @@ class JobBoardServiceProvider extends ServiceProvider
                 ])
                 ->registerItem([
                     'id'          => 'cms-plugins-job-board-candidate-alerts',
-                    'priority'    => 7,
-                    'parent_id'   => 'cms-plugins-job-board-main',
+                    'priority'    => 3,
+                    'parent_id'   => 'cms-plugins-job-board-vip-alerts',
                     'name'        => 'VIP Job Alerts',
                     'icon'        => 'ti ti-device-mobile-message',
                     'url'         => route('job-board.candidate-alerts.index'),

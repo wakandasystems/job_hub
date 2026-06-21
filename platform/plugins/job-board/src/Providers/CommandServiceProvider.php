@@ -28,6 +28,7 @@ use Botble\JobBoard\Console\Commands\CheckAutoCvBotStallCommand;
 use Botble\JobBoard\Console\Commands\ProcessDueSocialBroadcastsCommand;
 use Botble\JobBoard\Console\Commands\SendCandidateFilterTipsCommand;
 use Botble\JobBoard\Console\Commands\CompleteAutoCvFinalConfirmationsCommand;
+use Botble\JobBoard\Console\Commands\BackfillImageVariantsCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
 
@@ -66,6 +67,7 @@ class CommandServiceProvider extends ServiceProvider
             ProcessDueSocialBroadcastsCommand::class,
             SendCandidateFilterTipsCommand::class,
             CompleteAutoCvFinalConfirmationsCommand::class,
+            BackfillImageVariantsCommand::class,
         ]);
 
         $this->app->afterResolving(Schedule::class, function (Schedule $schedule): void {
@@ -79,9 +81,6 @@ class CommandServiceProvider extends ServiceProvider
             $schedule->command(SendProfileRefreshReminderCommand::class)->weeklyOn(1, '10:00');
             $schedule->command(RefreshFreeCreditsCommand::class)->monthlyOn(1, '00:30');
             $schedule->command(CheckCandidateAlertExpiryCommand::class)->dailyAt('07:00')->withoutOverlapping();
-            $schedule->command(SendCandidateAlertsCommand::class, ['--hours' => 25])
-                ->dailyAt('09:00')
-                ->withoutOverlapping();
             $schedule->command(CheckFailedJobsCommand::class)
                 ->hourly()
                 ->withoutOverlapping();

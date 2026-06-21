@@ -209,7 +209,7 @@ class SendVipCandidateAlertsListener implements ShouldQueue
 
     private function sendJobToCandidate(string $token, string $gatewayUrl, CandidateAlert $alert, Job $job, ?string $matchedKeyword = null): bool
     {
-        $jobUrl  = $job->slugable?->key ? url("/{$job->slugable->key}") : url('/jobs/' . $job->id);
+        $jobUrl  = url('/jobs/' . ($job->slugable?->key ?? $job->id));
         $company = $job->company?->name ?? '';
         $loc     = $job->full_location ?? $job->address ?? '';
 

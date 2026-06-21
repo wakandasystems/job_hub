@@ -105,7 +105,13 @@ class Job extends BaseModel
         'address' => SafeContent::class,
         'apply_url' => SafeContent::class,
         'apply_email' => SafeContent::class,
+        'image_variants' => 'array',
     ];
+
+    public function imageVariantsFor(string $field): array
+    {
+        return (array) ($this->image_variants[$field] ?? []);
+    }
 
     public function skills(): BelongsToMany
     {

@@ -13,6 +13,10 @@
             text-decoration: none;
         }
 
+        .job-social-spotlight-grid .spotlight-card picture {
+            display: block;
+        }
+
         .job-social-spotlight-grid .spotlight-card img {
             width: 100%;
             height: auto;
@@ -64,9 +68,11 @@
                 @foreach ($jobs as $job)
                     @php
                         $imagePath = null;
+                        $imageField = null;
                         foreach ($imageFields as $field) {
                             if (! empty($job->{$field})) {
                                 $imagePath = $job->{$field};
+                                $imageField = $field;
                                 break;
                             }
                         }
@@ -75,7 +81,11 @@
                     @if ($imagePath)
                         <div class="col-lg-3 col-md-4 col-6 mb-24">
                             <a class="spotlight-card hover-up" href="{{ $job->url }}">
-                                <img src="{{ \Illuminate\Support\Facades\Storage::disk('public')->url($imagePath) }}" alt="{{ $job->name }}" loading="lazy">
+                                @include(Theme::getThemeNamespace('views.job-board.partials.picture'), [
+                                    'src' => $imagePath,
+                                    'alt' => $job->name,
+                                    'variants' => $job->imageVariantsFor($imageField),
+                                ])
                                 <div class="spotlight-caption">
                                     <h6>{{ $job->name }}</h6>
                                     @if (! $job->hide_company && $job->company?->name)

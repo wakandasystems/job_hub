@@ -36,4 +36,26 @@ class Currency extends BaseModel
             Cache::forget('currencies');
         });
     }
+
+    public static function convert(float $price, string $fromCode, string $toCode): float
+    {
+        if (strtoupper($fromCode) === strtoupper($toCode)) {
+            return $price;
+        }
+
+        $from = static::query()->where('title', $fromCode)->first();
+        $to = static::query()->where('title', $toCode)->first();
+
+        if (! $from || ! $to) {
+            return $price;
+        }
+
+        $inDefault = (! $from->is_default && $from->exchange_rate > 0)
+            ? $price / $from->exchange_rate
+            : $price;
+
+        return (! $to->is_default && $to->exchange_rate > 0)
+            ? $inDefault * $to->exchange_rate
+            : $inDefault;
+    }
 }

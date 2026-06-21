@@ -132,6 +132,21 @@ class AutoCvBotController extends BaseController
         ]);
     }
 
+    public function sendSampleCv(Request $request, AutoCvBotService $service): JsonResponse
+    {
+        $data = $request->validate([
+            'whatsapp_number' => ['required', 'string', 'max:40'],
+        ]);
+
+        [$sent, $error] = $service->sendSampleCv(trim($data['whatsapp_number']));
+
+        if (! $sent) {
+            return response()->json(['error' => $error ?: 'Could not send the sample CV.'], 422);
+        }
+
+        return response()->json(['message' => 'Sample CV sent on WhatsApp.']);
+    }
+
     public function show(AutoCvSession $autoCvSession)
     {
         $this->pageTitle('CV Bot — ' . ($autoCvSession->candidate_name ?: $autoCvSession->whatsapp_number));
@@ -288,5 +303,17 @@ class AutoCvBotController extends BaseController
         $safeName = trim((string) preg_replace('/[^A-Za-z0-9]+/', '_', trim($name)), '_') ?: 'Candidate';
 
         return Storage::disk('local')->download($path, "{$safeName}_CV_" . Str::headline($design) . ".{$format}");
+    }
+
+    public function preview(AutoCvSession $autoCvSession, ?string $design = null)
+    {
+        $design = $design ?: 'premium';
+        $paths = $autoCvSession->cv_document_paths ?: [];
+        $path = $paths[$design]['pdf_path'] ?? null;
+        $path = $path ?: $autoCvSession->pdf_path;
+
+        abort_unless($path && Storage::disk('local')->exists($path), 404, 'CV file not found.');
+
+        return Storage::disk('local')->response($path, null, [], 'inline');
     }
 }

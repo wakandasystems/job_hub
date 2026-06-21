@@ -4733,7 +4733,7 @@ class JobCrawlerRunner
             ? Carbon::parse($deadline)
             : $postedDate->copy()->addDays(45);
 
-        $rawContent  = (string) ($item['content'] ?? '');
+        $rawContent  = $this->formatJobZambiaPlainContent((string) ($item['content'] ?? ''));
         $description = Str::limit(trim(strip_tags($rawContent)), 400, '');
 
         return [
@@ -4758,6 +4758,102 @@ class JobCrawlerRunner
             'created_at'               => $postedDate,
             'updated_at'               => $postedDate,
         ];
+    }
+
+    protected function formatJobZambiaPlainContent(string $content): string
+    {
+        $plain = trim(html_entity_decode(strip_tags($content), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+
+        if ($plain === '') {
+            return $content;
+        }
+
+        if ($content !== $plain && preg_match('/<\s*(p|div|section|article|h[1-6]|ul|ol|li|br)\b/i', $content)) {
+            return $content;
+        }
+
+        $plain = preg_replace('/\s+/', ' ', $plain) ?: $plain;
+        $plain = preg_replace('/\s+(Role Overview and Key Responsibilities)\s+/i', "\n\n## $1\n", $plain) ?: $plain;
+        $plain = preg_replace('/\s+(Skills and Qualifications(?: for .*?))\s+(Successful candidates|Essential skills|Minimum qualification)/i', "\n\n## $1\n$2", $plain) ?: $plain;
+        $plain = preg_replace('/\s+(Educational and Professional Requirements)\s+/i', "\n\n## $1\n", $plain) ?: $plain;
+        $plain = preg_replace('/\s+(Apply for [A-Z].*?)\s+(Join|If you|Please submit)/', "\n\n## $1\n$2", $plain) ?: $plain;
+        $plain = preg_replace('/\s+(Job Category)\s+/i', "\n\n## $1\n", $plain) ?: $plain;
+
+        $sections = preg_split('/\n\n##\s*/', $plain) ?: [$plain];
+        $html = [];
+
+        foreach ($sections as $index => $section) {
+            $section = trim($section);
+            if ($section === '') {
+                continue;
+            }
+
+            $heading = null;
+            $body = $section;
+
+            if ($index > 0) {
+                [$heading, $body] = array_pad(explode("\n", $section, 2), 2, '');
+                $heading = trim($heading);
+                $body = trim($body);
+            }
+
+            if ($heading) {
+                $html[] = '<h3>' . e($heading) . '</h3>';
+            }
+
+            $html[] = $this->formatJobZambiaPlainSection($body);
+        }
+
+        return implode("\n", array_filter($html));
+    }
+
+    protected function formatJobZambiaPlainSection(string $body): string
+    {
+        $body = trim($body);
+
+        if ($body === '') {
+            return '';
+        }
+
+        if (preg_match('/^(.*?\b(?:includes|include|include:|includes:|include the following|include the following:|include)\s*:)\s+(.+)$/i', $body, $matches)) {
+            $intro = trim($matches[1]);
+            $rest = trim($matches[2]);
+
+            return '<p>' . e($intro) . '</p>' . $this->sentencesToList($rest);
+        }
+
+        if (preg_match('/^(.*?\b(?:include|includes)\s*:)\s+(.+)$/i', $body, $matches)) {
+            return '<p>' . e(trim($matches[1])) . '</p>' . $this->sentencesToList(trim($matches[2]));
+        }
+
+        $sentences = $this->splitJobZambiaSentences($body);
+
+        if (count($sentences) >= 3 && ! str_contains($body, ',')) {
+            return $this->sentencesToList($body);
+        }
+
+        return implode('', array_map(fn (string $sentence) => '<p>' . e($sentence) . '</p>', $sentences));
+    }
+
+    protected function sentencesToList(string $text): string
+    {
+        $items = $this->splitJobZambiaSentences($text);
+
+        if (! $items) {
+            return '';
+        }
+
+        return '<ul>' . implode('', array_map(fn (string $item) => '<li>' . e($item) . '</li>', $items)) . '</ul>';
+    }
+
+    protected function splitJobZambiaSentences(string $text): array
+    {
+        $parts = preg_split('/(?<=[.!?])\s+(?=[A-Z])/', trim($text)) ?: [];
+
+        return array_values(array_filter(array_map(
+            fn (string $part) => trim($part),
+            $parts
+        )));
     }
 
     // -------------------------------------------------------------------------

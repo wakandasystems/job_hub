@@ -3,42 +3,142 @@
 <head>
     <meta charset="utf-8">
     @php($design = $design ?? 'premium')
+    @php($initials = trim(implode('', array_map(fn ($part) => mb_substr($part, 0, 1), array_slice(array_filter(explode(' ', (string) ($cv['full_name'] ?? ''))), 0, 2)))))
     <style>
-        @page { margin: 34px 38px 42px; }
-        body { font-family: DejaVu Sans, sans-serif; color: #1f2937; font-size: 11.5px; line-height: 1.5; }
-        .hero { background: #111827; color: #fff; padding: 18px 20px 16px; margin: -34px -38px 18px; }
-        h1 { font-size: 27px; margin: 0 0 5px; color: #fff; letter-spacing: .03em; text-transform: uppercase; }
-        h2 { font-size: 12px; margin: 18px 0 8px; padding: 6px 8px; color: #111827; background: #eef2ff; border-left: 4px solid #2563eb; text-transform: uppercase; letter-spacing: .08em; }
-        .headline { font-size: 13px; color: #dbeafe; margin-bottom: 8px; }
-        .contact { color: #e5e7eb; font-size: 10.5px; }
-        .item { margin-bottom: 11px; page-break-inside: avoid; }
-        .item-title { font-weight: 700; color: #111827; font-size: 12px; }
-        .muted { color: #6b7280; font-size: 10.5px; margin-top: 1px; }
-        ul { margin: 5px 0 0 18px; padding: 0; }
-        li { margin-bottom: 3px; }
+        @page { margin: 0 40px 46px; }
+        body {
+            font-family: "DejaVu Sans", sans-serif;
+            color: #3a3a3a;
+            font-size: 11.5px;
+            line-height: 1.55;
+        }
+        .hero {
+            margin: 0 -40px 22px;
+            padding: 38px 40px 26px;
+            background: #1c1c1c;
+            color: #f5f3ee;
+        }
+        .hero-top { width: 100%; }
+        .monogram {
+            float: right;
+            width: 46px;
+            height: 46px;
+            border: 1px solid #b08d57;
+            border-radius: 50%;
+            text-align: center;
+            color: #d8b88a;
+            font-family: "DejaVu Serif", serif;
+            font-size: 16px;
+            line-height: 44px;
+            letter-spacing: .02em;
+        }
+        h1 {
+            font-family: "DejaVu Serif", serif;
+            font-weight: bold;
+            font-size: 25px;
+            margin: 4px 0 6px;
+            color: #f5f3ee;
+            letter-spacing: .05em;
+            text-transform: uppercase;
+        }
+        .rule-gold { width: 54px; height: 2px; background: #b08d57; margin: 0 0 10px; }
+        .headline { font-family: "DejaVu Serif", serif; font-style: italic; font-size: 12.5px; color: #d8b88a; margin-bottom: 10px; }
+        .contact { color: #cfcac0; font-size: 10px; letter-spacing: .02em; }
+        .contact span { margin-right: 4px; }
+        .contact span + span { margin-left: 4px; }
+
+        h2 {
+            font-family: "DejaVu Serif", serif;
+            font-size: 12px;
+            font-weight: bold;
+            margin: 19px 0 9px;
+            padding: 0 0 5px;
+            color: #1c1c1c;
+            border-bottom: 1px solid #ded7c9;
+            text-transform: uppercase;
+            letter-spacing: .14em;
+        }
+        h2 .tick { color: #b08d57; margin-right: 6px; }
+
+        .item { margin-bottom: 12px; padding-left: 11px; border-left: 1.5px solid #e7decb; page-break-inside: avoid; }
+        .item-title { font-weight: bold; color: #1c1c1c; font-size: 12px; }
+        .item-meta { color: #9a9a9a; font-size: 10px; margin-top: 1px; letter-spacing: .01em; }
+        ul { margin: 6px 0 0 16px; padding: 0; }
+        li { margin-bottom: 4px; }
         p { margin: 0 0 8px; }
-        .skills span { display: inline-block; border: 1px solid #bfdbfe; border-radius: 12px; padding: 4px 8px; margin: 0 5px 5px 0; background: #eff6ff; color: #1e3a8a; font-size: 10.5px; }
-        .footer { position: fixed; bottom: -22px; left: 0; right: 0; color: #9ca3af; font-size: 9px; text-align: center; }
+
+        .skills span {
+            display: inline-block;
+            border: 0.75px solid #c9b896;
+            border-radius: 10px;
+            padding: 4px 11px;
+            margin: 0 6px 6px 0;
+            color: #5b4a32;
+            font-size: 10px;
+            letter-spacing: .03em;
+        }
+
+        .footer {
+            position: fixed;
+            bottom: -30px;
+            left: 0;
+            right: 0;
+            color: #b3aca0;
+            font-size: 8.5px;
+            text-align: center;
+            letter-spacing: .05em;
+        }
+
         @if($design === 'academic')
-            .hero { background: #fff; color: #111827; text-align: center; border-bottom: 2px solid #111827; margin: -10px 0 18px; padding: 0 0 14px; }
-            h1 { color: #111827; font-size: 30px; letter-spacing: .16em; margin-bottom: 12px; }
-            .headline { color: #374151; font-size: 14px; }
-            .contact { color: #4b5563; }
-            h2 { background: transparent; border-left: 0; border-bottom: 1px solid #111827; padding: 0 0 4px; letter-spacing: .12em; }
-            .skills span { border-radius: 3px; background: #f9fafb; color: #111827; border-color: #d1d5db; }
+            .hero { background: #fff; color: #1e2a3a; text-align: center; border-bottom: 2.5px solid #1e2a3a; padding: 40px 40px 22px; }
+            .monogram { float: none; display: inline-block; border-color: #1e2a3a; color: #1e2a3a; margin-bottom: 10px; }
+            h1 { color: #1e2a3a; font-size: 27px; letter-spacing: .2em; }
+            .rule-gold { background: #1e2a3a; margin: 0 auto 12px; }
+            .headline { color: #4b5a6e; font-style: normal; letter-spacing: .08em; text-transform: uppercase; font-size: 10.5px; }
+            .contact { color: #5b6677; }
+            h2 { text-align: left; border-bottom: 1px solid #1e2a3a; letter-spacing: .18em; }
+            h2 .tick { color: #1e2a3a; }
+            .item { border-left-color: #d7dce3; }
+            .skills span { border-radius: 2px; border-color: #c7ccd4; color: #1e2a3a; }
         @elseif($design === 'creative')
-            .hero { background: #0f766e; color: #fff; padding: 20px 22px 18px; border-bottom: 8px solid #f59e0b; }
-            h1 { color: #fff; font-size: 28px; letter-spacing: .08em; }
-            .headline { color: #ccfbf1; }
-            .contact { color: #fef3c7; }
-            h2 { background: #fef3c7; border-left-color: #0f766e; color: #134e4a; }
-            .skills span { background: #ccfbf1; border-color: #5eead4; color: #134e4a; }
+            .side-stripe { position: fixed; left: -40px; top: 0; bottom: -46px; width: 34px; background: #1f3d34; }
+            .side-accent { position: fixed; left: -6px; top: 0; bottom: -46px; width: 6px; background: #d4a373; }
+            .hero { background: #1f3d34; color: #f3efe6; }
+            .monogram { border-color: #d4a373; color: #e7c9a3; }
+            h1 { font-family: "DejaVu Sans", sans-serif; font-weight: bold; color: #fdfaf4; letter-spacing: .01em; }
+            .rule-gold { display: none; }
+            .headline { font-family: "DejaVu Sans", sans-serif; font-style: normal; font-weight: bold; color: #d4a373; text-transform: uppercase; letter-spacing: .1em; font-size: 11px; }
+            .contact { color: #d7e4dc; }
+            h2 {
+                font-family: "DejaVu Sans", sans-serif;
+                background: #1f3d34;
+                color: #fdfaf4;
+                border-bottom: 0;
+                border-radius: 3px;
+                padding: 6px 10px;
+                letter-spacing: .1em;
+            }
+            h2 .tick { color: #d4a373; }
+            .item { border-left: 0; padding-left: 14px; position: relative; }
+            .item:before { content: ''; position: absolute; left: -1px; top: 4px; width: 7px; height: 7px; border-radius: 50%; background: #b5651d; }
+            .skills span { border: 0; background: #1f3d34; color: #fdfaf4; }
+            .skills span:nth-child(even) { background: #b5651d; }
         @endif
     </style>
 </head>
 <body>
+    @if($design === 'creative')
+        <div class="side-stripe"></div>
+        <div class="side-accent"></div>
+    @endif
     <div class="hero">
-        <h1>{{ $design === 'academic' ? 'CURRICULUM VITAE' : ($cv['full_name'] ?? 'Candidate CV') }}</h1>
+        <div class="hero-top">
+            @if($initials !== '')
+                <div class="monogram">{{ $initials }}</div>
+            @endif
+            <h1>{{ $design === 'academic' ? 'CURRICULUM VITAE' : ($cv['full_name'] ?? 'Candidate CV') }}</h1>
+        </div>
+        <div class="rule-gold"></div>
 
         @if($design === 'academic')
             <div class="headline">{{ $cv['full_name'] ?? 'Candidate' }}</div>
@@ -47,17 +147,17 @@
         @endif
 
         <div class="contact">
-            {{ implode(' | ', array_filter([$cv['phone'] ?? null, $cv['email'] ?? null, $cv['location'] ?? null])) }}
+            {{ implode('  ·  ', array_filter([$cv['phone'] ?? null, $cv['email'] ?? null, $cv['location'] ?? null])) }}
         </div>
     </div>
 
     @if(! empty($cv['summary']))
-        <h2>Professional Profile</h2>
+        <h2><span class="tick">&#9670;</span>Professional Profile</h2>
         <p>{{ $cv['summary'] }}</p>
     @endif
 
     @if(! empty($cv['skills']))
-        <h2>Key Skills</h2>
+        <h2><span class="tick">&#9670;</span>Key Skills</h2>
         <div class="skills">
             @foreach($cv['skills'] as $skill)
                 <span>{{ $skill }}</span>
@@ -66,11 +166,11 @@
     @endif
 
     @if(! empty($cv['experience']))
-        <h2>Work Experience</h2>
+        <h2><span class="tick">&#9670;</span>Work Experience</h2>
         @foreach($cv['experience'] as $item)
             <div class="item">
                 <div class="item-title">{{ implode(' - ', array_filter([$item['job_title'] ?? null, $item['company'] ?? null])) }}</div>
-                <div class="muted">{{ implode(' | ', array_filter([$item['location'] ?? null, trim(implode(' to ', array_filter([$item['start_date'] ?? null, $item['end_date'] ?? null])))])) }}</div>
+                <div class="item-meta">{{ implode('  ·  ', array_filter([$item['location'] ?? null, trim(implode(' to ', array_filter([$item['start_date'] ?? null, $item['end_date'] ?? null])))])) }}</div>
                 @if(! empty($item['responsibilities']))
                     <ul>
                         @foreach($item['responsibilities'] as $responsibility)
@@ -83,17 +183,17 @@
     @endif
 
     @if(! empty($cv['education']))
-        <h2>Education</h2>
+        <h2><span class="tick">&#9670;</span>Education</h2>
         @foreach($cv['education'] as $item)
             <div class="item">
                 <div class="item-title">{{ implode(' - ', array_filter([$item['qualification'] ?? null, $item['field'] ?? null])) }}</div>
-                <div class="muted">{{ implode(' | ', array_filter([$item['institution'] ?? null, trim(implode(' - ', array_filter([$item['start_year'] ?? null, $item['end_year'] ?? null])))])) }}</div>
+                <div class="item-meta">{{ implode('  ·  ', array_filter([$item['institution'] ?? null, trim(implode(' - ', array_filter([$item['start_year'] ?? null, $item['end_year'] ?? null])))])) }}</div>
             </div>
         @endforeach
     @endif
 
     @if(! empty($cv['projects']))
-        <h2>Projects and Volunteer Work</h2>
+        <h2><span class="tick">&#9670;</span>Projects and Volunteer Work</h2>
         @foreach($cv['projects'] as $item)
             <div class="item">
                 <div class="item-title">{{ $item['name'] ?? '' }}</div>
@@ -105,7 +205,7 @@
     @endif
 
     @if(! empty($cv['certifications']))
-        <h2>Certifications and Training</h2>
+        <h2><span class="tick">&#9670;</span>Certifications and Training</h2>
         <ul>
             @foreach($cv['certifications'] as $certification)
                 <li>{{ $certification }}</li>
@@ -114,7 +214,7 @@
     @endif
 
     @if(! empty($cv['languages']))
-        <h2>Languages</h2>
+        <h2><span class="tick">&#9670;</span>Languages</h2>
         <ul>
             @foreach($cv['languages'] as $language)
                 <li>{{ $language }}</li>
@@ -123,14 +223,14 @@
     @endif
 
     @if(! empty($cv['references']))
-        <h2>References</h2>
+        <h2><span class="tick">&#9670;</span>References</h2>
         @foreach($cv['references'] as $item)
             <div class="item">
-                {{ implode(' | ', array_filter([$item['name'] ?? null, $item['role'] ?? null, $item['company'] ?? null, $item['phone'] ?? null, $item['email'] ?? null])) }}
+                {{ implode('  ·  ', array_filter([$item['name'] ?? null, $item['role'] ?? null, $item['company'] ?? null, $item['phone'] ?? null, $item['email'] ?? null])) }}
             </div>
         @endforeach
     @endif
 
-    <div class="footer">Generated by Wakanda Jobs on {{ $generatedAt }}</div>
+    <div class="footer">Generated by Wakanda Jobs &middot; {{ $generatedAt }}</div>
 </body>
 </html>

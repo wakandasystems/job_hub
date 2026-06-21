@@ -11,7 +11,9 @@ use Throwable;
 
 class SendPushNotificationsCommand extends Command
 {
-    protected $signature   = 'job-board:push-notify {job_id : The Job ID to send notifications for}';
+    protected $signature   = 'job-board:push-notify
+        {job_id : The Job ID to send notifications for}
+        {--no-delay : Send immediately; queue dispatch handles the natural delay}';
     protected $description = 'Send web push notifications for a published job (with natural delay)';
 
     public function handle(): int
@@ -32,9 +34,11 @@ class SendPushNotificationsCommand extends Command
             return self::SUCCESS;
         }
 
-        // Natural delay: 2–8 minutes, so notifications don't all fire at the exact
-        // same second and users can't tell they're automated.
-        sleep(random_int(120, 480));
+        if (! $this->option('no-delay')) {
+            // Natural delay: 2-8 minutes, so notifications do not all fire at the exact
+            // same second and users cannot tell they are automated.
+            sleep(random_int(120, 480));
+        }
 
         try {
             $webPush = new WebPush([

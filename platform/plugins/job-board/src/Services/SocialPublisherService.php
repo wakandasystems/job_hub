@@ -132,6 +132,8 @@ class SocialPublisherService
         // 5. Atomic per-employer, per-day throttle. The UPDATE only affects a row when
         //    this employer has not been pitched today, so concurrent publishes (jobs run
         //    in parallel background processes) can't both win — exactly one email goes out.
+        $previousPitchAt = $company->last_employer_pitch_at;
+
         $claimed = DB::table('jb_companies')
             ->where('id', $company->getKey())
             ->where(function ($query): void {
@@ -178,6 +180,12 @@ class SocialPublisherService
                 $mail->html($this->buildEmployerPitchHtml($job, $message, $src, $jobUrl));
             });
         } catch (\Throwable $e) {
+            // Send failed (e.g. transient SMTP rate-limit) — release the claim so this
+            // employer isn't locked out for the rest of the day with no email actually sent.
+            DB::table('jb_companies')
+                ->where('id', $company->getKey())
+                ->update(['last_employer_pitch_at' => $previousPitchAt]);
+
             Log::error('Auto employer pitch email failed', [
                 'job_id' => $job->getKey(),
                 'company_id' => $company->getKey(),

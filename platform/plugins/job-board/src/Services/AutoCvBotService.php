@@ -35,11 +35,11 @@ class AutoCvBotService
             'Bio and contact details: mobile number, email address, where they live (town/city), age, marital status, and LinkedIn profile link if they have one',
             'Job title or type of work being looked for',
             'Short personal profile: strengths and what kind of worker they are',
-            'Education, highest qualification first (school/college, qualification, field, years)',
+            'Education, highest qualification first (secondary/high school, college, or university — qualification, field, years)',
             'Work experience (company, job title, dates, what they did)',
             'Internships, attachments, volunteer work, or projects — including a link to GitHub or live work if they have one',
             'Strongest skills, tools, software, machines, or languages they can use',
-            'Certificates, licences, trainings, or awards',
+            'Certificates, licences, trainings, or awards — ask the candidate to describe each one in their own words (name, issuing body, year); only mention sending a photo as a fallback if they say they cannot remember the details',
             'Languages they speak and how well they speak each one (e.g. fluent, okay, a little)',
             'References (name, role/company, phone, email) or "Available on request"',
             'Anything else important: achievements, leadership, availability, preferred location',
@@ -762,6 +762,220 @@ PROMPT;
         }
     }
 
+    /**
+     * Sends a prospect a sample of our 3 CV designs, prefilled with AI-generated (entirely
+     * fictitious) content for the given role, so they can judge quality before signing up.
+     * The sample documents are generated once per role and cached on disk/in settings —
+     * later calls for the same role just resend the cached PDFs.
+     */
+    public function sendSampleCv(string $whatsappNumber, string $role = 'Accounts/Finance Manager'): array
+    {
+        $whatsappNumber = trim($whatsappNumber);
+
+        if ($whatsappNumber === '') {
+            return [false, 'WhatsApp number is required.'];
+        }
+
+        $paths = $this->sampleCvDocumentPaths($role);
+
+        if (! $paths) {
+            return [false, 'Could not prepare the sample CV. Check the OpenAI key and try again.'];
+        }
+
+        $intro = "Hi! 👋 Here's a quick look at the quality of CVs Wakanda Jobs puts together for candidates — "
+            . "this sample is written for a *{$role}* role using AI-generated example content, just to show you the "
+            . 'standard you can expect. Sending our 3 CV designs now as PDFs.';
+
+        $errorMessage = null;
+
+        if (! $this->sendWhapiMessage($whatsappNumber, $intro, $errorMessage)) {
+            return [false, $errorMessage];
+        }
+
+        foreach ($paths as $row) {
+            $sent = $this->sendWhapiDocument(
+                $whatsappNumber,
+                Storage::disk('local')->path($row['pdf_path']),
+                $row['filename'],
+                $errorMessage
+            );
+
+            if (! $sent) {
+                return [false, $errorMessage];
+            }
+        }
+
+        return [true, null];
+    }
+
+    private function sampleCvDocumentPaths(string $role): ?array
+    {
+        $roleSlug = Str::slug($role) ?: 'sample';
+        $settingKey = "auto_cv_bot_sample_paths_{$roleSlug}";
+        $cached = json_decode((string) setting($settingKey, ''), true);
+
+        if (is_array($cached) && $this->sampleDocumentsExist($cached)) {
+            return $cached;
+        }
+
+        $cv = $this->generateSampleCv($role);
+
+        if (! $cv) {
+            return null;
+        }
+
+        $paths = $this->storeSampleDocuments($cv, $roleSlug, $role);
+
+        setting()->set($settingKey, json_encode($paths))->save();
+
+        return $paths;
+    }
+
+    private function sampleDocumentsExist(array $paths): bool
+    {
+        if ($paths === []) {
+            return false;
+        }
+
+        foreach ($paths as $row) {
+            if (empty($row['pdf_path']) || ! Storage::disk('local')->exists($row['pdf_path'])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function generateSampleCv(string $role): ?array
+    {
+        $apiKey = (string) (setting('openai_api_key') ?: config('services.openai.key') ?: env('OPENAI_API_KEY'));
+
+        if ($apiKey === '') {
+            return null;
+        }
+
+        $systemPrompt = <<<PROMPT
+You are a senior CV writer for Wakanda Jobs (Zambia). Write a complete, impressive, ENTIRELY FICTITIOUS sample
+CV for a strong "{$role}" candidate. This is only ever used to demonstrate CV design quality to prospective
+candidates — it must never be mistaken for a real person, so invent a believable Zambian name and use clearly
+placeholder contact details (email like "sample.cv@wakandajobs.com", phone like "+260 9XX XXX XXX"). Invent
+2-3 work experience entries with strong, specific achievements and metrics appropriate for the role. Write in
+polished, professional British English.
+
+Education and certifications must be detailed and substantial, since this sample exists to show off depth as
+well as design:
+- "education": 3 entries, oldest last, covering a believable full academic path for this role — e.g. a
+  postgraduate qualification (Master's or professional postgraduate diploma), an undergraduate Bachelor's
+  degree, and secondary/high school (Grade 12 / GCE) — each with a real-sounding Zambian or regional institution,
+  specific field of study, and start/end years.
+- "certifications": 4-6 entries, each a professional body certification or specialised training genuinely
+  relevant to a "{$role}" role (e.g. recognised professional accounting/finance designations, software/ERP
+  certifications, short executive courses), each with the issuing body and a year.
+
+Return ONLY JSON shaped exactly like this (omit nothing, use empty arrays/strings where genuinely not
+applicable, leave "references" empty):
+{
+  "structured_cv": {
+    "full_name": "",
+    "headline": "",
+    "phone": "",
+    "email": "",
+    "address": "",
+    "location": "",
+    "age": "",
+    "marital_status": "",
+    "linkedin": "",
+    "summary": "",
+    "skills": ["..."],
+    "certifications": [{"name": "", "issuing_body": "", "date": ""}],
+    "languages": [{"language": "", "proficiency": ""}],
+    "experience": [{"job_title": "", "company": "", "location": "", "start_date": "", "end_date": "", "responsibilities": ["..."]}],
+    "education": [{"qualification": "", "field": "", "institution": "", "start_year": "", "end_year": ""}],
+    "projects": [{"name": "", "description": ""}],
+    "references": []
+  }
+}
+PROMPT;
+
+        try {
+            $response = Http::timeout(90)->withToken($apiKey)->acceptJson()
+                ->post('https://api.openai.com/v1/chat/completions', [
+                    'model' => self::MODEL,
+                    'temperature' => 0.6,
+                    'max_tokens' => 2200,
+                    'response_format' => ['type' => 'json_object'],
+                    'messages' => [
+                        ['role' => 'system', 'content' => $systemPrompt],
+                        ['role' => 'user', 'content' => 'Generate the sample CV now.'],
+                    ],
+                ]);
+        } catch (Throwable) {
+            return null;
+        }
+
+        if (! $response->successful()) {
+            return null;
+        }
+
+        $decoded = $this->decodeAiJson($response);
+
+        if (! is_array($decoded) || ! is_array($decoded['structured_cv'] ?? null)) {
+            return null;
+        }
+
+        $fakeSession = new AutoCvSession([
+            'candidate_name' => $decoded['structured_cv']['full_name'] ?? $role,
+            'whatsapp_number' => '',
+        ]);
+
+        return $this->sanitizeCv($decoded['structured_cv'], $fakeSession);
+    }
+
+    private function storeSampleDocuments(array $cv, string $roleSlug, string $role): array
+    {
+        $baseDir = "auto-cv-bot/samples/{$roleSlug}";
+        $safeRole = trim((string) preg_replace('/[^A-Za-z0-9]+/', '_', $role), '_') ?: 'Sample';
+        $styles = [
+            'premium' => 'Premium',
+            'academic' => 'Academic',
+            'creative' => 'Creative',
+        ];
+
+        // References always read "Available on request" in rendered documents, same as real CVs.
+        $renderCv = $cv;
+        $renderCv['references'] = [['name' => 'Available on request', 'role' => '', 'company' => '', 'phone' => '', 'email' => '']];
+
+        $paths = [];
+
+        foreach ($styles as $style => $label) {
+            $pdfPath = "{$baseDir}/Sample_{$safeRole}_CV_{$label}.pdf";
+
+            $pdfCv = $renderCv;
+            $pdfCv['languages'] = collect($renderCv['languages'] ?? [])
+                ->map(fn ($row) => trim(($row['language'] ?? '') . (($row['proficiency'] ?? '') ? ' (' . $row['proficiency'] . ')' : '')))
+                ->filter()
+                ->values()
+                ->all();
+
+            $pdf = Pdf::loadView('plugins/job-board::candidate-alerts.cv-builder-pdf', [
+                'cv' => $pdfCv,
+                'generatedAt' => now()->format('d M Y'),
+                'design' => $style,
+                'designLabel' => $label,
+            ])->setPaper('a4');
+
+            Storage::disk('local')->put($pdfPath, $pdf->output());
+
+            $paths[$style] = [
+                'label' => $label,
+                'pdf_path' => $pdfPath,
+                'filename' => "Sample_{$safeRole}_CV_{$label}.pdf",
+            ];
+        }
+
+        return $paths;
+    }
+
     public function sendDocumentsToCandidate(AutoCvSession $session): bool
     {
         $paths = $session->cv_document_paths ?: [];
@@ -894,6 +1108,9 @@ PROMPT;
             'docx_path' => null,
             'pdf_path' => null,
             'completed_at' => null,
+            // Reopening means the CV will be regenerated and must reach the candidate again,
+            // so the "already sent" guard in finalizeSession() has to be cleared here too.
+            'sent_to_candidate_at' => null,
             'candidate_reminder_count' => 0,
             'last_candidate_reminder_sent_at' => null,
             'awaiting_final_confirmation' => $isCompleted,
@@ -1487,8 +1704,10 @@ You are conducting a friendly WhatsApp interview for Wakanda Jobs (Zambia) to co
 Topics to cover:
 {$topics}
 
-Given the full conversation so far, you must:
-1. Re-derive the ENTIRE structured CV JSON from scratch using everything the candidate has said in the whole conversation, not just the latest reply. Never invent employers, schools, qualifications, dates, references, phone numbers, emails, addresses, ages, or marital status. Use empty strings/arrays for anything not yet provided. Marital status and age are sensitive personal details — only fill them in if the candidate actually states them; if they decline or skip, accept that and score the bio topic on the rest of the contact details instead.
+You are given the "Structured CV captured so far" JSON below, built from everything the candidate has told you in earlier turns. Treat every value already present in it as locked in and already confirmed — never blank out, drop, or omit a value that's already there just because the latest reply doesn't restate it, and never ask the candidate again about a specific field of a specific entry (e.g. "field of study" for a named school, or "end year" for a named certificate) once that field already has any value below, even a short, vague, or informal one (e.g. "Studies"). A vague existing value is still a captured answer, not a gap — only ask about it again if the candidate's own latest reply raises or corrects it. Only add to or correct this JSON using new information from the latest reply; everything else carries forward unchanged.
+
+Given the full conversation so far and the structured CV captured so far, you must:
+1. Build the ENTIRE structured CV JSON by starting from the "Structured CV captured so far" JSON given below and folding in anything new from the candidate's latest reply — do not invent employers, schools, qualifications, dates, references, phone numbers, emails, addresses, ages, or marital status. Use empty strings/arrays only for things genuinely never provided in either the captured JSON or the conversation. Marital status and age are sensitive personal details — only fill them in if the candidate actually states them; if they decline or skip, accept that and score the bio topic on the rest of the contact details instead.
 2. Decide which topic numbers (1-12, matching the list above) are not yet adequately covered, and return them as "missing_topics". A topic only counts as "covered" once its own score under rule 9 would be 90 or above (a "green" score) — never remove a topic from "missing_topics" just because you asked about it, or because the candidate gave a vague or partial answer. Keep asking follow-up questions about a topic, one at a time, until you can honestly score it 90+.
 3. Read the candidate's latest reply carefully before deciding what to do next:
    - If it is a real, substantive answer (even if informal or incomplete), accept it, extract what you can, and move on per rule 5.
@@ -1497,7 +1716,7 @@ Given the full conversation so far, you must:
    - If the candidate gives only an abbreviation or acronym for the name of an institution, employer, or certifying body (e.g. "CBU", "UNZA", "NIPA", "BGS"), do not accept it and move straight to asking for other details (such as dates or job title) about that same entry, and do not silently expand it yourself even if you are confident you recognise it. Ask them directly to confirm or spell out the full name, by itself, before asking for any other details about that same entry — unless they explicitly say they don't know the full name or that there isn't a longer version, in which case accept the abbreviation as given and continue with the remaining details. Only put a full institution/employer name in structured_cv once the candidate has actually confirmed or typed it themselves. If the candidate names SEVERAL abbreviated institutions/employers in the same reply (e.g. "I worked at BGS and CBU"), ask them to confirm or spell out the full name for ALL of them together in that one clarifying message — and that message must contain ONLY the request for full names, nothing else. Do not combine it with a request for job titles, dates, or responsibilities; ask those only in a later message, once the full names are confirmed.
 4. Topic 2 (bio and contact details) bundles several distinct pieces of information — mobile number, email address, residential address/town or city, age, marital status, and LinkedIn URL. NEVER ask for more than one of these in the same message, even though they all belong to the same topic — candidates skip or forget fields when asked for several things at once. Ask for them ONE AT A TIME, in plain, friendly, everyday language rather than form-like wording (e.g. "What's the best mobile number to reach you on?" rather than "Please provide your mobile number"; "Which town or city do you live in?" rather than "residential address"). Ask in a sensible order: mobile number first (it's essential for contacting them), then email, then town/city, then age, then marital status, then LinkedIn last as a casual optional ask (e.g. "Do you have a LinkedIn profile? No worries if not, we can skip that one."). Only move to the next field once the candidate has answered or clearly declined the current one — never bundle two unanswered fields into a single follow-up. Topic 2 only counts as covered once every field has been asked about and either answered or explicitly declined.
 5. Topics 5 (education), 6 (work experience), 7 (internships/volunteer/projects), 9 (certificates/awards), and 11 (references) can have more than one entry:
-   - For each entry the candidate mentions, make sure you collect every key field before treating that entry as done: for work experience — full employer name, job title, start and end dates (or "present"), and what they did; for education — full institution name, qualification, field of study, and start/end years; for projects, certifications, and references — the equivalent key details (e.g. dates for projects, issuing body and year for certificates). If the candidate has given some but not all of these for an entry, ask specifically for the missing piece(s) next — do not skip ahead to a different entry or a different topic while details are still missing for the current one.
+   - For each entry the candidate mentions, make sure you collect every key field before treating that entry as done: for work experience — full employer name, job title, start and end dates (or "present"), and what they did; for education — full institution name, qualification, field of study, and start/end years; for projects, certifications, and references — the equivalent key details (e.g. dates for projects, issuing body and year for certificates). If the candidate has given some but not all of these for an entry, ask specifically for the missing piece(s) next — do not skip ahead to a different entry or a different topic while details are still missing for the current one. Never name more than one entry (e.g. two different schools or two different employers) in the same question, even if they're missing the exact same field — ask about one entry at a time, fully, before moving to the next.
    - Once you believe every entry the candidate has mentioned so far for that topic is fully detailed, do NOT immediately mark the topic as covered or move to a different topic. First ask a short confirmation question such as "Is that all your work experience, or is there anything else to add?" Only remove the topic from "missing_topics" once the candidate gives a clear answer confirming there is nothing more — this includes short/one-word declines such as "no", "none", "nothing", "nope", "no more", "that's all", "I'm done", or the same word repeated/emphasised (e.g. "NO!", "nothing else"). Treat ANY one-word or short decline reply to this specific confirmation question as a valid "nothing more" answer, not as confusion under rule 3 — rule 3's "non-answer" handling is for when the candidate doesn't address what was asked at all, not for a plain no/none/nothing reply to a yes/no confirmation question. If they mention another entry instead of declining, treat it the same way (collect its full details, then ask again if that's everything).
 6. Once a topic has a real, complete answer (and, for the list-type topics above, once the candidate has confirmed there is nothing more to add), compose the single next WhatsApp message: a friendly, concise question about ONE topic — and, per rule 4, at most ONE field within that topic — that still needs covering. Never ask about more than one topic, or more than one field of topic 2, at a time. Prefer asking about a topic you haven't touched at all yet; but once every topic (1-12) has been asked about at least once, go back and revisit whichever topic currently has the LOWEST score with a clarifying follow-up — keep cycling back through the weak topics, one at a time, asking for more detail or clarity, until each one reaches 90+. Never skip a topic permanently just because the candidate's first answer to it was thin. Many candidates have not been to college and some may be applying for senior roles despite that — always use simple, everyday words a primary-school reading level can follow, never jargon or "big" words (say "level" or "how well", not "proficiency"; say "skills, tools, or things you're good at", not "competencies"; say "your last job", not "most recent employment"). If a CV term has no simple everyday equivalent, briefly explain it in plain words the first time you use it.
 7. Once every topic (1-12) would score 90 or above under rule 9, set "is_complete" to true and make "next_message" a short, friendly closing line thanking the candidate and saying their CV is being prepared. If even one topic is still below 90, keep "is_complete" false and keep working through rule 6 until it isn't.
@@ -1530,6 +1749,8 @@ PROMPT;
 
         $userPrompt = "Candidate name on file: {$session->candidate_name}\n"
             . "Candidate WhatsApp number on file: {$session->whatsapp_number}\n\n"
+            . "Structured CV captured so far (treat as already confirmed — do not lose or re-ask about anything already filled in here):\n"
+            . json_encode($session->structured_cv ?: [], JSON_UNESCAPED_SLASHES) . "\n\n"
             . "Conversation so far:\n" . $this->buildTranscript($session);
 
         return [

@@ -1224,7 +1224,7 @@ class CandidateAlertController
 
     private function sendJobMessage(string $token, string $gatewayUrl, CandidateAlert $alert, Job $job, ?string &$errorMessage = null): bool
     {
-        $jobUrl  = $job->slugable?->key ? url("/{$job->slugable->key}") : url('/jobs/' . $job->id);
+        $jobUrl  = url('/jobs/' . ($job->slugable?->key ?? $job->id));
         $company = $job->company?->name ?? '';
         $loc     = $job->full_location ?? $job->address ?? '';
 

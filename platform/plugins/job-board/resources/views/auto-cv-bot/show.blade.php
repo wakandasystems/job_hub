@@ -90,6 +90,23 @@
         </div>
     </div>
 
+    <div class="modal fade" id="modal-cv-preview" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-fullscreen-lg-down" style="max-width:900px">
+            <div class="modal-content" style="height:90vh">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="cvPreviewModalLabel">CV Preview</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-0 bg-light position-relative" style="overflow-y:auto" id="cvPreviewViewport">
+                    <div class="d-flex justify-content-center align-items-center h-100" id="cvPreviewLoading">
+                        <span class="spinner-border text-primary"></span>
+                    </div>
+                    <div id="cvPreviewPages" class="d-flex flex-column align-items-center gap-3 p-3"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="modal-end-conversation" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -113,8 +130,65 @@
     </div>
 
     @push('footer')
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
         <script>
             (function () {
+                if (typeof pdfjsLib !== 'undefined') {
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+                }
+
+                function renderCvPreview(url) {
+                    var viewport = document.getElementById('cvPreviewViewport');
+                    var pagesContainer = document.getElementById('cvPreviewPages');
+                    var loading = document.getElementById('cvPreviewLoading');
+                    var firstPageDone = false;
+
+                    pagesContainer.innerHTML = '';
+                    loading.classList.remove('d-none');
+
+                    function showError() {
+                        loading.classList.add('d-none');
+                        pagesContainer.innerHTML = '<div class="text-danger text-center py-5">Could not render the preview. <a href="' + url + '" target="_blank" rel="noopener">Open in a new tab</a> instead.</div>';
+                    }
+
+                    if (typeof pdfjsLib === 'undefined') {
+                        showError();
+                        return;
+                    }
+
+                    function renderPage(pdf, pageNumber) {
+                        return pdf.getPage(pageNumber).then(function (page) {
+                            var baseViewport = page.getViewport({ scale: 1 });
+                            var targetWidth = viewport.clientWidth - 32 || 760;
+                            var scale = Math.min(targetWidth / baseViewport.width, 1.6);
+                            var pageViewport = page.getViewport({ scale: scale });
+                            var canvas = document.createElement('canvas');
+                            canvas.className = 'shadow-sm bg-white';
+                            canvas.width = pageViewport.width;
+                            canvas.height = pageViewport.height;
+                            pagesContainer.appendChild(canvas);
+
+                            return page.render({ canvasContext: canvas.getContext('2d'), viewport: pageViewport }).promise.then(function () {
+                                if (!firstPageDone) {
+                                    firstPageDone = true;
+                                    loading.classList.add('d-none');
+                                }
+                            });
+                        });
+                    }
+
+                    pdfjsLib.getDocument(url).promise.then(function (pdf) {
+                        var chain = Promise.resolve();
+
+                        for (var i = 1; i <= pdf.numPages; i++) {
+                            (function (pageNumber) {
+                                chain = chain.then(function () { return renderPage(pdf, pageNumber); });
+                            })(i);
+                        }
+
+                        return chain;
+                    }).catch(showError);
+                }
                 var pollUrl = '{{ route('job-board.auto-cv-bot.poll', $session->id) }}';
                 var statusColors = {
                     collecting: 'info',
@@ -178,6 +252,10 @@
                     }
                 }
 
+                document.getElementById('modal-cv-preview').addEventListener('hidden.bs.modal', function () {
+                    document.getElementById('cvPreviewPages').innerHTML = '';
+                });
+
                 var $initialTranscript = document.getElementById('transcriptBody');
                 $initialTranscript.scrollTop = $initialTranscript.scrollHeight;
 
@@ -187,6 +265,16 @@
                 }
 
                 document.addEventListener('click', function (event) {
+                    var previewButton = event.target.closest('.js-preview-cv-document');
+
+                    if (previewButton) {
+                        document.getElementById('cvPreviewModalLabel').textContent = (previewButton.dataset.label || 'CV') + ' Preview';
+                        bootstrap.Modal.getOrCreateInstance(document.getElementById('modal-cv-preview')).show();
+                        renderCvPreview(previewButton.dataset.url);
+
+                        return;
+                    }
+
                     var generateButton = event.target.closest('#btnGeneratePremiumCv');
 
                     if (generateButton) {

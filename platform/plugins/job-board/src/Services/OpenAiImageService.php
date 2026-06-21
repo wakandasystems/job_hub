@@ -324,6 +324,12 @@ class OpenAiImageService
             $job->{$type} = $path;
             $job->save();
 
+            $variants = $this->generateVariants($path, $format);
+            if ($variants !== []) {
+                $job->image_variants = array_merge((array) $job->image_variants, [$type => $variants]);
+                $job->save();
+            }
+
             $latencyMs = $this->elapsedMs($startedAt);
             $responseJson = $response->json();
             $usage = $this->extractUsage($responseJson);
@@ -357,6 +363,7 @@ class OpenAiImageService
                 'ok'   => true,
                 'url'  => Storage::disk('public')->url($path),
                 'path' => $path,
+                'lqip' => $variants['lqip'] ?? null,
             ];
         } catch (\Throwable $e) {
             $latencyMs = $this->elapsedMs($startedAt);
@@ -537,6 +544,131 @@ class OpenAiImageService
         return $written && is_string($data) && $data !== '' ? $data : null;
     }
 
+    /**
+     * Generate AVIF + WebP siblings and a tiny base64 LQIP placeholder for an already-stored image.
+     *
+     * @return array{webp?: string, avif?: string, lqip?: string}
+     */
+    public function generateVariants(string $path, ?string $sourceFormat = null): array
+    {
+        $disk = Storage::disk('public');
+
+        if (! $disk->exists($path)) {
+            return [];
+        }
+
+        $sourceFormat ??= $this->formatFromExtension($path);
+
+        $image = @imagecreatefromstring((string) $disk->get($path));
+        if (! $image) {
+            return [];
+        }
+
+        $variants = [];
+
+        try {
+            if ($sourceFormat === 'webp') {
+                // Already WebP — reuse as-is rather than spend CPU re-encoding an identical copy.
+                $variants['webp'] = $path;
+            } elseif (function_exists('imagewebp')) {
+                $webpPath = $this->withExtension($path, 'webp');
+                if ($this->encodeAndStore($image, 'webp', $webpPath, $disk)) {
+                    $variants['webp'] = $webpPath;
+                }
+            }
+
+            if (function_exists('imageavif')) {
+                $avifPath = $this->withExtension($path, 'avif');
+                if ($this->encodeAndStore($image, 'avif', $avifPath, $disk)) {
+                    $variants['avif'] = $avifPath;
+                }
+            }
+
+            $lqip = $this->buildLqip($image);
+            if ($lqip !== null) {
+                $variants['lqip'] = $lqip;
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Image variant generation failed', ['path' => $path, 'error' => $e->getMessage()]);
+        } finally {
+            imagedestroy($image);
+        }
+
+        return $variants;
+    }
+
+    private function formatFromExtension(string $path): string
+    {
+        return match (strtolower(pathinfo($path, PATHINFO_EXTENSION))) {
+            'webp' => 'webp',
+            'jpg', 'jpeg' => 'jpeg',
+            default => 'png',
+        };
+    }
+
+    private function withExtension(string $path, string $extension): string
+    {
+        $folder = pathinfo($path, PATHINFO_DIRNAME);
+        $basename = pathinfo($path, PATHINFO_FILENAME);
+
+        return ($folder !== '.' ? $folder . '/' : '') . $basename . '.' . $extension;
+    }
+
+    private function encodeAndStore(\GdImage $image, string $format, string $path, $disk): bool
+    {
+        $quality = max(0, min(100, 100 - $this->outputCompression()));
+
+        ob_start();
+        $written = match ($format) {
+            'webp' => imagewebp($image, null, $quality),
+            'avif' => imageavif($image, null, $quality),
+            default => false,
+        };
+        $data = ob_get_clean();
+
+        if (! $written || ! is_string($data) || $data === '') {
+            return false;
+        }
+
+        $disk->put($path, $data);
+
+        return true;
+    }
+
+    private function buildLqip(\GdImage $source): ?string
+    {
+        $sourceWidth = imagesx($source);
+        $sourceHeight = imagesy($source);
+
+        if ($sourceWidth <= 0 || $sourceHeight <= 0) {
+            return null;
+        }
+
+        $width = 24;
+        $height = max(1, (int) round($sourceHeight * ($width / $sourceWidth)));
+
+        $thumb = imagescale($source, $width, $height);
+        if (! $thumb) {
+            return null;
+        }
+
+        try {
+            ob_start();
+            $written = function_exists('imagewebp') ? imagewebp($thumb, null, 40) : imagepng($thumb);
+            $data = ob_get_clean();
+
+            if (! $written || ! is_string($data) || $data === '') {
+                return null;
+            }
+
+            $mime = function_exists('imagewebp') ? 'image/webp' : 'image/png';
+
+            return 'data:' . $mime . ';base64,' . base64_encode($data);
+        } finally {
+            imagedestroy($thumb);
+        }
+    }
+
     private function elapsedMs(float $startedAt): int
     {
         return max(0, (int) round((microtime(true) - $startedAt) * 1000));
@@ -714,6 +846,11 @@ class OpenAiImageService
 
             $job->{$targetField} = $sourcePath;
             $changes[$targetField] = $sourceField;
+
+            $sourceVariants = $job->imageVariantsFor($sourceField);
+            if ($sourceVariants !== []) {
+                $job->image_variants = array_merge((array) $job->image_variants, [$targetField => $sourceVariants]);
+            }
         }
 
         if ($changes !== []) {
