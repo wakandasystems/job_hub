@@ -355,14 +355,30 @@
                         <a href="{{ route('job-board.settings.ai-images', ['tab' => 'logs']) }}" class="btn btn-outline-secondary">
                             Clear
                         </a>
+                        <button type="button" class="btn btn-warning ms-auto retry-all-ai-images-button">
+                            <i class="ti ti-refresh me-1"></i> Retry All Failed (current filters)
+                        </button>
                     </div>
                 </form>
+
+                <div id="ai-image-retry-progress" class="border rounded p-3 mb-4 d-none">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="fw-semibold">Retrying failed AI image generations…</div>
+                        <div class="small text-muted" id="ai-image-retry-progress-text">0 / 0</div>
+                    </div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar bg-warning" id="ai-image-retry-progress-bar" role="progressbar"
+                            style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    <div class="small text-muted mt-2" id="ai-image-retry-progress-summary"></div>
+                </div>
 
                 <div class="table-responsive">
                     <x-core::table>
                         <x-core::table.header>
                             <x-core::table.header.cell>Time</x-core::table.header.cell>
                             <x-core::table.header.cell>Status</x-core::table.header.cell>
+                            <x-core::table.header.cell style="white-space:nowrap;">Actions</x-core::table.header.cell>
                             <x-core::table.header.cell>Source</x-core::table.header.cell>
                             <x-core::table.header.cell>Slot</x-core::table.header.cell>
                             <x-core::table.header.cell>Model</x-core::table.header.cell>
@@ -382,6 +398,14 @@
                                         <span class="badge {{ $log->status === 'success' ? 'bg-success-lt text-success' : 'bg-danger-lt text-danger' }}">
                                             {{ ucfirst($log->status) }}
                                         </span>
+                                    </x-core::table.body.cell>
+                                    <x-core::table.body.cell style="white-space:nowrap;">
+                                        @if($log->status === 'failed')
+                                            <button type="button" class="btn btn-sm btn-outline-primary retry-ai-image-log-button"
+                                                data-log-id="{{ $log->id }}" title="Regenerate this image and repost the job">
+                                                <i class="ti ti-refresh me-1"></i> Retry
+                                            </button>
+                                        @endif
                                     </x-core::table.body.cell>
                                     <x-core::table.body.cell>
                                         <div class="fw-semibold">{{ $log->source_title ?: $log->job?->name ?: 'Unknown source' }}</div>
@@ -440,7 +464,7 @@
                                 </x-core::table.body.row>
                             @empty
                                 <x-core::table.body.row>
-                                    <x-core::table.body.cell colspan="9" class="text-center text-muted py-4">
+                                    <x-core::table.body.cell colspan="10" class="text-center text-muted py-4">
                                         No AI image generation logs found for the current filters.
                                     </x-core::table.body.cell>
                                 </x-core::table.body.row>
@@ -458,6 +482,121 @@
         </x-core::tab.content>
     </x-core::card.body>
 </x-core::card>
+
+<x-core::modal.action
+    type="warning"
+    class="retry-all-ai-images-modal"
+    title="Retry all failed attempts?"
+    description="Every failed attempt matching your current filters will be re-queued: the image is regenerated and, on success, the job is reposted to social channels. This may incur additional OpenAI cost."
+    submit-button-label="Retry All"
+    :submit-button-attrs="['class' => 'confirm-retry-all-ai-images-button']"
+/>
+
+<script>
+(function () {
+    var progressWrapper = document.getElementById('ai-image-retry-progress');
+    var progressBar = document.getElementById('ai-image-retry-progress-bar');
+    var progressText = document.getElementById('ai-image-retry-progress-text');
+    var progressSummary = document.getElementById('ai-image-retry-progress-summary');
+    var pollTimer = null;
+
+    function pollUrl(batchKey) {
+        return '{{ route('job-board.settings.ai-images.retry-progress') }}?batch_key=' + encodeURIComponent(batchKey);
+    }
+
+    function updateProgress(data) {
+        var total = data.total || 0;
+        var completed = data.completed || 0;
+        var percent = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 100;
+
+        progressBar.style.width = percent + '%';
+        progressBar.setAttribute('aria-valuenow', percent);
+        progressText.textContent = completed + ' / ' + total;
+        progressSummary.textContent = data.succeeded + ' succeeded, ' + data.failed + ' failed so far.';
+    }
+
+    function startPolling(batchKey) {
+        progressWrapper.classList.remove('d-none');
+        updateProgress({ total: 0, completed: 0, succeeded: 0, failed: 0 });
+
+        if (pollTimer) clearInterval(pollTimer);
+
+        pollTimer = setInterval(function () {
+            $httpClient
+                .make()
+                .get(pollUrl(batchKey))
+                .then(function (response) {
+                    var data = response.data;
+                    updateProgress(data);
+
+                    if (data.done) {
+                        clearInterval(pollTimer);
+                        pollTimer = null;
+                        Botble.showSuccess('Retry finished: ' + data.succeeded + ' succeeded, ' + data.failed + ' failed.');
+                        setTimeout(function () {
+                            window.location.reload();
+                        }, 1200);
+                    }
+                })
+                .catch(function () {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                });
+        }, 1500);
+    }
+
+    $(document).on('click', '.retry-ai-image-log-button', function (event) {
+        event.preventDefault();
+
+        var button = $(event.currentTarget);
+        var logId = button.data('log-id');
+
+        Botble.showButtonLoading(button);
+
+        var retryUrl = '{{ route('job-board.settings.ai-images.retry', ['log' => '__LOG_ID__']) }}'.replace('__LOG_ID__', logId);
+
+        $httpClient
+            .make()
+            .post(retryUrl)
+            .then(function (response) {
+                startPolling(response.data.batch_key);
+            })
+            .catch(function (error) {
+                Botble.showError((error.response && error.response.data && error.response.data.message) || 'Could not queue the retry.');
+            })
+            .finally(function () {
+                Botble.hideButtonLoading(button);
+            });
+    });
+
+    $(document).on('click', '.retry-all-ai-images-button', function (event) {
+        event.preventDefault();
+        $('.retry-all-ai-images-modal').modal('show');
+    });
+
+    $(document).on('click', '.confirm-retry-all-ai-images-button', function (event) {
+        event.preventDefault();
+
+        var button = $(event.currentTarget);
+
+        Botble.showButtonLoading(button);
+
+        $httpClient
+            .make()
+            .post('{{ route('job-board.settings.ai-images.retry-all') }}' + window.location.search)
+            .then(function (response) {
+                button.closest('.modal').modal('hide');
+                startPolling(response.data.batch_key);
+            })
+            .catch(function (error) {
+                Botble.showError((error.response && error.response.data && error.response.data.message) || 'Could not queue the retries.');
+            })
+            .finally(function () {
+                Botble.hideButtonLoading(button);
+            });
+    });
+})();
+</script>
 
 <script>
 (function () {

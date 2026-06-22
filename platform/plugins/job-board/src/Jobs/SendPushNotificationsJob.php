@@ -27,7 +27,6 @@ class SendPushNotificationsJob implements ShouldQueue
     {
         Artisan::call('job-board:push-notify', [
             'job_id' => $this->jobId,
-            '--no-delay' => true,
         ]);
     }
 }

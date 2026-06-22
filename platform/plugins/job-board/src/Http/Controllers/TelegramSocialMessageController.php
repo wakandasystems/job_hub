@@ -643,7 +643,7 @@ class TelegramSocialMessageController extends BaseController
                 /* Status / progress */
                 .img-progress{margin-top:8px;display:none}
                 .img-progress-bar-wrap{height:6px;background:#e2e8f0;border-radius:99px;overflow:hidden}
-                .img-progress-bar{height:100%;width:0%;background:var(--p);border-radius:99px;transition:width .1s linear}
+                .img-progress-bar{height:100%;width:0%;background:var(--p);border-radius:99px;transition:width .4s linear}
                 .img-progress-bar.done{background:#16a34a}
                 .img-progress-bar.fail{background:#dc2626}
                 .img-progress-label{margin-top:4px;font-size:11px;font-weight:700;text-align:center;color:var(--p)}
@@ -1449,11 +1449,82 @@ class TelegramSocialMessageController extends BaseController
                     });
                 });
             }
+            // Live countdown + smoothly-moving bar for the Generate flow. The real signal
+            // (the status poll) only ever tells us "pending" or "done" — it has no notion of
+            // percent-complete — so this ticks a local clock against the server's own ETA
+            // estimate to show real seconds-remaining and a continuously-advancing bar instead
+            // of the old fixed-step jumps (30%→60%→92%) that looked frozen for minutes at a time.
+            const fakeProgressTimers = {};
+            function clearFakeProgress(key) {
+                if (fakeProgressTimers[key]) {
+                    clearInterval(fakeProgressTimers[key]);
+                    delete fakeProgressTimers[key];
+                }
+            }
+            function startFakeProgress(key, totalSeconds, queueSeconds, aheadCount) {
+                clearFakeProgress(key);
+                const startedAt = Date.now();
+                const tick = function () {
+                    const elapsed = (Date.now() - startedAt) / 1000;
+                    // Ease-out curve so it never visually finishes before the real result
+                    // arrives — quick early progress, then it slows down approaching the cap.
+                    const ratio = Math.min(1, elapsed / totalSeconds);
+                    const pct = 8 + (94 - 8) * (1 - Math.pow(1 - ratio, 2));
+                    let label;
+                    if (aheadCount > 0 && elapsed < queueSeconds) {
+                        const queueLeft = Math.max(0, Math.ceil(queueSeconds - elapsed));
+                        label = '⏳ Queued — ' + aheadCount + (aheadCount === 1 ? ' image' : ' images') + ' ahead, ~' + queueLeft + 's';
+                    } else {
+                        const left = Math.max(0, Math.ceil(totalSeconds - elapsed));
+                        label = left > 0 ? ('✨ Generating with AI… ' + left + 's remaining') : '✨ Almost done…';
+                    }
+                    setProgress(key, Math.round(pct), '', label);
+                };
+                tick();
+                fakeProgressTimers[key] = setInterval(tick, 400);
+            }
+            function pollGenerateStatus(key, btn, statusUrl, attempt, maxAttempts) {
+                attempt = attempt || 0;
+                maxAttempts = maxAttempts || 90;
+                if (attempt > maxAttempts) {
+                    clearFakeProgress(key);
+                    setProgress(key, 100, 'fail', '❌ Timed out waiting for generation.');
+                    if (btn) btn.disabled = false;
+                    return;
+                }
+                fetch(statusUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                    .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+                    .then(function (res) {
+                        const d = res.d || {};
+                        if (res.ok && d.status === 'pending') {
+                            setTimeout(function () { pollGenerateStatus(key, btn, statusUrl, attempt + 1, maxAttempts); }, 2000);
+                            return;
+                        }
+                        clearFakeProgress(key);
+                        if (res.ok && d.ok !== false && d.url) {
+                            showPreview(key, d.url, d.lqip);
+                            setProgress(key, 100, 'done', '✅ Generated!');
+                            if (key === 'whatsapp_image' || key === 'tiktok_image') playUploadSound();
+                            setTimeout(function () {
+                                if (key === 'whatsapp_image' && whapiSendUrl) pkAskSendToChannel();
+                                else if (key === 'tiktok_image' && publerSendUrl) pkAskSendToPubler();
+                                else location.reload();
+                            }, 1300);
+                        } else {
+                            setProgress(key, 100, 'fail', '❌ ' + (d.message || 'Generation failed.'));
+                            if (btn) btn.disabled = false;
+                        }
+                    }).catch(function () {
+                        clearFakeProgress(key);
+                        setProgress(key, 100, 'fail', '❌ Network error — please retry.');
+                        if (btn) btn.disabled = false;
+                    });
+            }
             function generateImage(key, btn) {
                 const url = generateUrls[key];
                 if (!url) { setProgress(key, 100, 'fail', '❌ AI generation not available.'); return; }
                 if (btn) { btn.disabled = true; }
-                setProgress(key, 92, '', '✨ Generating with AI… ~30s');
+                setProgress(key, 5, '', '⏳ Queuing…');
                 const fd = new FormData();
                 fd.append('type', key);
                 fd.append('_token', csrfToken);
@@ -1465,20 +1536,23 @@ class TelegramSocialMessageController extends BaseController
                     return r.json().then(function (d) { return { ok: r.ok, d: d }; });
                 }).then(function (res) {
                     const d = res.d || {};
-                    if (res.ok && d.ok !== false && d.url) {
-                        showPreview(key, d.url, d.lqip);
-                        setProgress(key, 100, 'done', '✅ Generated!');
-                        if (key === 'whatsapp_image' || key === 'tiktok_image') playUploadSound();
-                        setTimeout(function () {
-                            if (key === 'whatsapp_image' && whapiSendUrl) pkAskSendToChannel();
-                            else if (key === 'tiktok_image' && publerSendUrl) pkAskSendToPubler();
-                            else location.reload();
-                        }, 1300);
+                    if (res.ok && d.queued && d.status_url) {
+                        // Honest wait estimate instead of a flat "~30s" — a crawler-publish
+                        // burst or a few quick clicks in a row can still build up a short line
+                        // even though Generate has its own dedicated worker.
+                        const ahead = d.ahead_count || 0;
+                        const eta = d.eta_seconds || 35;
+                        const queueSeconds = Math.max(0, eta - 35);
+                        startFakeProgress(key, eta, queueSeconds, ahead);
+                        const maxAttempts = Math.ceil(eta / 2) + 60; // +2min buffer beyond the estimate
+                        setTimeout(function () { pollGenerateStatus(key, btn, d.status_url, 0, maxAttempts); }, 1500);
                     } else {
+                        clearFakeProgress(key);
                         setProgress(key, 100, 'fail', '❌ ' + (d.message || 'Generation failed.'));
                         if (btn) btn.disabled = false;
                     }
                 }).catch(function () {
+                    clearFakeProgress(key);
                     setProgress(key, 100, 'fail', '❌ Network error — please retry.');
                     if (btn) btn.disabled = false;
                 });
@@ -1717,9 +1791,55 @@ class TelegramSocialMessageController extends BaseController
             return response()->json(['ok' => false, 'message' => 'Job not found.'], 404);
         }
 
-        $result = $service->generateForJob($job, $type);
+        // Dispatched to Horizon instead of run inline — the OpenAI call (up to 180s) plus
+        // local AVIF/WebP encoding can outlive PHP-FPM's max_execution_time, and the "jobs"
+        // pool only has a handful of workers, so a couple of concurrent clicks here was
+        // enough to exhaust it and take the whole site down.
+        $requestId = (string) \Illuminate\Support\Str::uuid();
+        Cache::put(\Botble\JobBoard\Jobs\GenerateSlotImageJob::cacheKey($requestId), ['status' => 'pending'], now()->addMinutes(10));
 
-        return response()->json($result, ($result['ok'] ?? false) ? 200 : 500);
+        // 'image-generate' has its own dedicated worker (config/horizon.php supervisor-3),
+        // so this is normally 0 — but report it honestly rather than always promising "~30s",
+        // since a crawler-publish burst or several quick clicks in a row can still queue up.
+        $aheadCount = \Illuminate\Support\Facades\Queue::size('image-generate');
+        $etaSeconds = ($aheadCount * 35) + 35;
+
+        \Botble\JobBoard\Jobs\GenerateSlotImageJob::dispatch($job->getKey(), $type, $requestId);
+
+        $statusUrl = URL::temporarySignedRoute(
+            'public.telegram-social-generate-status',
+            now()->addMinutes(15),
+            ['request_id' => $requestId],
+        );
+
+        return response()->json([
+            'ok' => true,
+            'queued' => true,
+            'status_url' => $statusUrl,
+            'ahead_count' => $aheadCount,
+            'eta_seconds' => $etaSeconds,
+        ]);
+    }
+
+    public function generateStatus(Request $request)
+    {
+        $requestId = (string) $request->query('request_id', '');
+
+        if ($requestId === '') {
+            return response()->json(['ok' => false, 'status' => 'failed', 'message' => 'Missing request id.'], 422);
+        }
+
+        $result = Cache::get(\Botble\JobBoard\Jobs\GenerateSlotImageJob::cacheKey($requestId));
+
+        if (! $result) {
+            return response()->json(['ok' => false, 'status' => 'failed', 'message' => 'Unknown or expired request.'], 404);
+        }
+
+        if (($result['status'] ?? null) === 'pending') {
+            return response()->json(['ok' => true, 'status' => 'pending']);
+        }
+
+        return response()->json(array_merge($result, ['status' => 'done']));
     }
 
     // -------------------------------------------------------------------------
@@ -2278,7 +2398,7 @@ JSFN;
                 /* Status / progress */
                 .img-progress{margin-top:8px;display:none}
                 .img-progress-bar-wrap{height:6px;background:#e2e8f0;border-radius:99px;overflow:hidden}
-                .img-progress-bar{height:100%;width:0%;background:var(--p);border-radius:99px;transition:width .1s linear}
+                .img-progress-bar{height:100%;width:0%;background:var(--p);border-radius:99px;transition:width .4s linear}
                 .img-progress-bar.done{background:#16a34a}
                 .img-progress-bar.fail{background:#dc2626}
                 .img-progress-label{margin-top:4px;font-size:11px;font-weight:700;text-align:center;color:var(--p)}
@@ -3112,11 +3232,82 @@ JSFN;
                     });
                 });
             }
+            // Live countdown + smoothly-moving bar for the Generate flow. The real signal
+            // (the status poll) only ever tells us "pending" or "done" — it has no notion of
+            // percent-complete — so this ticks a local clock against the server's own ETA
+            // estimate to show real seconds-remaining and a continuously-advancing bar instead
+            // of the old fixed-step jumps (30%→60%→92%) that looked frozen for minutes at a time.
+            const fakeProgressTimers = {};
+            function clearFakeProgress(key) {
+                if (fakeProgressTimers[key]) {
+                    clearInterval(fakeProgressTimers[key]);
+                    delete fakeProgressTimers[key];
+                }
+            }
+            function startFakeProgress(key, totalSeconds, queueSeconds, aheadCount) {
+                clearFakeProgress(key);
+                const startedAt = Date.now();
+                const tick = function () {
+                    const elapsed = (Date.now() - startedAt) / 1000;
+                    // Ease-out curve so it never visually finishes before the real result
+                    // arrives — quick early progress, then it slows down approaching the cap.
+                    const ratio = Math.min(1, elapsed / totalSeconds);
+                    const pct = 8 + (94 - 8) * (1 - Math.pow(1 - ratio, 2));
+                    let label;
+                    if (aheadCount > 0 && elapsed < queueSeconds) {
+                        const queueLeft = Math.max(0, Math.ceil(queueSeconds - elapsed));
+                        label = '⏳ Queued — ' + aheadCount + (aheadCount === 1 ? ' image' : ' images') + ' ahead, ~' + queueLeft + 's';
+                    } else {
+                        const left = Math.max(0, Math.ceil(totalSeconds - elapsed));
+                        label = left > 0 ? ('✨ Generating with AI… ' + left + 's remaining') : '✨ Almost done…';
+                    }
+                    setProgress(key, Math.round(pct), '', label);
+                };
+                tick();
+                fakeProgressTimers[key] = setInterval(tick, 400);
+            }
+            function pollGenerateStatus(key, btn, statusUrl, attempt, maxAttempts) {
+                attempt = attempt || 0;
+                maxAttempts = maxAttempts || 90;
+                if (attempt > maxAttempts) {
+                    clearFakeProgress(key);
+                    setProgress(key, 100, 'fail', '❌ Timed out waiting for generation.');
+                    if (btn) btn.disabled = false;
+                    return;
+                }
+                fetch(statusUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                    .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+                    .then(function (res) {
+                        const d = res.d || {};
+                        if (res.ok && d.status === 'pending') {
+                            setTimeout(function () { pollGenerateStatus(key, btn, statusUrl, attempt + 1, maxAttempts); }, 2000);
+                            return;
+                        }
+                        clearFakeProgress(key);
+                        if (res.ok && d.ok !== false && d.url) {
+                            showPreview(key, d.url, d.lqip);
+                            setProgress(key, 100, 'done', '✅ Generated!');
+                            if (key === 'whatsapp_image' || key === 'tiktok_image') playUploadSound();
+                            setTimeout(function () {
+                                if (key === 'whatsapp_image' && whapiSendUrl) pkAskSendToChannel();
+                                else if (key === 'tiktok_image' && publerSendUrl) pkAskSendToPubler();
+                                else location.reload();
+                            }, 1300);
+                        } else {
+                            setProgress(key, 100, 'fail', '❌ ' + (d.message || 'Generation failed.'));
+                            if (btn) btn.disabled = false;
+                        }
+                    }).catch(function () {
+                        clearFakeProgress(key);
+                        setProgress(key, 100, 'fail', '❌ Network error — please retry.');
+                        if (btn) btn.disabled = false;
+                    });
+            }
             function generateImage(key, btn) {
                 const url = generateUrls[key];
                 if (!url) { setProgress(key, 100, 'fail', '❌ AI generation not available.'); return; }
                 if (btn) { btn.disabled = true; }
-                setProgress(key, 92, '', '✨ Generating with AI… ~30s');
+                setProgress(key, 5, '', '⏳ Queuing…');
                 const fd = new FormData();
                 fd.append('type', key);
                 fd.append('_token', csrfToken);
@@ -3128,20 +3319,23 @@ JSFN;
                     return r.json().then(function (d) { return { ok: r.ok, d: d }; });
                 }).then(function (res) {
                     const d = res.d || {};
-                    if (res.ok && d.ok !== false && d.url) {
-                        showPreview(key, d.url, d.lqip);
-                        setProgress(key, 100, 'done', '✅ Generated!');
-                        if (key === 'whatsapp_image' || key === 'tiktok_image') playUploadSound();
-                        setTimeout(function () {
-                            if (key === 'whatsapp_image' && whapiSendUrl) pkAskSendToChannel();
-                            else if (key === 'tiktok_image' && publerSendUrl) pkAskSendToPubler();
-                            else location.reload();
-                        }, 1300);
+                    if (res.ok && d.queued && d.status_url) {
+                        // Honest wait estimate instead of a flat "~30s" — a crawler-publish
+                        // burst or a few quick clicks in a row can still build up a short line
+                        // even though Generate has its own dedicated worker.
+                        const ahead = d.ahead_count || 0;
+                        const eta = d.eta_seconds || 35;
+                        const queueSeconds = Math.max(0, eta - 35);
+                        startFakeProgress(key, eta, queueSeconds, ahead);
+                        const maxAttempts = Math.ceil(eta / 2) + 60; // +2min buffer beyond the estimate
+                        setTimeout(function () { pollGenerateStatus(key, btn, d.status_url, 0, maxAttempts); }, 1500);
                     } else {
+                        clearFakeProgress(key);
                         setProgress(key, 100, 'fail', '❌ ' + (d.message || 'Generation failed.'));
                         if (btn) btn.disabled = false;
                     }
                 }).catch(function () {
+                    clearFakeProgress(key);
                     setProgress(key, 100, 'fail', '❌ Network error — please retry.');
                     if (btn) btn.disabled = false;
                 });

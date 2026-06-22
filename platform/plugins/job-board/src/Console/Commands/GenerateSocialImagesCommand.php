@@ -4,6 +4,7 @@ namespace Botble\JobBoard\Console\Commands;
 
 use Botble\JobBoard\Http\Controllers\Settings\AiImageSettingController;
 use Botble\JobBoard\Jobs\GenerateSocialImagesJob;
+use Botble\JobBoard\Jobs\SendPushNotificationsJob;
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Services\OpenAiImageService;
 use Illuminate\Console\Command;
@@ -25,6 +26,9 @@ class GenerateSocialImagesCommand extends Command
 
     /** Slot types that came back rate-limited (429) and are still missing an image. */
     private array $rateLimitedSlots = [];
+
+    /** Did this job pass the AI image gates (so SendPushNotificationListener deferred to us)? */
+    private bool $jobQualifiesForImage = false;
 
     public function handle(OpenAiImageService $service): int
     {
@@ -68,6 +72,13 @@ class GenerateSocialImagesCommand extends Command
         // Post to social channels only AFTER image generation has finished, so the freshly
         // saved image is attached instead of the channel post racing ahead text-only.
         $this->call('job-board:social-publish', ['jobId' => $job->getKey()]);
+
+        // Same reasoning for push: this job qualified for an AI image, so
+        // SendPushNotificationListener deferred to us. Send it now that generation has
+        // concluded (success or rate-limit-exhausted), so the push carries the image.
+        if ($this->jobQualifiesForImage) {
+            SendPushNotificationsJob::dispatch($job->getKey());
+        }
 
         return self::SUCCESS;
     }
@@ -115,6 +126,10 @@ class GenerateSocialImagesCommand extends Command
         if (! $force && ! $this->passesGates($job, $service)) {
             return;
         }
+
+        // Gates passed (or bypassed via --force) — SendPushNotificationListener held off
+        // pushing this job, so we send it ourselves once generation below finishes.
+        $this->jobQualifiesForImage = true;
 
         $platforms = $force ? array_keys(AiImageSettingController::PLATFORMS) : $this->enabledPlatforms();
         if (empty($platforms)) {
@@ -177,22 +192,8 @@ class GenerateSocialImagesCommand extends Command
 
     private function passesGates(Job $job, OpenAiImageService $service): bool
     {
-        $countryIds = json_decode((string) setting('ai_social_image_country_ids', '[]'), true) ?: [];
-        if (! in_array((int) $job->country_id, array_map('intval', $countryIds), true)) {
-            $this->components->info("Country #{$job->country_id} not flagged — skipped.");
-
-            return false;
-        }
-
-        $hasLogo = $job->company && ! empty($job->company->logo);
-        if (! $hasLogo && ! setting('ai_social_image_without_logo')) {
-            $this->components->info('Company has no logo and "without logo" is off — skipped.');
-
-            return false;
-        }
-
-        if (setting('ai_social_image_skip_multi_position') && $service->isMultiPositionTitle((string) $job->name)) {
-            $this->components->info('Multi-position title — skipped.');
+        if (! $service->qualifiesForJob($job)) {
+            $this->components->info('Job does not pass the country/logo/multi-position gates — skipped.');
 
             return false;
         }

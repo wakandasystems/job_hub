@@ -2,13 +2,16 @@
 
 namespace Botble\JobBoard\Http\Controllers\Settings;
 
+use Botble\JobBoard\Jobs\RetryAiImageGenerationJob;
 use Botble\JobBoard\Models\AiImageGenerationLog;
 use Botble\JobBoard\Services\OpenAiImageService;
 use Botble\Setting\Http\Controllers\SettingController;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class AiImageSettingController extends SettingController
 {
@@ -162,6 +165,77 @@ class AiImageSettingController extends SettingController
         return $this->httpResponse()
             ->setNextUrl(route('job-board.settings.ai-images'))
             ->setMessage('AI image generation settings saved successfully.');
+    }
+
+    public function retry(AiImageGenerationLog $log)
+    {
+        abort_if($log->status !== 'failed', 422, 'Only failed attempts can be retried.');
+
+        $batchKey = (string) Str::uuid();
+        $this->initRetryBatch($batchKey, 1);
+
+        RetryAiImageGenerationJob::dispatch($log->getKey(), $batchKey);
+
+        return response()->json([
+            'batch_key' => $batchKey,
+            'total' => 1,
+        ]);
+    }
+
+    public function retryAll(Request $request)
+    {
+        $ids = $this->logsQuery($this->logFilters($request))
+            ->where('status', 'failed')
+            ->pluck('id');
+
+        if ($ids->isEmpty()) {
+            return response()->json(['message' => 'No failed attempts match the current filters.'], 422);
+        }
+
+        $batchKey = (string) Str::uuid();
+        $this->initRetryBatch($batchKey, $ids->count());
+
+        foreach ($ids as $id) {
+            RetryAiImageGenerationJob::dispatch($id, $batchKey);
+        }
+
+        return response()->json([
+            'batch_key' => $batchKey,
+            'total' => $ids->count(),
+        ]);
+    }
+
+    public function retryProgress(Request $request)
+    {
+        $batchKey = trim((string) $request->query('batch_key', ''));
+        $totalKey = $batchKey !== '' ? RetryAiImageGenerationJob::batchTotalKey($batchKey) : null;
+
+        if (! $totalKey || ! Cache::has($totalKey)) {
+            return response()->json(['total' => 0, 'completed' => 0, 'succeeded' => 0, 'failed' => 0, 'done' => true]);
+        }
+
+        $total = (int) Cache::get($totalKey, 0);
+        $completed = (int) Cache::get(RetryAiImageGenerationJob::batchDoneKey($batchKey), 0);
+        $succeeded = (int) Cache::get(RetryAiImageGenerationJob::batchSucceededKey($batchKey), 0);
+        $failed = (int) Cache::get(RetryAiImageGenerationJob::batchFailedKey($batchKey), 0);
+
+        return response()->json([
+            'total' => $total,
+            'completed' => $completed,
+            'succeeded' => $succeeded,
+            'failed' => $failed,
+            'done' => $completed >= $total,
+        ]);
+    }
+
+    private function initRetryBatch(string $batchKey, int $total): void
+    {
+        $ttl = now()->addHour();
+
+        Cache::put(RetryAiImageGenerationJob::batchTotalKey($batchKey), $total, $ttl);
+        Cache::put(RetryAiImageGenerationJob::batchDoneKey($batchKey), 0, $ttl);
+        Cache::put(RetryAiImageGenerationJob::batchSucceededKey($batchKey), 0, $ttl);
+        Cache::put(RetryAiImageGenerationJob::batchFailedKey($batchKey), 0, $ttl);
     }
 
     private function decodeIds(mixed $value): array

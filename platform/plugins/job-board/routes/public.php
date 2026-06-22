@@ -129,6 +129,8 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middlew
             return redirect()->route('auth.social', ['provider' => $provider]);
         })->name('public.social-register');
 
+        Route::get('advertise', 'AdOrderCheckoutController@publicIndex')->name('public.advertise');
+
         Route::group(['prefix' => 'career-services', 'as' => 'public.career-service.'], function (): void {
             Route::get('/', 'CareerServiceController@getListing')->name('listing');
             Route::get('book/{service}', 'CareerServiceController@bookRedirect')->name('book');
@@ -211,6 +213,11 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers', 'middleware' =>
     Route::post('telegram/social-message/generate', [
         'as' => 'public.telegram-social-generate',
         'uses' => 'TelegramSocialMessageController@generate',
+    ])->middleware('signed');
+
+    Route::get('telegram/social-message/generate-status', [
+        'as' => 'public.telegram-social-generate-status',
+        'uses' => 'TelegramSocialMessageController@generateStatus',
     ])->middleware('signed');
 
     Route::post('telegram/social-message/send-to-employer', [

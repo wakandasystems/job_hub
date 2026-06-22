@@ -4,6 +4,7 @@ namespace Botble\JobBoard\Console\Commands;
 
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\PushSubscription;
+use Botble\Media\Facades\RvMedia;
 use Illuminate\Console\Command;
 use Minishlink\WebPush\Subscription;
 use Minishlink\WebPush\WebPush;
@@ -12,13 +13,12 @@ use Throwable;
 class SendPushNotificationsCommand extends Command
 {
     protected $signature   = 'job-board:push-notify
-        {job_id : The Job ID to send notifications for}
-        {--no-delay : Send immediately; queue dispatch handles the natural delay}';
-    protected $description = 'Send web push notifications for a published job (with natural delay)';
+        {job_id : The Job ID to send notifications for}';
+    protected $description = 'Send web push notifications for a published job';
 
     public function handle(): int
     {
-        $job = Job::with('company')->find((int) $this->argument('job_id'));
+        $job = Job::with(['company', 'slugable'])->find((int) $this->argument('job_id'));
 
         if (! $job) {
             return self::FAILURE;
@@ -32,12 +32,6 @@ class SendPushNotificationsCommand extends Command
 
         if ($subscriptions->isEmpty()) {
             return self::SUCCESS;
-        }
-
-        if (! $this->option('no-delay')) {
-            // Natural delay: 2-8 minutes, so notifications do not all fire at the exact
-            // same second and users cannot tell they are automated.
-            sleep(random_int(120, 480));
         }
 
         try {
@@ -54,7 +48,10 @@ class SendPushNotificationsCommand extends Command
                 'body'  => $job->company?->name
                     ? 'New job at ' . $job->company->name
                     : 'A new job was just posted!',
-                'url'   => '/jobs/' . $job->slug,
+                'url'   => route('public.job', $job->slugable?->key ?? $job->id),
+                'image' => ! $job->hide_company && $job->company_logo_thumb
+                    ? $job->company_logo_thumb
+                    : RvMedia::getImageUrl('chatgpt-image-may-14-2026-03-00-04-pm.png'),
                 'icon'  => '/push-icon.png',
                 'badge' => '/push-icon.png',
             ]);

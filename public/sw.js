@@ -1,4 +1,4 @@
-var SW_VERSION = 3;
+var SW_VERSION = 4;
 
 self.addEventListener('install', function (event) {
     self.skipWaiting(); // take over immediately, don't wait for tabs to close
@@ -24,6 +24,10 @@ self.addEventListener('push', function (event) {
         data:  { url: data.url || '/' },
         requireInteraction: false,
     };
+
+    if (data.image) {
+        options.image = data.image;
+    }
 
     event.waitUntil(self.registration.showNotification(title, options));
 });

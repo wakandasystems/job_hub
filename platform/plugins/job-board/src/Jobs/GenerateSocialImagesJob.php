@@ -30,7 +30,10 @@ class GenerateSocialImagesJob implements ShouldQueue
         public bool $publish = true,
         public int $attempt = 1,
     ) {
-        $this->onQueue('default');
+        // Own low-concurrency queue (config/horizon.php supervisor-2) — these are the
+        // slowest jobs (OpenAI calls) and shouldn't block push notifications/alerts on
+        // 'default', or run many-at-once during a crawler-publish burst.
+        $this->onQueue('social-images');
     }
 
     public function handle(): void

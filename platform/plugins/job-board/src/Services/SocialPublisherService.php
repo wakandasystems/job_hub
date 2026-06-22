@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Services;
 
 use Botble\JobBoard\Models\Job;
+use Botble\JobBoard\Models\PushSubscription;
 use Botble\JobBoard\Models\SocialAutomation;
 use Botble\JobBoard\Services\JobImageGeneratorService;
 use Botble\Media\Facades\RvMedia;
@@ -14,6 +15,8 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
+use Minishlink\WebPush\Subscription;
+use Minishlink\WebPush\WebPush;
 use Throwable;
 
 class SocialPublisherService
@@ -2275,7 +2278,81 @@ PROMPT;
             ];
         }
 
+        $results[] = $this->broadcastViaPush($message, $imageUrl);
+
         return $results;
+    }
+
+    /**
+     * Broadcast text is unrelated to any specific job, so unlike the
+     * per-job push notifications (job-board:push-notify), this fans out
+     * to every subscriber regardless of country.
+     */
+    protected function broadcastViaPush(string $message, ?string $imageUrl = null): array
+    {
+        $subscriptions = PushSubscription::query()->get();
+
+        if ($subscriptions->isEmpty()) {
+            return ['platform' => 'push', 'name' => 'Browser Push', 'success' => false];
+        }
+
+        $sentCount = 0;
+
+        try {
+            $webPush = new WebPush([
+                'VAPID' => [
+                    'subject'    => config('services.vapid.subject'),
+                    'publicKey'  => config('services.vapid.public_key'),
+                    'privateKey' => config('services.vapid.private_key'),
+                ],
+            ]);
+
+            $payload = json_encode([
+                'title' => 'Wakanda Jobs',
+                'body'  => Str::limit($message, 180),
+                'url'   => route('public.index'),
+                'image' => $imageUrl,
+                'icon'  => '/push-icon.png',
+                'badge' => '/push-icon.png',
+            ]);
+
+            foreach ($subscriptions as $sub) {
+                $webPush->queueNotification(
+                    Subscription::create([
+                        'endpoint' => $sub->endpoint,
+                        'keys'     => ['p256dh' => $sub->p256dh, 'auth' => $sub->auth],
+                    ]),
+                    $payload
+                );
+            }
+
+            $staleEndpoints = [];
+
+            foreach ($webPush->flush() as $report) {
+                if ($report->isSuccess()) {
+                    $sentCount++;
+                } else {
+                    $statusCode = $report->getResponse()?->getStatusCode();
+                    if (in_array($statusCode, [404, 410])) {
+                        $staleEndpoints[] = $report->getEndpoint();
+                    }
+                }
+            }
+
+            if (! empty($staleEndpoints)) {
+                PushSubscription::whereIn('endpoint', $staleEndpoints)->delete();
+            }
+        } catch (Throwable $e) {
+            Log::warning('Push broadcast failed', ['error' => $e->getMessage()]);
+
+            return ['platform' => 'push', 'name' => 'Browser Push', 'success' => false];
+        }
+
+        return [
+            'platform'    => 'push',
+            'name'        => 'Browser Push (' . $sentCount . '/' . $subscriptions->count() . ')',
+            'success'     => $sentCount > 0,
+        ];
     }
 
     protected function broadcastToFacebook(SocialAutomation $automation, string $message, ?string $imageUrl): bool

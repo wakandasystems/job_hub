@@ -8,6 +8,7 @@
             'whatsapp' => ['label' => 'WhatsApp', 'icon' => 'ti ti-brand-whatsapp', 'badge' => 'bg-success-subtle text-success'],
             'whapi'    => ['label' => 'WhatsApp Channel', 'icon' => 'ti ti-brand-whatsapp', 'badge' => 'bg-success-subtle text-success'],
             'publer'   => ['label' => 'Publer (FB/LinkedIn/TikTok pages)', 'icon' => 'ti ti-rocket', 'badge' => 'bg-purple-subtle text-purple'],
+            'push'     => ['label' => 'Browser Push', 'icon' => 'ti ti-bell', 'badge' => 'bg-orange-subtle text-orange'],
         ];
         $statusBadge = [
             'pending'   => 'bg-secondary-subtle text-secondary',

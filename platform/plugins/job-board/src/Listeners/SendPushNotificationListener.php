@@ -5,6 +5,7 @@ namespace Botble\JobBoard\Listeners;
 use Botble\JobBoard\Events\JobPublishedEvent;
 use Botble\JobBoard\Jobs\SendPushNotificationsJob;
 use Botble\JobBoard\Models\PushSubscription;
+use Botble\JobBoard\Services\OpenAiImageService;
 
 class SendPushNotificationListener
 {
@@ -22,7 +23,14 @@ class SendPushNotificationListener
             return;
         }
 
-        SendPushNotificationsJob::dispatch($job->getKey())
-            ->delay(now()->addSeconds(random_int(120, 480)));
+        // Jobs that qualify for an AI social image wait: GenerateSocialImagesCommand
+        // dispatches the push itself once generation finishes, so the notification
+        // carries the image instead of racing ahead without one.
+        $service = app(OpenAiImageService::class);
+        if (setting('ai_social_image_enabled') && $service->isConfigured() && $service->qualifiesForJob($job)) {
+            return;
+        }
+
+        SendPushNotificationsJob::dispatch($job->getKey());
     }
 }

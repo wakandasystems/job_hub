@@ -355,10 +355,10 @@
                 return;
             }
 
-            // Show a non-intrusive banner after 5 seconds
+            // Show a non-intrusive banner after 2 seconds
             setTimeout(function () {
                 showNotificationBanner(registration);
-            }, 5000);
+            }, 2000);
         });
 
         function subscribeUser(registration) {
@@ -377,31 +377,31 @@
             banner.id = 'push-notification-banner';
             banner.style.cssText = [
                 'position:fixed',
-                'bottom:20px',
+                'top:20px',
                 'left:50%',
                 'transform:translateX(-50%)',
                 'background:#fff',
                 'border:1px solid #e0e0e0',
-                'border-radius:10px',
-                'padding:14px 20px',
-                'box-shadow:0 4px 20px rgba(0,0,0,0.15)',
+                'border-radius:14px',
+                'padding:20px 26px',
+                'box-shadow:0 8px 30px rgba(0,0,0,0.2)',
                 'z-index:99999',
                 'display:flex',
                 'align-items:center',
-                'gap:14px',
-                'max-width:420px',
-                'width:90%',
+                'gap:18px',
+                'max-width:560px',
+                'width:92%',
                 'font-family:inherit'
             ].join(';');
 
             banner.innerHTML = [
-                '<img src="/push-icon.png" style="width:36px;height:36px;border-radius:6px;object-fit:contain;flex-shrink:0" alt="">',
+                '<img src="/push-icon.png" style="width:52px;height:52px;border-radius:10px;object-fit:contain;flex-shrink:0" alt="">',
                 '<div style="flex:1">',
-                    '<strong style="display:block;font-size:14px;color:#111">Get job alerts instantly</strong>',
-                    '<span style="font-size:12px;color:#666">Be the first to know when new jobs are posted</span>',
+                    '<strong style="display:block;font-size:18px;color:#111">Get job alerts instantly</strong>',
+                    '<span style="font-size:15px;color:#666">Be the first to know when new jobs are posted</span>',
                 '</div>',
-                '<button id="push-allow-btn" style="background:#3c65f5;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:13px;cursor:pointer;white-space:nowrap">Allow</button>',
-                '<button id="push-dismiss-btn" style="background:none;border:none;font-size:18px;color:#999;cursor:pointer;padding:0 4px">&times;</button>'
+                '<button id="push-allow-btn" style="background:#3c65f5;color:#fff;border:none;border-radius:8px;padding:11px 22px;font-size:16px;font-weight:600;cursor:pointer;white-space:nowrap">Allow</button>',
+                '<button id="push-dismiss-btn" style="background:none;border:none;font-size:24px;color:#999;cursor:pointer;padding:0 6px">&times;</button>'
             ].join('');
 
             document.body.appendChild(banner);

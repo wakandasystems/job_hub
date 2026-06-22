@@ -4,6 +4,7 @@ namespace Botble\JobBoard\Services;
 
 use Botble\JobBoard\Models\AiImageGenerationLog;
 use Botble\JobBoard\Models\Job;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -101,6 +102,31 @@ class OpenAiImageService
     public function isConfigured(): bool
     {
         return $this->apiKey() !== '';
+    }
+
+    /**
+     * Does this specific job pass the country/logo/multi-position gates used to decide
+     * whether it gets an AI social image at all? Shared by GenerateSocialImagesCommand
+     * (to decide whether to generate) and SendPushNotificationListener (to decide whether
+     * to wait for the image before pushing, instead of pushing immediately).
+     */
+    public function qualifiesForJob(Job $job): bool
+    {
+        $countryIds = json_decode((string) setting('ai_social_image_country_ids', '[]'), true) ?: [];
+        if (! in_array((int) $job->country_id, array_map('intval', $countryIds), true)) {
+            return false;
+        }
+
+        $hasLogo = $job->company && ! empty($job->company->logo);
+        if (! $hasLogo && ! setting('ai_social_image_without_logo')) {
+            return false;
+        }
+
+        if (setting('ai_social_image_skip_multi_position') && $this->isMultiPositionTitle((string) $job->name)) {
+            return false;
+        }
+
+        return true;
     }
 
     public function model(): string
@@ -326,8 +352,14 @@ class OpenAiImageService
 
             $variants = $this->generateVariants($path, $format);
             if ($variants !== []) {
-                $job->image_variants = array_merge((array) $job->image_variants, [$type => $variants]);
-                $job->save();
+                // Atomic JSON_SET instead of read-merge-write — when cover/whatsapp/tiktok
+                // are all generated for the same job around the same time, each runs in its
+                // own queued job with its own stale in-memory copy of image_variants, and a
+                // plain merge+save lets whichever one saves last clobber the others' entries.
+                DB::statement(
+                    'update jb_jobs set image_variants = JSON_SET(COALESCE(image_variants, JSON_OBJECT()), ?, CAST(? AS JSON)) where id = ?',
+                    ['$.' . json_encode($type), json_encode($variants), $job->getKey()]
+                );
             }
 
             $latencyMs = $this->elapsedMs($startedAt);

@@ -210,6 +210,43 @@ return [
             'timeout' => 300,
             'nice' => 0,
         ],
+
+        // GenerateSocialImagesJob (OpenAI calls) gets its own supervisor with deliberately
+        // low concurrency — it's the slowest job type and the one with real $ cost / API
+        // rate-limit exposure, so it must never compete with or starve the other queues,
+        // and we don't want a crawler-publish burst running many of these in parallel.
+        'supervisor-2' => [
+            'connection' => 'redis',
+            'queue' => ['social-images'],
+            'balance' => 'simple',
+            'maxProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 512,
+            'tries' => 2,
+            'backoff' => 60,
+            'timeout' => 300,
+            'nice' => 0,
+        ],
+
+        // Manual Post Kit "Generate" clicks (GenerateSlotImageJob) get their own dedicated
+        // worker too — listing 'image-generate' first on supervisor-1 wasn't enough on its
+        // own, because all of supervisor-1's workers could be simultaneously busy with slow
+        // 'default' jobs, so a new image-generate job still had to wait for one to free up
+        // (observed ~5 minutes during a crawler-publish burst). A dedicated worker means it
+        // never waits behind anything else.
+        'supervisor-3' => [
+            'connection' => 'redis',
+            'queue' => ['image-generate'],
+            'balance' => 'simple',
+            'maxProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 512,
+            'tries' => 1,
+            'timeout' => 300,
+            'nice' => 0,
+        ],
     ],
 
     'environments' => [
@@ -219,11 +256,23 @@ return [
                 'balanceMaxShift' => 1,
                 'balanceCooldown' => 3,
             ],
+            'supervisor-2' => [
+                'maxProcesses' => 1,
+            ],
+            'supervisor-3' => [
+                'maxProcesses' => 1,
+            ],
         ],
 
         'local' => [
             'supervisor-1' => [
                 'maxProcesses' => 2,
+            ],
+            'supervisor-2' => [
+                'maxProcesses' => 1,
+            ],
+            'supervisor-3' => [
+                'maxProcesses' => 1,
             ],
         ],
     ],
