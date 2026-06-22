@@ -25,6 +25,33 @@ class AdOrderCheckoutController extends BaseController
         /** @var Account $account */
         $account = auth('account')->user();
 
+        [$placements, $placementOptions, $groups] = $this->buildPlacementsData();
+
+        $myOrders = AdOrder::query()
+            ->with('placement')
+            ->where('account_id', $account->getKey())
+            ->latest()
+            ->get();
+
+        return JobBoardHelper::scope('account.ads', compact('account', 'placements', 'placementOptions', 'groups', 'myOrders'));
+    }
+
+    public function publicIndex()
+    {
+        SeoHelper::setTitle(__('Advertise on Wakanda Jobs'));
+
+        [$placements, $placementOptions, $groups] = $this->buildPlacementsData();
+
+        $isLoggedIn = auth('account')->check();
+
+        return Theme::scope('job-board.advertise', compact('placements', 'placementOptions', 'groups', 'isLoggedIn'))->render();
+    }
+
+    /**
+     * @return array{0: \Illuminate\Support\Collection<int, AdPlacement>, 1: \Illuminate\Support\Collection<int, array>, 2: \Illuminate\Support\Collection<string, \Illuminate\Support\Collection<int, AdPlacement>>}
+     */
+    protected function buildPlacementsData(): array
+    {
         $placements = AdPlacement::query()->with('tierPrices')->where('is_active', true)->orderBy('sort_order')->orderBy('price')->get();
 
         $tiers = AdPricingTier::query()->orderBy('sort_order')->orderBy('name')->get();
@@ -50,13 +77,7 @@ class AdOrderCheckoutController extends BaseController
             ->filter(fn (string $group) => $groups->has($group))
             ->mapWithKeys(fn (string $group) => [$group => $groups->get($group)]);
 
-        $myOrders = AdOrder::query()
-            ->with('placement')
-            ->where('account_id', $account->getKey())
-            ->latest()
-            ->get();
-
-        return JobBoardHelper::scope('account.ads', compact('account', 'placements', 'placementOptions', 'groups', 'myOrders'));
+        return [$placements, $placementOptions, $groups];
     }
 
     public function store(AdPlacement $placement, Request $request, BaseHttpResponse $response)
