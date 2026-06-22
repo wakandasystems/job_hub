@@ -64,6 +64,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static bool canViewCandidateInformation()
  * @method static bool isUniqueIdFieldHiddenInAdminForm()
  * @method static bool isUniqueIdFieldHiddenInFrontForm()
+ * @method static string obscureContactInfoInContent(string $html, \Botble\JobBoard\Models\Job $job)
  *
  * @see \Botble\JobBoard\Supports\JobBoardHelper
  */

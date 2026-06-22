@@ -906,4 +906,117 @@ class JobBoardHelper
             default => '',
         };
     }
+
+    protected function renderObscureApplyButton(Job $job): string
+    {
+        $label = e(__('Apply Now'));
+        $jobName = e($job->name);
+
+        if ($job->apply_url) {
+            $isMailto = str_starts_with($job->apply_url, 'mailto:') ? '1' : '0';
+
+            return '<button type="button" class="btn btn-apply-now btn-sm" data-bs-toggle="modal" data-bs-target="#ModalApplyExternalJobForm" data-job-name="' . $jobName . '" data-job-id="' . $job->id . '" data-apply-mailto="' . $isMailto . '">' . $label . '</button>';
+        }
+
+        return '<button type="button" class="btn btn-apply-now btn-sm" data-bs-toggle="modal" data-bs-target="#ModalApplyJobForm" data-job-name="' . $jobName . '" data-job-id="' . $job->id . '">' . $label . '</button>';
+    }
+
+    /**
+     * Replace emails/phone numbers in already-purified job description HTML with the
+     * job's Apply Now modal trigger, so reading the listing can't bypass the apply flow.
+     * Always renders the trigger regardless of viewer auth/account state (candidate,
+     * employer, or guest) — unlike the main Apply button, which hides itself for employers.
+     */
+    public function obscureContactInfoInContent(string $html, Job $job): string
+    {
+        if (! trim($html)) {
+            return $html;
+        }
+
+        $buttonHtml = $this->renderObscureApplyButton($job);
+
+        $useInternalErrors = libxml_use_internal_errors(true);
+
+        $template = new \DOMDocument();
+        $template->loadHTML('<?xml encoding="utf-8"?><div>' . $buttonHtml . '</div>');
+        $templateNodes = iterator_to_array($template->getElementsByTagName('div')->item(0)->childNodes);
+
+        $dom = new \DOMDocument();
+        $dom->loadHTML('<?xml encoding="utf-8"?><div>' . $html . '</div>');
+
+        libxml_clear_errors();
+        libxml_use_internal_errors($useInternalErrors);
+
+        $xpath = new \DOMXPath($dom);
+
+        $appendButton = function (\DOMNode $target) use ($dom, $templateNodes): void {
+            foreach ($templateNodes as $node) {
+                $target->appendChild($dom->importNode($node, true));
+            }
+        };
+
+        foreach ($xpath->query('//a[starts-with(@href, "mailto:") or starts-with(@href, "tel:")]') as $link) {
+            $fragment = $dom->createDocumentFragment();
+            $appendButton($fragment);
+            $link->parentNode->replaceChild($fragment, $link);
+        }
+
+        $pattern = '/(?P<email>[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})|(?P<phone>(?<![\w@.])\+?\d[\d\s().\-]{6,17}\d(?![\w@.]))/';
+
+        foreach ($xpath->query('//text()[not(ancestor::script) and not(ancestor::style)]') as $textNode) {
+            $text = $textNode->nodeValue;
+
+            if (! preg_match_all($pattern, $text, $matches, PREG_OFFSET_CAPTURE)) {
+                continue;
+            }
+
+            $ranges = [];
+
+            foreach ($matches[0] as $i => [$matchedText, $offset]) {
+                if ($matches['email'][$i][0] !== '') {
+                    $ranges[] = [$offset, strlen($matchedText)];
+
+                    continue;
+                }
+
+                $digits = preg_replace('/\D/', '', $matchedText);
+
+                if (strlen($digits) >= 9 && strlen($digits) <= 14) {
+                    $ranges[] = [$offset, strlen($matchedText)];
+                }
+            }
+
+            if (! $ranges) {
+                continue;
+            }
+
+            $fragment = $dom->createDocumentFragment();
+            $cursor = 0;
+
+            foreach ($ranges as [$offset, $length]) {
+                if ($offset > $cursor) {
+                    $fragment->appendChild($dom->createTextNode(substr($text, $cursor, $offset - $cursor)));
+                }
+
+                $appendButton($fragment);
+
+                $cursor = $offset + $length;
+            }
+
+            if ($cursor < strlen($text)) {
+                $fragment->appendChild($dom->createTextNode(substr($text, $cursor)));
+            }
+
+            $textNode->parentNode->replaceChild($fragment, $textNode);
+        }
+
+        $container = $dom->getElementsByTagName('div')->item(0);
+        $result = '';
+
+        foreach ($container->childNodes as $child) {
+            $result .= $dom->saveHTML($child);
+        }
+
+        return $result;
+    }
 }
