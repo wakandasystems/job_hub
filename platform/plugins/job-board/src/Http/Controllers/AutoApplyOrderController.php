@@ -18,10 +18,14 @@ use Botble\JobBoard\Models\Company;
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\JobExperience;
 use Botble\JobBoard\Services\AutoApplyService;
+use Botble\JobBoard\Services\CvScoringService;
+use Botble\Media\Facades\RvMedia;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 
 class AutoApplyOrderController extends BaseController
 {
@@ -89,6 +93,9 @@ class AutoApplyOrderController extends BaseController
                 'blacklisted_company_labels' => $companyIds->mapWithKeys(fn ($id) => [$id => $companiesById->get($id, '#' . $id)])->all(),
                 'match_score_threshold' => $preference?->match_score_threshold ?? AutoApplyOrder::globalMatchThreshold(),
                 'is_active' => (bool) ($preference?->is_active ?? false),
+                'has_cv' => (bool) $order->account?->resume,
+                'resume_name' => $order->account?->resume_name ?: ($order->account?->resume ? basename($order->account->resume) : null),
+                'resume_url' => $order->account?->resume ? RvMedia::getImageUrl($order->account->resume) : null,
             ]];
         });
 
@@ -125,7 +132,9 @@ class AutoApplyOrderController extends BaseController
         }
 
         $candidates = $query
-            ->select(['id', 'first_name', 'last_name', 'email', 'resume', 'resume_name'])
+            // resume_name isn't a real column — it's a computed accessor derived from
+            // resume below, so it can't be passed to select().
+            ->select(['id', 'first_name', 'last_name', 'email', 'resume'])
             ->orderBy('first_name')
             ->paginate(3, ['*'], 'page', max((int) $request->query('page', 1), 1));
 
@@ -260,6 +269,14 @@ class AutoApplyOrderController extends BaseController
         }
 
         $autoApplyOrder->update($orderData);
+
+        if ($request->hasFile('cv_file')) {
+            $request->validate(['cv_file' => ['file', 'mimes:pdf,doc,docx,txt', 'max:10240']]);
+
+            if ($account = Account::query()->find($data['account_id'])) {
+                $this->persistCandidateCv($account, $request->file('cv_file'));
+            }
+        }
 
         AutoApplyPreference::updateOrCreate(
             ['account_id' => $data['account_id']],
@@ -657,6 +674,14 @@ class AutoApplyOrderController extends BaseController
             'is_active'               => ['nullable', 'boolean'],
         ]);
 
+        if ($request->hasFile('cv_file')) {
+            $request->validate(['cv_file' => ['file', 'mimes:pdf,doc,docx,txt', 'max:10240']]);
+
+            if ($account = Account::query()->find($data['account_id'])) {
+                $this->persistCandidateCv($account, $request->file('cv_file'));
+            }
+        }
+
         $preference = AutoApplyPreference::updateOrCreate(
             ['account_id' => $data['account_id']],
             [
@@ -691,6 +716,42 @@ class AutoApplyOrderController extends BaseController
         return $response
             ->setNextUrl(route('auto-apply-orders.index'))
             ->setMessage('Auto Apply preference configured for candidate.');
+    }
+
+    /**
+     * Save an admin-uploaded CV file as the candidate's own account CV, so it shows up
+     * for them when they log in and the "Missing CV" badge clears.
+     */
+    private function persistCandidateCv(Account $account, UploadedFile $file): void
+    {
+        $result = RvMedia::handleUpload($file, 0, $account->upload_folder);
+
+        if ($result['error']) {
+            return;
+        }
+
+        if ($oldPath = $account->resume) {
+            Storage::disk('public')->delete($oldPath);
+        }
+
+        $account->resume = $result['data']->url;
+
+        try {
+            $cvScoreResult = app(CvScoringService::class)->scoreFile(
+                $file->getRealPath(),
+                $file->getClientOriginalExtension()
+            );
+
+            if ($cvScoreResult) {
+                $account->cv_score = $cvScoreResult['score'];
+                $account->cv_score_data = $cvScoreResult;
+            }
+        } catch (\Throwable) {
+            // Non-fatal
+        }
+
+        $account->profile_updated_at = now();
+        $account->save();
     }
 
     private function orderValuesFromPlan(string $planKey): array

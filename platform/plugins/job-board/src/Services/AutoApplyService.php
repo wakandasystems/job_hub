@@ -534,7 +534,7 @@ PROMPT;
             }
 
             // Let the candidate know — queued separately so it never blocks the auto-apply send itself
-            NotifyCandidateAutoApplySentJob::dispatch($account->id, $job->id)->onQueue('default');
+            NotifyCandidateAutoApplySentJob::dispatch($account->id, $job->id, $result['subject'], $result['body'])->onQueue('default');
         }
 
         return AutoApplyLog::create([

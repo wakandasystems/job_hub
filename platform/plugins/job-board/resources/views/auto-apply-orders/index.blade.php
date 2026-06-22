@@ -216,7 +216,7 @@
     <div class="modal fade" id="editOrderModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-lg">
             <div class="modal-content">
-                <form id="editOrderForm" method="POST">
+                <form id="editOrderForm" method="POST" enctype="multipart/form-data">
                     @csrf
                     @method('PUT')
                     <div class="modal-header">
@@ -227,7 +227,12 @@
                         <p class="text-muted small mb-3" id="editOrderModalLabel"></p>
                         <ul class="nav nav-tabs mb-3" id="editOrderModalTabs" role="tablist">
                             <li class="nav-item" role="presentation">
-                                <button class="nav-link active" id="edit-tab-candidate" data-bs-toggle="tab" data-bs-target="#edit-pane-candidate" type="button" role="tab" aria-controls="edit-pane-candidate" aria-selected="true">Candidate</button>
+                                <button class="nav-link active" id="edit-tab-cv" data-bs-toggle="tab" data-bs-target="#edit-pane-cv" type="button" role="tab" aria-controls="edit-pane-cv" aria-selected="true">
+                                    <i class="ti ti-sparkles me-1"></i> CV &amp; AI
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="edit-tab-candidate" data-bs-toggle="tab" data-bs-target="#edit-pane-candidate" type="button" role="tab" aria-controls="edit-pane-candidate" aria-selected="false">Candidate</button>
                             </li>
                             <li class="nav-item" role="presentation">
                                 <button class="nav-link" id="edit-tab-filters" data-bs-toggle="tab" data-bs-target="#edit-pane-filters" type="button" role="tab" aria-controls="edit-pane-filters" aria-selected="false">Filters</button>
@@ -237,7 +242,31 @@
                             </li>
                         </ul>
                         <div class="tab-content" id="editOrderModalTabContent">
-                            <div class="tab-pane fade show active" id="edit-pane-candidate" role="tabpanel" aria-labelledby="edit-tab-candidate">
+                            <div class="tab-pane fade show active" id="edit-pane-cv" role="tabpanel" aria-labelledby="edit-tab-cv">
+                                <div class="row g-3">
+                                    <div class="col-md-7">
+                                        <label class="form-label">Upload CV <span class="text-muted small">(optional — replaces the candidate's CV on file)</span></label>
+                                        <input type="file" class="form-control" id="editCvFile" name="cv_file" accept=".pdf,.doc,.docx,.txt" data-analyze-url="{{ route('auto-apply-orders.analyze-cv') }}">
+                                        <div class="form-text">Use this to update the candidate's CV and regenerate keyword/filter suggestions.</div>
+                                    </div>
+                                    <div class="col-md-5 d-flex align-items-end gap-2 flex-wrap">
+                                        <button type="button" class="btn btn-primary" id="editAnalyzeCvBtn" disabled>
+                                            <i class="ti ti-sparkles me-1"></i> Analyse Uploaded CV
+                                        </button>
+                                        <button type="button" class="btn btn-outline-primary" id="editAnalyzeAccountCvBtn" disabled data-url="{{ route('auto-apply-orders.analyze-account-cv') }}">
+                                            <i class="ti ti-file-spark me-1"></i> Analyse Account CV
+                                        </button>
+                                        <button type="button" class="btn btn-outline-secondary" id="editPreviewCvBtn" disabled>
+                                            <i class="ti ti-file-text me-1"></i> Preview CV
+                                        </button>
+                                    </div>
+                                    <div class="col-12">
+                                        <div id="editCvPrompt" class="alert alert-info py-2 px-3 mb-0 small">Loading candidate CV status…</div>
+                                        <div id="editAnalysisResult" class="border rounded p-3 mt-3 d-none"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="tab-pane fade" id="edit-pane-candidate" role="tabpanel" aria-labelledby="edit-tab-candidate">
                                 <div class="row g-3">
                                     <div class="col-12">
                                         <label class="form-label">Candidate</label>
@@ -283,7 +312,10 @@
                                         <div id="editCountryHidden"></div>
                                     </div>
                                     <div class="col-12">
-                                        <label class="form-label">Categories <span class="text-muted small">(leave empty to match any category)</span></label>
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <label class="form-label mb-0">Categories <span class="text-muted small">(leave empty to match any category)</span></label>
+                                            <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="editCategoryClearBtn">Clear</button>
+                                        </div>
                                         <input type="text" class="form-control" id="editCategoryInput" placeholder="Search categories…" autocomplete="off">
                                         <div class="border rounded mt-2 d-none" id="editCategoryResultsBox">
                                             <div id="editCategoryResultsList" class="list-group list-group-flush"></div>
@@ -292,7 +324,10 @@
                                         <div id="editCategoryHidden"></div>
                                     </div>
                                     <div class="col-md-6">
-                                        <label class="form-label">Experience Level</label>
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <label class="form-label mb-0">Experience Level</label>
+                                            <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="editExperienceClearBtn">Clear</button>
+                                        </div>
                                         <select name="job_experience_id" id="editJobExperienceId" class="form-select">
                                             <option value="">— Any Experience —</option>
                                             @foreach($experiences as $experienceId => $experienceName)
@@ -484,7 +519,7 @@
     <div class="modal fade" id="setupModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-lg">
             <div class="modal-content">
-                <form method="POST" action="{{ route('auto-apply-orders.setup-for-candidate') }}">
+                <form method="POST" action="{{ route('auto-apply-orders.setup-for-candidate') }}" enctype="multipart/form-data">
                     @csrf
                     <div class="modal-header">
                         <h5 class="modal-title">Setup Auto Apply for Candidate</h5>
@@ -512,8 +547,8 @@
                                 <div class="row g-3">
                                     <div class="col-md-7">
                                         <label class="form-label">Upload CV for AI filter setup <span class="text-muted small">(optional)</span></label>
-                                        <input type="file" class="form-control" id="setupCvFile" accept=".pdf,.doc,.docx,.txt" data-analyze-url="{{ route('auto-apply-orders.analyze-cv') }}">
-                                        <div class="form-text">Use this to generate keywords, country/category suggestions, location, and experience filters.</div>
+                                        <input type="file" class="form-control" id="setupCvFile" name="cv_file" accept=".pdf,.doc,.docx,.txt" data-analyze-url="{{ route('auto-apply-orders.analyze-cv') }}">
+                                        <div class="form-text">Saved as the candidate's CV on file, and used to generate keywords, country/category suggestions, location, and experience filters.</div>
                                     </div>
                                     <div class="col-md-5 d-flex align-items-end gap-2 flex-wrap">
                                         <button type="button" class="btn btn-primary" id="setupAnalyzeCvBtn" disabled>
@@ -602,7 +637,10 @@
                                         <div id="setupCountryHidden"></div>
                                     </div>
                                     <div class="col-12">
-                                        <label class="form-label">Categories <span class="text-muted small">(leave empty to match any category)</span></label>
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <label class="form-label mb-0">Categories <span class="text-muted small">(leave empty to match any category)</span></label>
+                                            <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="setupCategoryClearBtn">Clear</button>
+                                        </div>
                                         <input type="text" class="form-control" id="setupCategoryInput" placeholder="Search categories…" autocomplete="off">
                                         <div class="border rounded mt-2 d-none" id="setupCategoryResultsBox">
                                             <div id="setupCategoryResultsList" class="list-group list-group-flush"></div>
@@ -611,8 +649,11 @@
                                         <div id="setupCategoryHidden"></div>
                                     </div>
                                     <div class="col-md-6">
-                                        <label class="form-label">Experience Level</label>
-                                        <select name="job_experience_id" class="form-select">
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <label class="form-label mb-0">Experience Level</label>
+                                            <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="setupExperienceClearBtn">Clear</button>
+                                        </div>
+                                        <select name="job_experience_id" class="form-select" id="setupJobExperienceId">
                                             <option value="">— Any Experience —</option>
                                             @foreach($experiences as $experienceId => $experienceName)
                                                 <option value="{{ $experienceId }}">{{ $experienceName }}</option>
@@ -908,6 +949,7 @@
             var editCategoryPicker;
             var editBlacklistPicker;
             var setupSelectedAccount = null;
+            var editSelectedAccount = null;
 
             function setupEscapeHtml(value) {
                 return String(value || '').replace(/[&<>"']/g, function (char) {
@@ -967,6 +1009,19 @@
                 document.getElementById('editOrderStatus').value = btn.dataset.status || 'pending';
                 document.getElementById('editOrderAdminStatus').value = btn.dataset.adminStatus || 'pending';
                 document.getElementById('editOrderNotes').value = btn.dataset.notes || '';
+                editSelectedAccount = {
+                    id: order.account_id || null,
+                    has_cv: !!order.has_cv,
+                    resume_url: order.resume_url || '',
+                    resume_name: order.resume_name || ''
+                };
+                if (window.onEditAccountReady) window.onEditAccountReady();
+            });
+            document.getElementById('editOrderModal').addEventListener('hidden.bs.modal', function () {
+                document.getElementById('editCvFile').value = '';
+                document.getElementById('editAnalysisResult').classList.add('d-none');
+                document.getElementById('editAnalysisResult').innerHTML = '';
+                if (window.onEditAccountReady) window.onEditAccountReady();
             });
             document.getElementById('approveModal').addEventListener('show.bs.modal', function (e) {
                 var btn = e.relatedTarget;
@@ -1268,6 +1323,14 @@
                 hiddenName: 'category_ids[]',
                 url: '{{ route('auto-apply-orders.search-categories') }}',
                 parseResponse: function (resp) { return (resp.data || resp).items || []; },
+            });
+
+            document.getElementById('setupCategoryClearBtn').addEventListener('click', function () {
+                setupCategoryPicker.clear();
+            });
+
+            document.getElementById('setupExperienceClearBtn').addEventListener('click', function () {
+                document.getElementById('setupJobExperienceId').value = '';
             });
 
             var setupBlacklistPicker = setupAutoApplyChipPicker({
@@ -1597,6 +1660,14 @@
                 parseResponse: function (resp) { return (resp.data || resp).items || []; },
             });
 
+            document.getElementById('editCategoryClearBtn').addEventListener('click', function () {
+                editCategoryPicker.clear();
+            });
+
+            document.getElementById('editExperienceClearBtn').addEventListener('click', function () {
+                document.getElementById('editJobExperienceId').value = '';
+            });
+
             editBlacklistPicker = setupAutoApplyChipPicker({
                 inputId: 'editBlacklistCompanyInput',
                 resultsBoxId: 'editBlacklistResultsBox',
@@ -1607,6 +1678,194 @@
                 url: '{{ route('companies.list') }}',
                 parseResponse: function (resp) { return resp.data && resp.data.data ? resp.data.data : (resp.data || []); },
             });
+
+            // Edit modal: CV & AI tab (upload replaces the candidate's account CV on save)
+            (function () {
+                var cvFileInput = document.getElementById('editCvFile');
+                var analyzeCvBtn = document.getElementById('editAnalyzeCvBtn');
+                var analyzeAccountCvBtn = document.getElementById('editAnalyzeAccountCvBtn');
+                var previewCvBtn = document.getElementById('editPreviewCvBtn');
+                var prompt = document.getElementById('editCvPrompt');
+                var analysisPanel = document.getElementById('editAnalysisResult');
+                var uploadedCvObjectUrl = '';
+
+                function currentCvPreviewUrl() {
+                    if (uploadedCvObjectUrl) return uploadedCvObjectUrl;
+                    return editSelectedAccount && editSelectedAccount.resume_url ? editSelectedAccount.resume_url : '';
+                }
+
+                function updateCvActions() {
+                    var hasUpload = cvFileInput.files && cvFileInput.files.length > 0;
+                    var hasAccountCv = !!(editSelectedAccount && editSelectedAccount.has_cv);
+                    analyzeCvBtn.disabled = !hasUpload;
+                    analyzeAccountCvBtn.disabled = !hasAccountCv;
+                    previewCvBtn.disabled = !currentCvPreviewUrl();
+
+                    if (hasAccountCv) {
+                        prompt.className = 'alert alert-success py-2 px-3 mb-0 small';
+                        prompt.innerHTML = '<strong>CV on file:</strong> ' + setupEscapeHtml(editSelectedAccount.resume_name || 'CV on file') + '<div class="text-muted mt-1">Upload a new CV here to replace it and refresh filters.</div>';
+                    } else if (editSelectedAccount) {
+                        prompt.className = 'alert alert-warning py-2 px-3 mb-0 small';
+                        prompt.innerHTML = '<strong>No CV on this account.</strong> Upload a CV here — it will be saved to the candidate’s account.';
+                    } else {
+                        prompt.className = 'alert alert-info py-2 px-3 mb-0 small';
+                        prompt.textContent = 'Loading candidate CV status…';
+                    }
+                }
+
+                function selectedObjects(ids, names) {
+                    ids = Array.isArray(ids) ? ids : [];
+                    names = Array.isArray(names) ? names : [];
+
+                    return ids.map(function (id, index) {
+                        return { id: id, name: names[index] || ('#' + id) };
+                    });
+                }
+
+                function renderAnalysis(data) {
+                    var keywords = Array.isArray(data.keywords) && data.keywords.length ? data.keywords : (data.keyword ? [data.keyword] : []);
+                    var confidence = Number(data.confidence || 0);
+                    var confidenceClass = confidence >= 80 ? 'bg-success-subtle text-success' : (confidence >= 60 ? 'bg-warning-subtle text-warning' : 'bg-secondary-subtle text-secondary');
+                    var html = '<div class="d-flex align-items-center gap-2 mb-2">'
+                        + '<i class="ti ti-file-text text-primary"></i>'
+                        + '<strong class="small">AI Analysis Result</strong>'
+                        + '<span class="badge ' + confidenceClass + ' ms-auto">' + confidence + '% confidence</span>'
+                        + '</div>';
+
+                    if (data.candidate_type) html += '<div class="small fw-semibold mb-2">' + setupEscapeHtml(data.candidate_type) + '</div>';
+                    if (data.summary) html += '<p class="text-muted small mb-2">' + setupEscapeHtml(data.summary) + '</p>';
+
+                    html += '<div class="d-flex flex-wrap gap-1">';
+                    keywords.forEach(function (keyword) {
+                        html += '<span class="badge bg-dark text-white"><i class="ti ti-search me-1"></i>' + setupEscapeHtml(keyword) + '</span>';
+                    });
+                    (data.category_names || []).forEach(function (name) {
+                        html += '<span class="badge bg-secondary text-white">' + setupEscapeHtml(name) + '</span>';
+                    });
+                    (data.country_names || []).forEach(function (name) {
+                        html += '<span class="badge bg-info text-white">' + setupEscapeHtml(name) + '</span>';
+                    });
+                    if (data.location_keyword) {
+                        html += '<span class="badge bg-light border text-dark"><i class="ti ti-map-pin me-1"></i>' + setupEscapeHtml(data.location_keyword) + '</span>';
+                    }
+                    html += '</div>';
+
+                    if (data.usage && (data.usage.total_tokens || data.usage.estimated_cost_usd)) {
+                        var cost = data.usage.estimated_cost_usd ? Number(data.usage.estimated_cost_usd).toFixed(6) : null;
+                        html += '<div class="text-muted small mt-2">Usage: ' + setupEscapeHtml(String(data.usage.total_tokens || 0)) + ' tokens' + (cost ? ' · $' + setupEscapeHtml(cost) : '') + '</div>';
+                    }
+
+                    html += '<div class="text-success small mt-2"><i class="ti ti-check me-1"></i>Filters applied. Review and adjust before saving.</div>';
+                    analysisPanel.innerHTML = html;
+                    analysisPanel.classList.remove('d-none');
+                }
+
+                function applyEditAnalysis(data) {
+                    var keywords = Array.isArray(data.keywords) && data.keywords.length ? data.keywords : (data.keyword ? [data.keyword] : []);
+                    document.getElementById('editKeywordsInput').value = keywords.join(', ');
+
+                    if (data.location_keyword) {
+                        document.getElementById('editLocationKeyword').value = data.location_keyword;
+                    }
+
+                    if (data.job_experience_id) {
+                        document.getElementById('editJobExperienceId').value = data.job_experience_id;
+                    }
+
+                    if (editCountryPicker) {
+                        editCountryPicker.setSelected(selectedObjects(data.country_ids || [], data.country_names || []));
+                    }
+
+                    if (editCategoryPicker) {
+                        editCategoryPicker.setSelected(selectedObjects(data.category_ids || [], data.category_names || []));
+                    }
+
+                    renderAnalysis(data);
+                    Botble.showSuccess('AI analysis complete. Auto Apply filters were filled in.');
+                }
+
+                function handleAnalysisResponse(resp) {
+                    if (resp.error) {
+                        Botble.showError(resp.error);
+                        return;
+                    }
+
+                    applyEditAnalysis(resp.data || {});
+                    bootstrap.Tab.getOrCreateInstance(document.getElementById('edit-tab-filters')).show();
+                }
+
+                cvFileInput.addEventListener('change', function () {
+                    if (uploadedCvObjectUrl) {
+                        URL.revokeObjectURL(uploadedCvObjectUrl);
+                        uploadedCvObjectUrl = '';
+                    }
+
+                    if (this.files && this.files.length) {
+                        uploadedCvObjectUrl = URL.createObjectURL(this.files[0]);
+                    }
+
+                    updateCvActions();
+                });
+
+                analyzeCvBtn.addEventListener('click', function () {
+                    if (!cvFileInput.files || !cvFileInput.files.length) {
+                        Botble.showError('Please select a CV file first.');
+                        return;
+                    }
+
+                    analyzeCvBtn.disabled = true;
+                    analyzeCvBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Analysing...';
+
+                    var formData = new FormData();
+                    formData.append('cv_file', cvFileInput.files[0]);
+                    formData.append('_token', document.querySelector('meta[name="csrf-token"]').content);
+
+                    fetch(cvFileInput.dataset.analyzeUrl, { method: 'POST', body: formData, headers: { 'Accept': 'application/json' } })
+                        .then(function (r) { return r.json(); })
+                        .then(handleAnalysisResponse)
+                        .catch(function () { Botble.showError('CV analysis failed.'); })
+                        .finally(function () {
+                            analyzeCvBtn.innerHTML = '<i class="ti ti-sparkles me-1"></i> Analyse Uploaded CV';
+                            updateCvActions();
+                        });
+                });
+
+                analyzeAccountCvBtn.addEventListener('click', function () {
+                    if (!editSelectedAccount || !editSelectedAccount.id) {
+                        Botble.showError('This order has no candidate attached.');
+                        return;
+                    }
+
+                    analyzeAccountCvBtn.disabled = true;
+                    analyzeAccountCvBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Analysing...';
+
+                    fetch(analyzeAccountCvBtn.dataset.url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({ account_id: editSelectedAccount.id })
+                    })
+                        .then(function (r) { return r.json(); })
+                        .then(handleAnalysisResponse)
+                        .catch(function () { Botble.showError('Account CV analysis failed.'); })
+                        .finally(function () {
+                            analyzeAccountCvBtn.innerHTML = '<i class="ti ti-file-spark me-1"></i> Analyse Account CV';
+                            updateCvActions();
+                        });
+                });
+
+                previewCvBtn.addEventListener('click', function () {
+                    var url = currentCvPreviewUrl();
+                    if (!url) return;
+                    document.getElementById('cvPreviewFrame').src = url;
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('cvPreviewModal')).show();
+                });
+
+                window.onEditAccountReady = updateCvActions;
+            })();
 
             // Active jobs preview/send
             (function () {

@@ -24,6 +24,8 @@ class NotifyCandidateAutoApplySentJob implements ShouldQueue
     public function __construct(
         private readonly int $accountId,
         private readonly int $jobId,
+        private readonly ?string $coverLetterSubject = null,
+        private readonly ?string $coverLetterBody = null,
     ) {
     }
 
@@ -55,6 +57,12 @@ class NotifyCandidateAutoApplySentJob implements ShouldQueue
             . $job->name . ($company ? " at {$company}" : '') . "\n{$jobUrl}\n\n"
             . "No action is needed from you. We'll keep applying to new matching jobs on your behalf for the rest of your plan.\n\n"
             . 'Wakanda Jobs Auto Apply';
+
+        if ($this->coverLetterBody) {
+            $body .= "\n\n---\nHere's exactly what we sent on your behalf:\n\n"
+                . ($this->coverLetterSubject ? "Subject: {$this->coverLetterSubject}\n\n" : '')
+                . $this->coverLetterBody;
+        }
 
         try {
             Mail::raw($body, function ($message) use ($email, $job) {
@@ -88,6 +96,12 @@ class NotifyCandidateAutoApplySentJob implements ShouldQueue
             . "Wakanda Jobs Auto Apply has just applied for *{$job->name}*" . ($company ? " at {$company}" : '') . " on your behalf.\n"
             . "{$jobUrl}\n\n"
             . '_Wakanda Jobs Auto Apply_';
+
+        if ($this->coverLetterBody) {
+            $message .= "\n\n---\n*Here's exactly what we sent on your behalf:*\n\n"
+                . ($this->coverLetterSubject ? "*Subject:* {$this->coverLetterSubject}\n\n" : '')
+                . $this->coverLetterBody;
+        }
 
         $jid = preg_replace('/\D/', '', $phone) . '@s.whatsapp.net';
 
