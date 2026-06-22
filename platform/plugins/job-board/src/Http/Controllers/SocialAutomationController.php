@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Validation\Rule;
 
 class SocialAutomationController extends BaseController
@@ -777,11 +778,13 @@ class SocialAutomationController extends BaseController
         }
 
         $errorDetail = $this->summarizePublerErrors($errors);
+        $queueSize = Queue::size('publer');
+        $queueNote = ' (' . $queueSize . ' ' . ($queueSize === 1 ? 'retry' : 'retries') . ' currently in the Publer queue.)';
         $message = match (true) {
-            $retryQueued && $hasTikTokDailyLimit => 'TikTok daily posting limit reached. A Publer retry has been queued for ' . $retryAt->format('d M Y H:i') . '.',
-            $retryAlreadyQueued && $hasTikTokDailyLimit => 'TikTok daily posting limit reached. A retry is already queued, so no duplicate was added.',
-            $retryQueued => 'Publer needs a posting gap. A background retry has been queued for 2 minutes.',
-            $retryAlreadyQueued => 'Publer retry is already queued, so no duplicate was added.',
+            $retryQueued && $hasTikTokDailyLimit => 'TikTok daily posting limit reached. A Publer retry has been queued for ' . $retryAt->format('d M Y H:i') . '.' . $queueNote,
+            $retryAlreadyQueued && $hasTikTokDailyLimit => 'TikTok daily posting limit reached. A retry is already queued, so no duplicate was added.' . $queueNote,
+            $retryQueued => 'Publer needs a posting gap. A background retry has been queued for 2 minutes.' . $queueNote,
+            $retryAlreadyQueued => 'Publer retry is already queued, so no duplicate was added.' . $queueNote,
             $targetAlreadyQueued => 'TikTok was queued, but Publer reported errors for other accounts. No retry was queued to avoid a duplicate.',
             default => 'Failed to publish to Publer.',
         };
@@ -792,6 +795,7 @@ class SocialAutomationController extends BaseController
             ->setData([
                 'error_detail' => $errorDetail ?: 'Publer did not return a detailed error.',
                 'retry_queued' => $retryQueued,
+                'publer_queue_size' => $queueSize,
             ]);
     }
 
