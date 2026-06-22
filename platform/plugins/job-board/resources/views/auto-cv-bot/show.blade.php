@@ -372,6 +372,52 @@
                         return;
                     }
 
+                    var requestPhotoButton = event.target.closest('.js-request-cv-photo');
+
+                    if (requestPhotoButton) {
+                        var requestPhotoOriginalHtml = requestPhotoButton.innerHTML;
+                        requestPhotoButton.disabled = true;
+                        requestPhotoButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Sending';
+
+                        fetch(requestPhotoButton.dataset.url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'),
+                                'Accept': 'application/json',
+                            },
+                        })
+                            .then(function (response) {
+                                return response.json().then(function (data) {
+                                    return { ok: response.ok, data: data };
+                                });
+                            })
+                            .then(function (result) {
+                                requestPhotoButton.disabled = false;
+                                requestPhotoButton.innerHTML = requestPhotoOriginalHtml;
+
+                                if (!result.ok) {
+                                    Botble.showError(result.data.error || 'Failed to send the photo request.');
+                                    return;
+                                }
+
+                                Botble.showSuccess(result.data.message || 'Photo request sent.');
+                                poll();
+
+                                if (!pollTimer) {
+                                    document.getElementById('liveIndicator').classList.remove('d-none');
+                                    pollTimer = setInterval(poll, 3000);
+                                }
+                            })
+                            .catch(function () {
+                                requestPhotoButton.disabled = false;
+                                requestPhotoButton.innerHTML = requestPhotoOriginalHtml;
+                                Botble.showError('Network error — please try again.');
+                            });
+
+                        return;
+                    }
+
                     var askResendButton = event.target.closest('.js-ask-candidate-resend');
 
                     if (askResendButton) {

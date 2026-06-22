@@ -4,13 +4,45 @@
     <x-core::card class="mb-3">
         <x-core::card.body>
             <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
-                <div>
-                    <h5 class="mb-1">Automated WhatsApp CV Bot</h5>
-                    <p class="text-muted small mb-0">
-                        Enter a candidate's WhatsApp number and the bot takes over: it asks the interview
-                        questions, understands the replies with AI, and tells you on WhatsApp when the CV is
-                        ready to check &amp; verify — no manual question-by-question work needed.
-                    </p>
+                <div class="d-flex align-items-start gap-3">
+                    <div class="text-center js-bot-image-block" data-url="{{ route('job-board.auto-cv-bot.persona-image') }}">
+                        <img
+                            src="{{ $personaImageUrl ?: RvMedia::getDefaultImage() }}"
+                            alt="Nakia — AI assistant"
+                            class="rounded-circle border js-bot-image-preview"
+                            style="width:72px;height:72px;object-fit:cover;"
+                        >
+                        <div class="mt-1">
+                            <button type="button" class="btn btn-link btn-sm p-0 js-change-bot-image">Change image</button>
+                            <input type="file" class="d-none js-bot-image-input" accept="image/*">
+                        </div>
+                        <div class="text-muted" style="font-size:11px;max-width:90px;">Opening message</div>
+                    </div>
+                    <div class="text-center js-bot-image-block" data-url="{{ route('job-board.auto-cv-bot.confirmation-image') }}">
+                        <img
+                            src="{{ $confirmationImageUrl ?: RvMedia::getDefaultImage() }}"
+                            alt="Confirmation message image"
+                            class="rounded-circle border js-bot-image-preview"
+                            style="width:72px;height:72px;object-fit:cover;"
+                        >
+                        <div class="mt-1">
+                            <button type="button" class="btn btn-link btn-sm p-0 js-change-bot-image">Change image</button>
+                            <input type="file" class="d-none js-bot-image-input" accept="image/*">
+                        </div>
+                        <div class="text-muted" style="font-size:11px;max-width:90px;">"Reply DONE" message</div>
+                    </div>
+                    <div>
+                        <h5 class="mb-1">Automated WhatsApp CV Bot</h5>
+                        <p class="text-muted small mb-0">
+                            Enter a candidate's WhatsApp number and the bot takes over: it asks the interview
+                            questions, understands the replies with AI, and tells you on WhatsApp when the CV is
+                            ready to check &amp; verify — no manual question-by-question work needed.
+                        </p>
+                        <p class="text-muted small mb-0">
+                            The first image is sent with Nakia's opening WhatsApp message; the second is sent with
+                            the final "reply DONE to confirm" message, once a candidate's interview is complete.
+                        </p>
+                    </div>
                 </div>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#sendSampleCvModal">
@@ -27,6 +59,16 @@
                 paste this URL so candidate replies reach this bot:
                 <code id="webhookUrlText">{{ $webhookUrl }}</code>
                 <button type="button" class="btn btn-link btn-sm p-0 ms-1" id="btnCopyWebhookUrl">copy</button>
+            </div>
+
+            <div class="d-flex align-items-center gap-2 mt-3" id="jsAiModelBlock" data-url="{{ route('job-board.auto-cv-bot.ai-model') }}">
+                <label for="jsAiModelSelect" class="small text-muted mb-0">AI model used for the interview:</label>
+                <select id="jsAiModelSelect" class="form-select form-select-sm" style="width:auto;">
+                    @foreach ($aiModelOptions as $option)
+                        <option value="{{ $option }}" @selected($option === $aiModel)>{{ $option }}</option>
+                    @endforeach
+                </select>
+                <span class="small text-success d-none" id="jsAiModelSaved"><i class="ti ti-check"></i> Saved</span>
             </div>
         </x-core::card.body>
     </x-core::card>
@@ -166,6 +208,96 @@
             document.getElementById('btnCopyWebhookUrl')?.addEventListener('click', function () {
                 navigator.clipboard.writeText(document.getElementById('webhookUrlText').textContent.trim());
                 Botble.showSuccess('Webhook URL copied.');
+            });
+
+            document.addEventListener('click', function (event) {
+                var button = event.target.closest('.js-change-bot-image');
+
+                if (!button) {
+                    return;
+                }
+
+                button.closest('.js-bot-image-block').querySelector('.js-bot-image-input').click();
+            });
+
+            document.addEventListener('change', function (event) {
+                var input = event.target.closest('.js-bot-image-input');
+
+                if (!input) {
+                    return;
+                }
+
+                var file = input.files[0];
+
+                if (!file) {
+                    return;
+                }
+
+                var block = input.closest('.js-bot-image-block');
+                var formData = new FormData();
+                formData.append('image', file);
+
+                fetch(block.dataset.url, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'),
+                        'Accept': 'application/json',
+                    },
+                    body: formData,
+                })
+                    .then(function (response) {
+                        return response.json().then(function (data) {
+                            return { ok: response.ok, data: data };
+                        });
+                    })
+                    .then(function (result) {
+                        if (!result.ok) {
+                            Botble.showError(result.data.error || 'Failed to update image.');
+                            return;
+                        }
+
+                        block.querySelector('.js-bot-image-preview').src = result.data.url + '?t=' + Date.now();
+                        Botble.showSuccess(result.data.message || 'Image updated.');
+                    })
+                    .catch(function () {
+                        Botble.showError('Network error — please try again.');
+                    })
+                    .finally(function () {
+                        input.value = '';
+                    });
+            });
+
+            document.getElementById('jsAiModelSelect')?.addEventListener('change', function (event) {
+                var select = event.target;
+                var block = document.getElementById('jsAiModelBlock');
+                var saved = document.getElementById('jsAiModelSaved');
+
+                fetch(block.dataset.url, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'),
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ model: select.value }),
+                })
+                    .then(function (response) {
+                        return response.json().then(function (data) {
+                            return { ok: response.ok, data: data };
+                        });
+                    })
+                    .then(function (result) {
+                        if (!result.ok) {
+                            Botble.showError(result.data.error || 'Failed to update AI model.');
+                            return;
+                        }
+
+                        saved.classList.remove('d-none');
+                        setTimeout(function () { saved.classList.add('d-none'); }, 2000);
+                    })
+                    .catch(function () {
+                        Botble.showError('Network error — please try again.');
+                    });
             });
 
             (function () {

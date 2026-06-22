@@ -3,7 +3,11 @@
 <head>
     <meta charset="utf-8">
     @php($design = $design ?? 'premium')
+    @php($photoDataUri = $photoDataUri ?? null)
     @php($initials = trim(implode('', array_map(fn ($part) => mb_substr($part, 0, 1), array_slice(array_filter(explode(' ', (string) ($cv['full_name'] ?? ''))), 0, 2)))))
+    {{-- The ATS design drops every decorative element (photo/monogram, diamond glyphs, colour) so the
+         exported text is as plain and parser-friendly as possible. --}}
+    @php($tick = $design === 'ats' ? '' : '<span class="tick">&#9670;</span> ')
     <style>
         @page { margin: 0 40px 46px; }
         body {
@@ -19,18 +23,34 @@
             color: #f5f3ee;
         }
         .hero-top { width: 100%; }
-        .monogram {
+        .monogram-wrap {
             float: right;
+            width: 46px;
+            height: 46px;
+        }
+        .monogram {
+            display: table;
             width: 46px;
             height: 46px;
             border: 1px solid #b08d57;
             border-radius: 50%;
+            overflow: hidden;
+        }
+        .monogram span {
+            display: table-cell;
+            width: 46px;
+            height: 46px;
             text-align: center;
+            vertical-align: middle;
             color: #d8b88a;
             font-family: "DejaVu Serif", serif;
             font-size: 16px;
-            line-height: 44px;
             letter-spacing: .02em;
+        }
+        .monogram img {
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
         }
         h1 {
             font-family: "DejaVu Serif", serif;
@@ -91,7 +111,9 @@
 
         @if($design === 'academic')
             .hero { background: #fff; color: #1e2a3a; text-align: center; border-bottom: 2.5px solid #1e2a3a; padding: 40px 40px 22px; }
-            .monogram { float: none; display: inline-block; border-color: #1e2a3a; color: #1e2a3a; margin-bottom: 10px; }
+            .monogram-wrap { float: none; display: inline-block; margin-bottom: 10px; }
+            .monogram { border-color: #1e2a3a; }
+            .monogram span { color: #1e2a3a; }
             h1 { color: #1e2a3a; font-size: 27px; letter-spacing: .2em; }
             .rule-gold { background: #1e2a3a; margin: 0 auto 12px; }
             .headline { color: #4b5a6e; font-style: normal; letter-spacing: .08em; text-transform: uppercase; font-size: 10.5px; }
@@ -104,25 +126,33 @@
             .side-stripe { position: fixed; left: -40px; top: 0; bottom: -46px; width: 34px; background: #1f3d34; }
             .side-accent { position: fixed; left: -6px; top: 0; bottom: -46px; width: 6px; background: #d4a373; }
             .hero { background: #1f3d34; color: #f3efe6; }
-            .monogram { border-color: #d4a373; color: #e7c9a3; }
+            .monogram { border-color: #d4a373; }
+            .monogram span { color: #e7c9a3; }
             h1 { font-family: "DejaVu Sans", sans-serif; font-weight: bold; color: #fdfaf4; letter-spacing: .01em; }
             .rule-gold { display: none; }
             .headline { font-family: "DejaVu Sans", sans-serif; font-style: normal; font-weight: bold; color: #d4a373; text-transform: uppercase; letter-spacing: .1em; font-size: 11px; }
             .contact { color: #d7e4dc; }
             h2 {
                 font-family: "DejaVu Sans", sans-serif;
-                background: #1f3d34;
-                color: #fdfaf4;
-                border-bottom: 0;
-                border-radius: 3px;
-                padding: 6px 10px;
-                letter-spacing: .1em;
+                color: #1f3d34;
+                border-bottom: 2px solid #d4a373;
+                letter-spacing: .03em;
             }
             h2 .tick { color: #d4a373; }
             .item { border-left: 0; padding-left: 14px; position: relative; }
             .item:before { content: ''; position: absolute; left: -1px; top: 4px; width: 7px; height: 7px; border-radius: 50%; background: #b5651d; }
             .skills span { border: 0; background: #1f3d34; color: #fdfaf4; }
             .skills span:nth-child(even) { background: #b5651d; }
+        @elseif($design === 'ats')
+            /* Plain black-on-white, no colour, no photo/monogram, no decorative glyphs — built to
+               parse cleanly in any ATS text extractor. */
+            .hero { background: #fff; color: #000; padding: 0 0 14px; border-bottom: 1.5px solid #000; }
+            .rule-gold { display: none; }
+            h1 { color: #000; font-family: "DejaVu Sans", sans-serif; font-weight: bold; letter-spacing: 0; text-transform: none; font-size: 20px; }
+            .headline { color: #000; font-style: normal; font-family: "DejaVu Sans", sans-serif; font-size: 11.5px; }
+            .contact { color: #000; }
+            h2 { font-family: "DejaVu Sans", sans-serif; border-bottom: 1px solid #000; text-transform: none; letter-spacing: 0; color: #000; }
+            .item { border-left: 0; padding-left: 0; }
         @endif
     </style>
 </head>
@@ -133,8 +163,12 @@
     @endif
     <div class="hero">
         <div class="hero-top">
-            @if($initials !== '')
-                <div class="monogram">{{ $initials }}</div>
+            @if($design !== 'ats')
+                @if($photoDataUri)
+                    <div class="monogram-wrap"><div class="monogram"><img src="{{ $photoDataUri }}" alt=""></div></div>
+                @elseif($initials !== '')
+                    <div class="monogram-wrap"><div class="monogram"><span>{{ $initials }}</span></div></div>
+                @endif
             @endif
             <h1>{{ $design === 'academic' ? 'CURRICULUM VITAE' : ($cv['full_name'] ?? 'Candidate CV') }}</h1>
         </div>
@@ -152,21 +186,31 @@
     </div>
 
     @if(! empty($cv['summary']))
-        <h2><span class="tick">&#9670;</span>Professional Profile</h2>
+        <h2>{!! $tick !!}Professional Summary</h2>
         <p>{{ $cv['summary'] }}</p>
     @endif
 
-    @if(! empty($cv['skills']))
-        <h2><span class="tick">&#9670;</span>Key Skills</h2>
-        <div class="skills">
-            @foreach($cv['skills'] as $skill)
-                <span>{{ $skill }}</span>
+    @if(! empty($cv['education']))
+        <h2>{!! $tick !!}Education</h2>
+        @foreach($cv['education'] as $item)
+            <div class="item">
+                <div class="item-title">{{ implode(' - ', array_filter([$item['qualification'] ?? null, $item['field'] ?? null])) }}</div>
+                <div class="item-meta">{{ implode('  ·  ', array_filter([$item['institution'] ?? null, trim(implode(' - ', array_filter([$item['start_year'] ?? null, $item['end_year'] ?? null])))])) }}</div>
+            </div>
+        @endforeach
+    @endif
+
+    @if(! empty($cv['certifications']))
+        <h2>{!! $tick !!}Certifications</h2>
+        <ul>
+            @foreach($cv['certifications'] as $certification)
+                <li>{{ $certification }}</li>
             @endforeach
-        </div>
+        </ul>
     @endif
 
     @if(! empty($cv['experience']))
-        <h2><span class="tick">&#9670;</span>Work Experience</h2>
+        <h2>{!! $tick !!}Work Experience</h2>
         @foreach($cv['experience'] as $item)
             <div class="item">
                 <div class="item-title">{{ implode(' - ', array_filter([$item['job_title'] ?? null, $item['company'] ?? null])) }}</div>
@@ -182,18 +226,8 @@
         @endforeach
     @endif
 
-    @if(! empty($cv['education']))
-        <h2><span class="tick">&#9670;</span>Education</h2>
-        @foreach($cv['education'] as $item)
-            <div class="item">
-                <div class="item-title">{{ implode(' - ', array_filter([$item['qualification'] ?? null, $item['field'] ?? null])) }}</div>
-                <div class="item-meta">{{ implode('  ·  ', array_filter([$item['institution'] ?? null, trim(implode(' - ', array_filter([$item['start_year'] ?? null, $item['end_year'] ?? null])))])) }}</div>
-            </div>
-        @endforeach
-    @endif
-
     @if(! empty($cv['projects']))
-        <h2><span class="tick">&#9670;</span>Projects and Volunteer Work</h2>
+        <h2>{!! $tick !!}Projects and Volunteer Work</h2>
         @foreach($cv['projects'] as $item)
             <div class="item">
                 <div class="item-title">{{ $item['name'] ?? '' }}</div>
@@ -204,17 +238,21 @@
         @endforeach
     @endif
 
-    @if(! empty($cv['certifications']))
-        <h2><span class="tick">&#9670;</span>Certifications and Training</h2>
-        <ul>
-            @foreach($cv['certifications'] as $certification)
-                <li>{{ $certification }}</li>
-            @endforeach
-        </ul>
+    @if(! empty($cv['skills']))
+        <h2>{!! $tick !!}Skills</h2>
+        @if($design === 'ats')
+            <p>{{ implode(', ', $cv['skills']) }}</p>
+        @else
+            <div class="skills">
+                @foreach($cv['skills'] as $skill)
+                    <span>{{ $skill }}</span>
+                @endforeach
+            </div>
+        @endif
     @endif
 
     @if(! empty($cv['languages']))
-        <h2><span class="tick">&#9670;</span>Languages</h2>
+        <h2>{!! $tick !!}Languages</h2>
         <ul>
             @foreach($cv['languages'] as $language)
                 <li>{{ $language }}</li>
@@ -223,7 +261,7 @@
     @endif
 
     @if(! empty($cv['references']))
-        <h2><span class="tick">&#9670;</span>References</h2>
+        <h2>{!! $tick !!}References</h2>
         @foreach($cv['references'] as $item)
             <div class="item">
                 {{ implode('  ·  ', array_filter([$item['name'] ?? null, $item['role'] ?? null, $item['company'] ?? null, $item['phone'] ?? null, $item['email'] ?? null])) }}

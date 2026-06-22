@@ -20,7 +20,7 @@
             </button>
         @endif
         <button type="button" class="btn btn-sm btn-primary" id="btnGeneratePremiumCv" data-url="{{ route('job-board.auto-cv-bot.generate-documents', $session->id) }}">
-            <x-core::icon name="ti ti-sparkles" class="me-1" /> Generate 3 CV Designs
+            <x-core::icon name="ti ti-sparkles" class="me-1" /> Generate CV Designs
         </button>
         @if ($documents !== [])
             <button type="button" class="btn btn-sm btn-success" id="btnSendCvDocuments" data-url="{{ route('job-board.auto-cv-bot.send-documents', $session->id) }}">
@@ -32,7 +32,7 @@
     @if ($documents !== [])
         <div class="row g-2">
             @foreach ($documents as $style => $document)
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <div class="border rounded p-2 h-100">
                         <div class="fw-semibold small mb-2">{{ $document['label'] ?? ucwords(str_replace('_', ' ', $style)) }} Design</div>
                         <div class="d-flex flex-wrap gap-2">

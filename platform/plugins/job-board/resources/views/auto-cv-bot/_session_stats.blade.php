@@ -19,6 +19,12 @@
     </div>
     <div class="col-6 col-lg-2">
         <div class="border rounded p-2 h-100">
+            <div class="text-muted small">Stalled</div>
+            <div class="fw-bold fs-5 text-warning">{{ $stats['stalled'] }}</div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="border rounded p-2 h-100">
             <div class="text-muted small">Completed</div>
             <div class="fw-bold fs-5 text-success">{{ $stats['completed'] }}</div>
         </div>
@@ -33,6 +39,18 @@
         <div class="border rounded p-2 h-100">
             <div class="text-muted small">Avg progress</div>
             <div class="fw-bold fs-5">{{ $stats['average_progress'] }}%</div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="border rounded p-2 h-100">
+            <div class="text-muted small">Avg turns</div>
+            <div class="fw-bold fs-5">{{ $stats['average_turns'] }}</div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="border rounded p-2 h-100">
+            <div class="text-muted small">Avg time to finish</div>
+            <div class="fw-bold fs-5">{{ $stats['average_time_to_complete'] }}</div>
         </div>
     </div>
 </div>

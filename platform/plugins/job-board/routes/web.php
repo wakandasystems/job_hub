@@ -104,6 +104,9 @@ AdminHelper::registerRoutes(function (): void {
         Route::put('vip-alert-plans', [VipAlertPlanSettingController::class, 'update'])->name('vip-alert-plans.update');
         Route::get('ai-images', [AiImageSettingController::class, 'edit'])->name('ai-images');
         Route::put('ai-images', [AiImageSettingController::class, 'update'])->name('ai-images.update');
+        Route::post('ai-images/retry-all', [AiImageSettingController::class, 'retryAll'])->name('ai-images.retry-all');
+        Route::get('ai-images/retry-progress', [AiImageSettingController::class, 'retryProgress'])->name('ai-images.retry-progress');
+        Route::post('ai-images/{log}/retry', [AiImageSettingController::class, 'retry'])->name('ai-images.retry')->wherePrimaryKey('log');
         Route::get('auto-apply-plans', [AutoApplyPlanSettingController::class, 'edit'])->name('auto-apply-plans');
         Route::put('auto-apply-plans', [AutoApplyPlanSettingController::class, 'update'])->name('auto-apply-plans.update');
     });
@@ -184,6 +187,9 @@ AdminHelper::registerRoutes(function (): void {
         Route::get('', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'index'])->name('index');
         Route::post('start', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'start'])->name('start');
         Route::post('send-sample', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'sendSampleCv'])->name('send-sample');
+        Route::post('persona-image', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'uploadPersonaImage'])->name('persona-image');
+        Route::post('confirmation-image', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'uploadConfirmationImage'])->name('confirmation-image');
+        Route::post('ai-model', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'updateAiModel'])->name('ai-model');
         Route::get('sessions/poll', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'pollSessions'])->name('sessions.poll');
         Route::get('{autoCvSession}', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'show'])->name('show')->whereNumber('autoCvSession');
         Route::get('{autoCvSession}/poll', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'poll'])->name('poll')->whereNumber('autoCvSession');
@@ -191,14 +197,15 @@ AdminHelper::registerRoutes(function (): void {
         Route::post('{autoCvSession}/resume', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'resume'])->name('resume')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/resend-question', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'resendQuestion'])->name('resend-question')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/request-section-information', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'requestSectionInformation'])->name('request-section-information')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/request-cv-photo', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'requestCvPhoto'])->name('request-cv-photo')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/retry-generation', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'retryGeneration'])->name('retry-generation')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/generate-documents', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'generateDocuments'])->name('generate-documents')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/ask-candidate-to-resend', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'askCandidateToResend'])->name('ask-candidate-to-resend')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/continue-interview', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'continueInterview'])->name('continue-interview')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/end-conversation', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'endConversation'])->name('end-conversation')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/send-documents', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'sendDocuments'])->name('send-documents')->whereNumber('autoCvSession');
-        Route::get('{autoCvSession}/download/{format}/{design?}', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'download'])->name('download')->whereNumber('autoCvSession')->whereIn('format', ['docx', 'pdf'])->whereIn('design', ['premium', 'academic', 'creative']);
-        Route::get('{autoCvSession}/preview/{design?}', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'preview'])->name('preview')->whereNumber('autoCvSession')->whereIn('design', ['premium', 'academic', 'creative']);
+        Route::get('{autoCvSession}/download/{format}/{design?}', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'download'])->name('download')->whereNumber('autoCvSession')->whereIn('format', ['docx', 'pdf'])->whereIn('design', ['premium', 'academic', 'creative', 'ats']);
+        Route::get('{autoCvSession}/preview/{design?}', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'preview'])->name('preview')->whereNumber('autoCvSession')->whereIn('design', ['premium', 'academic', 'creative', 'ats']);
         Route::delete('{autoCvSession}', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'destroy'])->name('destroy')->whereNumber('autoCvSession');
     });
 

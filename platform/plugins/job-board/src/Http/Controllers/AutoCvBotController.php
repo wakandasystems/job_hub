@@ -6,11 +6,13 @@ use Botble\Base\Http\Controllers\BaseController;
 use Botble\Base\Supports\Breadcrumb;
 use Botble\JobBoard\Models\AutoCvSession;
 use Botble\JobBoard\Services\AutoCvBotService;
+use Botble\Media\Facades\RvMedia;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class AutoCvBotController extends BaseController
 {
@@ -36,7 +38,65 @@ class AutoCvBotController extends BaseController
 
         $stats = $this->sessionStats();
 
-        return view('plugins/job-board::auto-cv-bot.index', compact('sessions', 'webhookUrl', 'stats'));
+        $personaImageUrl = $this->settingImageUrl('auto_cv_bot_persona_image');
+        $confirmationImageUrl = $this->settingImageUrl('auto_cv_bot_confirmation_image');
+        $aiModel = AutoCvBotService::aiModel();
+        $aiModelOptions = AutoCvBotService::availableAiModels();
+
+        return view(
+            'plugins/job-board::auto-cv-bot.index',
+            compact('sessions', 'webhookUrl', 'stats', 'personaImageUrl', 'confirmationImageUrl', 'aiModel', 'aiModelOptions')
+        );
+    }
+
+    public function updateAiModel(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'model' => ['required', 'string', Rule::in(AutoCvBotService::availableAiModels())],
+        ]);
+
+        setting()->set('auto_cv_bot_ai_model', $data['model'])->save();
+
+        return response()->json(['message' => 'AI model updated.']);
+    }
+
+    public function uploadPersonaImage(Request $request): JsonResponse
+    {
+        return $this->uploadSettingImage($request, 'auto_cv_bot_persona_image', 'Assistant image updated.');
+    }
+
+    public function uploadConfirmationImage(Request $request): JsonResponse
+    {
+        return $this->uploadSettingImage($request, 'auto_cv_bot_confirmation_image', 'Confirmation message image updated.');
+    }
+
+    private function uploadSettingImage(Request $request, string $settingKey, string $successMessage): JsonResponse
+    {
+        $request->validate([
+            'image' => ['required', 'image', 'max:5120'],
+        ]);
+
+        $result = RvMedia::handleUpload($request->file('image'), 0, 'auto-cv-bot');
+
+        if ($result['error']) {
+            return response()->json(['error' => $result['message']], 422);
+        }
+
+        $file = $result['data'];
+
+        setting()->set($settingKey, $file->url)->save();
+
+        return response()->json([
+            'message' => $successMessage,
+            'url' => RvMedia::getImageUrl($file->url),
+        ]);
+    }
+
+    private function settingImageUrl(string $settingKey): ?string
+    {
+        $url = trim((string) setting($settingKey, ''));
+
+        return $url !== '' ? RvMedia::getImageUrl($url) : null;
     }
 
     public function pollSessions(Request $request): JsonResponse
@@ -85,11 +145,12 @@ class AutoCvBotController extends BaseController
 
     private function sessionStats(): array
     {
-        $sessions = AutoCvSession::query()->get(['status', 'topics', 'topics_covered']);
+        $sessions = AutoCvSession::query()->get(['status', 'topics', 'topics_covered', 'answers', 'created_at', 'completed_at']);
         $total = $sessions->count();
         $collecting = $sessions->where('status', 'collecting')->count();
         $paused = $sessions->where('status', 'paused')->count();
         $failed = $sessions->where('status', 'failed')->count();
+        $stalled = $sessions->where('status', 'stalled')->count();
         $completed = $sessions->where('status', 'completed')->count();
         $averageProgress = $sessions
             ->map(function (AutoCvSession $session) {
@@ -99,14 +160,42 @@ class AutoCvBotController extends BaseController
             })
             ->avg();
 
+        // How many back-and-forth turns a real interview takes, and how long it takes wall-clock
+        // (mostly candidate response time, not bot processing) — without this there's no way to
+        // tell whether a prompt change actually makes the interview shorter or just feels shorter.
+        $averageTurns = $sessions->map(fn (AutoCvSession $session) => count($session->answers ?: []))->avg();
+
+        $completedSessions = $sessions->where('status', 'completed')->filter(fn (AutoCvSession $session) => $session->completed_at);
+        $averageMinutesToComplete = $completedSessions
+            ->map(fn (AutoCvSession $session) => $session->created_at->diffInMinutes($session->completed_at))
+            ->avg();
+
         return [
             'total' => $total,
             'collecting' => $collecting,
             'paused' => $paused,
             'failed' => $failed,
+            'stalled' => $stalled,
             'completed' => $completed,
             'average_progress' => $total > 0 ? (int) round($averageProgress) : 0,
+            'average_turns' => $total > 0 ? round($averageTurns, 1) : 0,
+            'average_time_to_complete' => $averageMinutesToComplete ? $this->formatMinutes((int) round($averageMinutesToComplete)) : '—',
         ];
+    }
+
+    private function formatMinutes(int $minutes): string
+    {
+        if ($minutes < 60) {
+            return "{$minutes}m";
+        }
+
+        $hours = intdiv($minutes, 60);
+
+        if ($hours < 24) {
+            return "{$hours}h " . ($minutes % 60) . 'm';
+        }
+
+        return intdiv($hours, 24) . 'd ' . ($hours % 24) . 'h';
     }
 
     public function start(Request $request, AutoCvBotService $service): JsonResponse
@@ -199,6 +288,19 @@ class AutoCvBotController extends BaseController
 
         return response()->json([
             'message' => 'Section request sent on WhatsApp. The candidate can reply with more details.',
+        ]);
+    }
+
+    public function requestCvPhoto(AutoCvSession $autoCvSession, AutoCvBotService $service): JsonResponse
+    {
+        $sent = $service->requestCvPhoto($autoCvSession);
+
+        if (! $sent) {
+            return response()->json(['error' => 'Could not send the photo request on WhatsApp.'], 422);
+        }
+
+        return response()->json([
+            'message' => 'Photo request sent on WhatsApp. The candidate can reply with a photo.',
         ]);
     }
 

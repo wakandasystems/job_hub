@@ -41,6 +41,9 @@ class AutoCvSession extends BaseModel
         'awaiting_final_confirmation',
         'reopened_for_missing_detail',
         'reopen_warning_sent_at',
+        'awaiting_cv_upload',
+        'awaiting_cv_photo',
+        'candidate_photo_path',
     ];
 
     protected $casts = [
@@ -66,6 +69,8 @@ class AutoCvSession extends BaseModel
         'awaiting_final_confirmation' => 'boolean',
         'reopened_for_missing_detail' => 'boolean',
         'reopen_warning_sent_at' => 'datetime',
+        'awaiting_cv_upload' => 'boolean',
+        'awaiting_cv_photo' => 'boolean',
     ];
 
     public function messages(): HasMany

@@ -71,25 +71,22 @@
 </div>
 
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3 mb-1">
+    <strong class="small">Photo</strong>
+    <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 js-request-cv-photo" data-url="{{ route('job-board.auto-cv-bot.request-cv-photo', $session->id) }}"><i class="ti ti-message-plus me-1"></i>Get Photo</button>
+</div>
+<p class="small mb-0">
+    @if ($session->candidate_photo_path)
+        <span class="text-success"><i class="ti ti-check me-1"></i>Photo received</span>
+    @else
+        {!! $notProvided !!}
+    @endif
+</p>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3 mb-1">
     <strong class="small">Profile Summary{!! $scoreBadge(4) !!}</strong>
     {!! $sectionButton(4) !!}
 </div>
 <p class="small mb-0">{!! ($cv['summary'] ?? '') !== '' ? e($cv['summary']) : $notProvided !!}</p>
-
-<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3 mb-1">
-    <strong class="small">Work Experience{!! $scoreBadge(6) !!}</strong>
-    {!! $sectionButton(6) !!}
-</div>
-@if ($experience->isNotEmpty())
-    @foreach ($experience as $row)
-        <div class="small mb-1">
-            <strong>{{ $row['job_title'] ?? '' }} — {{ $row['company'] ?? '' }}</strong>
-            ({{ trim(($row['start_date'] ?? '') . ' to ' . ($row['end_date'] ?? ''), ' to') }})
-        </div>
-    @endforeach
-@else
-    <p class="small mb-0">{!! $notProvided !!}</p>
-@endif
 
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3 mb-1">
     <strong class="small">Education{!! $scoreBadge(5) !!}</strong>
@@ -99,20 +96,6 @@
     @foreach ($education as $row)
         <div class="small mb-1"><strong>{{ $row['qualification'] ?? '' }} — {{ $row['institution'] ?? '' }}</strong></div>
     @endforeach
-@else
-    <p class="small mb-0">{!! $notProvided !!}</p>
-@endif
-
-<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3 mb-1">
-    <strong class="small">Skills{!! $scoreBadge(8) !!}</strong>
-    {!! $sectionButton(8) !!}
-</div>
-@if (!empty($cv['skills']))
-    <div>
-        @foreach ($cv['skills'] as $skill)
-            <span class="badge bg-dark text-white small">{{ $skill }}</span>
-        @endforeach
-    </div>
 @else
     <p class="small mb-0">{!! $notProvided !!}</p>
 @endif
@@ -137,6 +120,21 @@
 @endif
 
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3 mb-1">
+    <strong class="small">Work Experience{!! $scoreBadge(6) !!}</strong>
+    {!! $sectionButton(6) !!}
+</div>
+@if ($experience->isNotEmpty())
+    @foreach ($experience as $row)
+        <div class="small mb-1">
+            <strong>{{ $row['job_title'] ?? '' }} — {{ $row['company'] ?? '' }}</strong>
+            ({{ trim(($row['start_date'] ?? '') . ' to ' . ($row['end_date'] ?? ''), ' to') }})
+        </div>
+    @endforeach
+@else
+    <p class="small mb-0">{!! $notProvided !!}</p>
+@endif
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3 mb-1">
     <strong class="small">Projects / Volunteer Work{!! $scoreBadge(7) !!}</strong>
     {!! $sectionButton(7) !!}
 </div>
@@ -149,6 +147,20 @@
             @endif
         </div>
     @endforeach
+@else
+    <p class="small mb-0">{!! $notProvided !!}</p>
+@endif
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3 mb-1">
+    <strong class="small">Skills{!! $scoreBadge(8) !!}</strong>
+    {!! $sectionButton(8) !!}
+</div>
+@if (!empty($cv['skills']))
+    <div>
+        @foreach ($cv['skills'] as $skill)
+            <span class="badge bg-dark text-white small">{{ $skill }}</span>
+        @endforeach
+    </div>
 @else
     <p class="small mb-0">{!! $notProvided !!}</p>
 @endif
@@ -177,7 +189,7 @@
             {{ implode(' | ', array_filter([$row['name'] ?? '', $row['role'] ?? '', $row['company'] ?? '', $row['phone'] ?? '', $row['email'] ?? ''])) }}
         </div>
     @endforeach
-    <p class="text-muted small mb-0"><i class="ti ti-info-circle me-1"></i>The generated CV will show "Available on request" instead of these details.</p>
+    <p class="text-muted small mb-0"><i class="ti ti-info-circle me-1"></i>These details will appear on the generated CV as given.</p>
 @else
     <p class="small mb-0">{!! $notProvided !!}</p>
 @endif
