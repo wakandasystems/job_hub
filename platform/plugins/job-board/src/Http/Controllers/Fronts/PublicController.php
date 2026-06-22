@@ -127,7 +127,10 @@ class PublicController extends BaseController
         $meta->setType('article');
 
         if ($company && $company->id) {
-            $company->loadCount('jobs');
+            // "X Open Jobs" in the sidebar must match what's actually still listable —
+            // a raw loadCount('jobs') counted expired/closed jobs too, so a company with
+            // 5 published-but-expired jobs and 1 truly open one showed "5 Open Jobs".
+            $company->loadCount(['activeJobs as jobs_count']);
 
             if (! $job->hide_company) {
                 $logoUrl = $job->company_logo_thumb;
@@ -273,6 +276,12 @@ class PublicController extends BaseController
         if (JobBoardHelper::isPinFeaturedJobsInTheTop()) {
             $sortBy = ['jb_jobs.is_featured' => 'DESC', ...$sortBy];
         }
+
+        // Organic (site-posted) jobs only rank above crawled jobs on their day of posting —
+        // after that, sort is purely newest-first regardless of source. Matches the job-list
+        // shortcode's sort so the AJAX-refreshed listing (pagination/sort/filter) stays
+        // consistent with the page's initial load.
+        $sortBy = ['today_organic_boost' => 'DESC', ...$sortBy];
 
         if (is_plugin_active('location')) {
             $with = array_merge($with, array_keys(Location::getSupported(JobModel::class)));

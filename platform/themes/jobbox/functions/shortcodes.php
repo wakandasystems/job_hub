@@ -636,8 +636,9 @@ app()->booted(function (): void {
                 $sortBy = ['jb_jobs.is_featured' => 'DESC', 'jb_jobs.featured_bid' => 'DESC', ...$sortBy];
             }
 
-            // Organic (site-posted) jobs always rank above crawled jobs
-            $sortBy = ['jb_jobs.is_organic' => 'DESC', ...$sortBy];
+            // Organic (site-posted) jobs only rank above crawled jobs on their day of
+            // posting — after that, sort is purely newest-first regardless of source.
+            $sortBy = ['today_organic_boost' => 'DESC', ...$sortBy];
 
             if (is_plugin_active('location')) {
                 $with = array_merge($with, array_keys(Location::getSupported(Job::class)));

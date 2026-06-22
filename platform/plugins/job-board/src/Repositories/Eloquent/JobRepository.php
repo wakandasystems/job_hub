@@ -85,6 +85,16 @@ class JobRepository extends RepositoriesAbstract implements JobInterface
             $this->model = $this->model->select($params['select']);
         }
 
+        // Lets callers rank organic (site-posted) jobs above crawled ones only for their day
+        // of posting, instead of indefinitely — order_by['today_organic_boost'] needs a real
+        // selected column since the generic order_by loop below only does plain orderBy().
+        if (array_key_exists('today_organic_boost', $params['order_by'])) {
+            $this->model = $this->model->selectRaw(
+                '(jb_jobs.is_organic = 1 AND jb_jobs.created_at >= ?) as today_organic_boost',
+                [now()->startOfDay()]
+            );
+        }
+
         if (! AdminHelper::isPreviewing()) {
             if ($params['take'] === 1) {
                 if (! JobBoardHelper::isExpiredJobAccessible()) {
