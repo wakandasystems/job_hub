@@ -3,7 +3,7 @@
 namespace Botble\JobBoard\Services;
 
 use Botble\Base\Events\CreatedContentEvent;
-use Botble\Base\Facades\EmailHandler;
+use Botble\Base\Facades\BaseHelper;
 use Botble\JobBoard\Enums\JobStatusEnum;
 use Botble\JobBoard\Enums\ModerationStatusEnum;
 use Botble\JobBoard\Enums\SalaryRangeEnum;
@@ -101,18 +101,6 @@ class JobCrawlerRunner
                 'last_status' => 'failed',
                 'last_error' => $exception->getMessage(),
             ])->save();
-
-            try {
-                EmailHandler::setModule(JOB_BOARD_MODULE_SCREEN_NAME)
-                    ->setVariableValues([
-                        'crawler_name' => $crawler->name,
-                        'error_message' => $exception->getMessage(),
-                        'crawler_url' => route('job-board.crawlers.edit', $crawler->getKey()),
-                    ])
-                    ->sendUsingTemplate('crawler-failed');
-            } catch (Throwable) {
-                // Don't let email failure mask the crawler error
-            }
 
             try {
                 $botToken  = setting('telegram_bot_token');
@@ -1886,8 +1874,12 @@ class JobCrawlerRunner
             if ($e->errorInfo[1] !== 1062) {
                 throw $e;
             }
+            // Company::name is cast through SafeContent, which HTML-encodes special
+            // characters (e.g. "&" becomes "&amp;") before storage — comparing the raw
+            // input against the stored value would never match, so run it through the
+            // same cleaning step the cast applies on write.
             $company = Company::query()
-                ->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower(trim($name))])
+                ->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower(BaseHelper::clean(trim($name)))])
                 ->firstOrFail();
         }
 
@@ -6115,6 +6107,14 @@ class JobCrawlerRunner
                 continue;
             }
 
+            if (! $company->logo && ! empty($detail['logo'])) {
+                $logoPath = $this->uploadCompanyLogo((string) $detail['logo']);
+                if ($logoPath) {
+                    $company->logo = $logoPath;
+                    $company->save();
+                }
+            }
+
             $content = $this->cleanStructuredJobContent((string) $detail['description']);
             $location = trim((string) ($detail['location'] ?? '')) ?: $defaultLocation;
             $attributes = [
@@ -6127,7 +6127,7 @@ class JobCrawlerRunner
                 'company_id' => $company->getKey(),
                 'country_id' => $countryId ?: null,
                 'currency_id' => $currencyId,
-                'address' => $location,
+                'address' => $this->limitGoZambiaField($location, 500),
                 'apply_url' => $url,
                 'status' => JobStatusEnum::PUBLISHED,
                 'moderation_status' => ModerationStatusEnum::APPROVED,
@@ -6176,6 +6176,9 @@ class JobCrawlerRunner
             }
 
             $organization = $job['hiringOrganization'] ?? [];
+            $organizationLogo = data_get($organization, 'logo');
+            $logo = trim((string) (is_array($organizationLogo) ? data_get($organizationLogo, 'url', '') : $organizationLogo));
+            $logo = $logo !== '' ? $logo : $this->extractCompanyLogoFromHtml($html);
             $jobLocation = $job['jobLocation'] ?? [];
             // jobLocation may be a single Place object or an array of Place objects (schema.org allows both)
             if (is_array($jobLocation) && array_is_list($jobLocation)) {
@@ -6210,6 +6213,7 @@ class JobCrawlerRunner
                 'title' => (string) ($job['title'] ?? ''),
                 'company_name' => (string) ($organization['name'] ?? ''),
                 'company_url' => (string) ($organization['sameAs'] ?? $organization['url'] ?? ''),
+                'logo' => $logo,
                 'location' => $location,
                 'industry' => (string) ($job['industry'] ?? $job['occupationalCategory'] ?? ''),
                 'datePosted' => $job['datePosted'] ?? null,
@@ -6234,6 +6238,7 @@ class JobCrawlerRunner
         }
 
         $xpath = new \DOMXPath($document);
+        $logo = $this->extractCompanyLogoFromXpath($xpath);
         $titleNode = $xpath->query(
             '//h1[contains(concat(" ", normalize-space(@class), " "), " page-title ")]'
         )?->item(0);
@@ -6285,12 +6290,54 @@ class JobCrawlerRunner
             'title' => trim((string) $titleClone?->textContent),
             'company_name' => trim((string) $companyNode?->textContent),
             'company_url' => $companyLink instanceof \DOMElement ? (string) $companyLink->getAttribute('href') : '',
+            'logo' => $logo,
             'location' => implode(', ', array_unique($locations)),
             'industry' => trim((string) $categoryNode?->textContent),
             'datePosted' => $postedNode instanceof \DOMElement ? $postedNode->getAttribute('datetime') : null,
             'validThrough' => $validThrough,
             'description' => $this->domNodeInnerHtml($descriptionNode),
         ];
+    }
+
+    /**
+     * WP Job Manager themes render the employer logo as <img class="company_logo">,
+     * but lazy-load plugins put the real URL in a data-* attribute and leave a
+     * placeholder (often a data: URI) in src.
+     */
+    protected function extractCompanyLogoFromHtml(string $html): string
+    {
+        $document = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        if (! $loaded) {
+            return '';
+        }
+
+        return $this->extractCompanyLogoFromXpath(new \DOMXPath($document));
+    }
+
+    protected function extractCompanyLogoFromXpath(\DOMXPath $xpath): string
+    {
+        $logoImg = $xpath->query('//img[contains(@class,"company_logo")]')?->item(0);
+
+        if (! $logoImg instanceof \DOMElement) {
+            return '';
+        }
+
+        $logo = '';
+        foreach (['data-lazy-src', 'data-src', 'data-original', 'src'] as $attribute) {
+            $value = trim($logoImg->getAttribute($attribute));
+            if ($value !== '' && ! str_starts_with($value, 'data:')) {
+                $logo = $value;
+                break;
+            }
+        }
+
+        // Strip -150x150 thumbnail suffix to get the full-size image.
+        return preg_replace('/-\d+x\d+(\.\w+)$/', '$1', $logo) ?? '';
     }
 
     protected function domNodeInnerHtml(\DOMNode $node): string
@@ -6557,8 +6604,12 @@ class JobCrawlerRunner
             return null;
         }
 
+        // Company::name is cast through SafeContent, which HTML-encodes special
+        // characters (e.g. "&" becomes "&amp;") before storage — comparing the raw
+        // scraped name against the stored value would never match an existing
+        // company, silently creating a fresh duplicate for every job processed.
         $company = Company::query()
-            ->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower($name)])
+            ->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower(BaseHelper::clean($name))])
             ->first();
 
         if ($company) {
@@ -6577,7 +6628,184 @@ class JobCrawlerRunner
 
     protected function cleanStructuredJobContent(string $content): string
     {
-        return trim(strip_tags($content, '<p><br><h2><h3><h4><h5><h6><ul><ol><li><strong><b><em><a>'));
+        $cleaned = trim(strip_tags($content, '<p><br><h2><h3><h4><h5><h6><ul><ol><li><strong><b><em><a>'));
+
+        if ($cleaned === '' || preg_match('/<\s*(p|div|section|article|h[1-6]|ul|ol|li|br)\b/i', $cleaned)) {
+            return $cleaned;
+        }
+
+        if (preg_match('/\bJob Summary\b.*\bType\s*:.*\bClosing Date\s*:/s', $cleaned)) {
+            return $this->formatLabeledJobSummaryContent($cleaned);
+        }
+
+        return $this->formatPlainTextToHtml($cleaned);
+    }
+
+    /**
+     * Some WP Job Manager sources (e.g. Botswana Jobs) flatten their description into a
+     * fixed "Job Summary Type: ... Location: ... Category: ... Closing Date: ..." block
+     * followed by "Key Responsibilities" / "Requirements" / "How to Apply" sections whose
+     * bullet items are glued together with no delimiter other than a lowercase-to-uppercase
+     * case change (e.g. "structuresPerform welding"). Split on known section headings first,
+     * then split each section's body on that glued-sentence boundary.
+     */
+    protected function formatLabeledJobSummaryContent(string $text): string
+    {
+        $headings = ['Job Summary', 'Key Responsibilities', 'Requirements', 'How to Apply'];
+        $pattern = '/\b(' . implode('|', array_map(fn (string $h) => preg_quote($h, '/'), $headings)) . ')\b/';
+
+        preg_match_all($pattern, $text, $matches, PREG_OFFSET_CAPTURE);
+
+        if (! $matches[0]) {
+            return $this->formatPlainTextToHtml($text);
+        }
+
+        $offsets = $matches[0];
+        $sections = [];
+
+        if ($offsets[0][1] > 0) {
+            $sections[] = ['heading' => null, 'body' => trim(substr($text, 0, $offsets[0][1]))];
+        }
+
+        foreach ($offsets as $index => [$heading, $start]) {
+            $bodyStart = $start + mb_strlen($heading);
+            $bodyEnd = $offsets[$index + 1][1] ?? mb_strlen($text);
+            $sections[] = ['heading' => $heading, 'body' => trim(mb_substr($text, $bodyStart, $bodyEnd - $bodyStart))];
+        }
+
+        $html = [];
+
+        foreach ($sections as ['heading' => $heading, 'body' => $body]) {
+            if ($heading === 'Job Summary') {
+                $html[] = $this->formatJobSummaryLabels($body);
+
+                continue;
+            }
+
+            if ($body === '') {
+                continue;
+            }
+
+            if ($heading !== null) {
+                $html[] = '<h3>' . e($heading) . '</h3>';
+            }
+
+            $fragments = $this->splitGluedSentences($body);
+
+            if ($heading === 'Key Responsibilities' || $heading === 'Requirements') {
+                $html[] = '<ul>' . implode('', array_map(fn (string $f) => '<li>' . e($f) . '</li>', $fragments)) . '</ul>';
+            } else {
+                foreach ($fragments as $fragment) {
+                    $html[] = '<p>' . e($fragment) . '</p>';
+                }
+            }
+        }
+
+        return implode('', array_filter($html));
+    }
+
+    protected function formatJobSummaryLabels(string $body): string
+    {
+        preg_match_all(
+            '/\b(Type|Location|Category|Closing Date)\s*:\s*(.*?)(?=\s*\b(?:Type|Location|Category|Closing Date)\s*:|$)/s',
+            $body,
+            $matches,
+            PREG_SET_ORDER
+        );
+
+        $items = [];
+
+        foreach ($matches as $match) {
+            $value = trim($match[2]);
+
+            if ($value === '') {
+                continue;
+            }
+
+            $items[] = '<li><strong>' . e(trim($match[1])) . ':</strong> ' . e($value) . '</li>';
+        }
+
+        return $items ? '<ul>' . implode('', $items) . '</ul>' : '';
+    }
+
+    /**
+     * Splits text on real sentence boundaries (punctuation + whitespace + capital) and on
+     * glued boundaries where two sentences run together with zero whitespace between them.
+     */
+    protected function splitGluedSentences(string $text): array
+    {
+        $parts = preg_split('/(?<=[.!?])\s*(?=[A-Z])|(?<=[a-z0-9\)])(?=[A-Z])/', trim($text)) ?: [];
+
+        return array_values(array_filter(array_map(trim(...), $parts), fn (string $p) => $p !== ''));
+    }
+
+    /**
+     * Many structured job sources (schema.org JSON-LD `description`) flatten their
+     * content into one plain-text run with no paragraph/list markup. Rebuild basic
+     * paragraph and list structure from sentence boundaries so it renders sanely
+     * inside the `.ck-content` rich-text wrapper instead of as a single blob.
+     */
+    protected function formatPlainTextToHtml(string $text): string
+    {
+        $parts = preg_split('/(?<=[.!?:])\s+(?=[A-Z0-9])/', trim($text)) ?: [];
+        $sentences = array_values(array_filter(array_map(trim(...), $parts)));
+
+        if (! $sentences) {
+            return e($text);
+        }
+
+        $blocks = [];
+        $paragraph = [];
+        $listItems = [];
+        $inList = false;
+
+        $flushParagraph = function () use (&$paragraph, &$blocks): void {
+            if ($paragraph) {
+                $blocks[] = '<p>' . e(implode(' ', $paragraph)) . '</p>';
+                $paragraph = [];
+            }
+        };
+
+        $flushList = function () use (&$listItems, &$blocks): void {
+            if ($listItems) {
+                $blocks[] = '<ul>' . implode('', array_map(fn (string $item) => '<li>' . e($item) . '</li>', $listItems)) . '</ul>';
+                $listItems = [];
+            }
+        };
+
+        foreach ($sentences as $sentence) {
+            if (str_ends_with(rtrim($sentence), ':')) {
+                $flushList();
+                $flushParagraph();
+                $blocks[] = '<p>' . e($sentence) . '</p>';
+                $inList = true;
+                continue;
+            }
+
+            if ($inList) {
+                $looksLikeNewParagraph = mb_strlen($sentence) > 200
+                    || preg_match('/^(About |Based in|How to Apply|Interested candidates|Please |Additionally,|This role|The role)/i', $sentence);
+
+                if (! $looksLikeNewParagraph) {
+                    $listItems[] = $sentence;
+                    continue;
+                }
+
+                $flushList();
+                $inList = false;
+            }
+
+            $paragraph[] = $sentence;
+
+            if (count($paragraph) >= 2 || mb_strlen(implode(' ', $paragraph)) > 220) {
+                $flushParagraph();
+            }
+        }
+
+        $flushList();
+        $flushParagraph();
+
+        return implode('', $blocks);
     }
 
     protected function structuredJobRequest(string $url): \Illuminate\Http\Client\Response
