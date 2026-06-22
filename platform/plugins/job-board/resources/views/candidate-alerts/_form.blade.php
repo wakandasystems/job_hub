@@ -777,6 +777,31 @@
 <script>
 (function () {
 
+    const fpTypeColors = {
+        keyword:  { bg: '#fff3cd', border: '#ffc107', icon: 'fas fa-search',          label: 'Keyword' },
+        company:  { bg: '#d1ecf1', border: '#0dcaf0', icon: 'fas fa-building',        label: 'Company' },
+        job_type: { bg: '#cce5ff', border: '#0d6efd', icon: 'fas fa-briefcase',       label: 'Job Type' },
+        category: { bg: '#d4edda', border: '#198754', icon: 'fas fa-tags',            label: 'Category' },
+        country:  { bg: '#e2d9f3', border: '#6f42c1', icon: 'fas fa-globe',           label: 'Country' },
+        location: { bg: '#fde8d8', border: '#fd7e14', icon: 'fas fa-map-marker-alt',  label: 'Location' },
+    };
+
+    // Builds the "Matched On" column: one small badge per match reason, with a
+    // hover tooltip showing the field + snippet so the keyword is visible without clicking.
+    function buildMatchSummary(reasons) {
+        if (!reasons || !reasons.length) {
+            return '<span class="text-muted">—</span>';
+        }
+
+        return reasons.map(r => {
+            const cfg  = fpTypeColors[r.type] || { bg: '#f8f9fa', border: '#6c757d', label: r.type };
+            const text = r.keyword || r.snippet || cfg.label;
+            const tooltip = escFp((r.field ? r.field + ': ' : '') + (r.snippet || text));
+
+            return `<span class="badge me-1 mb-1" style="background:${cfg.bg};border:1px solid ${cfg.border};color:#333;font-weight:500" title="${tooltip}">${escFp(text)}</span>`;
+        }).join('');
+    }
+
     // ── Filter preview eye button ─────────────────────────────────────────────
     $(document).on('click', '.btn-preview-filters', function () {
         const $btn = $(this);
@@ -846,20 +871,23 @@
 
             let html = '<table class="table table-sm table-hover mb-0 align-middle fp-jobs-table">'
                 + '<thead class="table-light"><tr>'
-                + '<th style="width:30px">#</th><th>Job Title</th><th>Company</th><th>Location</th><th style="width:85px">Posted</th>'
+                + '<th style="width:30px">#</th><th>Job Title</th><th>Company</th><th>Location</th><th style="width:85px">Posted</th><th style="width:160px">Matched On</th>'
                 + '</tr></thead><tbody>';
 
             jobs.forEach((job, i) => {
-                const reasonsJson = escFp(JSON.stringify(job.match_reasons || []));
+                const reasons      = job.match_reasons || [];
+                const reasonsJson  = escFp(JSON.stringify(reasons));
+                const matchSummary = buildMatchSummary(reasons);
                 html += `<tr class="fp-job-row" style="cursor:pointer" data-reasons="${reasonsJson}" title="Click to see why this job matched">
                     <td class="text-muted text-center">${i + 1}</td>
                     <td class="fw-semibold" style="max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escFp(job.name)}</td>
                     <td class="text-muted small">${escFp(job.company)}</td>
                     <td class="text-muted small">${escFp(job.location || job.country || '')}</td>
                     <td class="text-muted small text-nowrap">${escFp(job.created)}</td>
+                    <td>${matchSummary}</td>
                 </tr>
                 <tr class="fp-reason-row d-none">
-                    <td colspan="5" class="p-0"></td>
+                    <td colspan="6" class="p-0"></td>
                 </tr>`;
             });
 
@@ -904,14 +932,7 @@
             return;
         }
 
-        const typeColors = {
-            keyword:  { bg: '#fff3cd', border: '#ffc107', icon: 'fas fa-search',          label: 'Keyword' },
-            company:  { bg: '#d1ecf1', border: '#0dcaf0', icon: 'fas fa-building',        label: 'Company' },
-            job_type: { bg: '#cce5ff', border: '#0d6efd', icon: 'fas fa-briefcase',       label: 'Job Type' },
-            category: { bg: '#d4edda', border: '#198754', icon: 'fas fa-tags',            label: 'Category' },
-            country:  { bg: '#e2d9f3', border: '#6f42c1', icon: 'fas fa-globe',           label: 'Country' },
-            location: { bg: '#fde8d8', border: '#fd7e14', icon: 'fas fa-map-marker-alt',  label: 'Location' },
-        };
+        const typeColors = fpTypeColors;
 
         let html = '<div class="px-3 py-2" style="background:#f8faff;border-top:2px solid #0d6efd22">';
         html += '<div class="small fw-semibold text-primary mb-2"><i class="fas fa-info-circle me-1"></i>Why this job matched:</div>';
