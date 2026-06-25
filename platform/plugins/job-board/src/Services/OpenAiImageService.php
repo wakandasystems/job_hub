@@ -4,6 +4,9 @@ namespace Botble\JobBoard\Services;
 
 use Botble\JobBoard\Models\AiImageGenerationLog;
 use Botble\JobBoard\Models\Job;
+use Botble\JobBoard\Models\SalesAgent;
+use Botble\JobBoard\Models\SalesAgentCampaign;
+use Botble\Media\Facades\RvMedia;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -88,6 +91,14 @@ class OpenAiImageService
             '1024x1536' => ['low' => 0.016, 'medium' => 0.063, 'high' => 0.250],
             '1536x1024' => ['low' => 0.016, 'medium' => 0.063, 'high' => 0.250],
         ],
+    ];
+
+    private const SALES_AGENT_POSTER_FOLDER = 'sales-agents/posters';
+
+    private const SALES_AGENT_SIZES = [
+        'portrait_4_5'   => '1024x1536',
+        'square_1_1'     => '1024x1024',
+        'landscape_16_9' => '1536x1024',
     ];
 
     public function __construct(private SocialPublisherService $publisher)
@@ -425,6 +436,354 @@ class OpenAiImageService
         }
     }
 
+    /**
+     * Generate a marketing poster for a sales agent's campaign via the same image-edits
+     * endpoint used for job images. $subjectMode picks which face is used as the photo
+     * reference: the shared "Nakia" persona (default, consistent across every agent),
+     * the agent's own uploaded photo, or both blended together.
+     *
+     * @return array{ok: bool, path?: string, url?: string, cost_usd?: float, message?: string}
+     */
+    public function generateForSalesAgentPoster(SalesAgent $agent, SalesAgentCampaign $campaign, string $subjectMode = 'nakia'): array
+    {
+        if (! $this->isConfigured()) {
+            return ['ok' => false, 'message' => 'OpenAI API key is not configured.'];
+        }
+
+        $preview = $this->previewSalesAgentPoster($agent, $campaign, $subjectMode);
+        $prompt = $preview['prompt'] ?? '';
+
+        if (trim($prompt) === '') {
+            return ['ok' => false, 'message' => 'Empty prompt template for this campaign.'];
+        }
+
+        if (! ($preview['ok'] ?? false)) {
+            return ['ok' => false, 'message' => $preview['message'] ?? 'Image references are not ready.'];
+        }
+
+        $resolvedReferences = $this->resolveSalesAgentReferences($agent, $subjectMode);
+        $references = array_values(array_map(
+            static fn (array $reference): array => [
+                'content' => $reference['content'],
+                'filename' => $reference['filename'],
+            ],
+            array_filter($resolvedReferences, static fn (array $reference): bool => $reference['available'] && $reference['content'] !== null)
+        ));
+
+        if (empty($references)) {
+            return [
+                'ok' => false,
+                'message' => 'No reference images could be loaded. Upload the Nakia photo/logo under Sales Agents → Marketing Campaigns, or a photo on this agent.',
+            ];
+        }
+
+        $model = $this->model();
+        $format = $this->outputFormat();
+        $quality = $this->quality();
+        $background = $this->background();
+        $size = self::SALES_AGENT_SIZES[$campaign->aspect_ratio] ?? '1024x1536';
+
+        try {
+            $request = Http::withToken($this->apiKey())->timeout(180);
+
+            foreach ($references as $ref) {
+                $request = $request->attach('image[]', $ref['content'], $ref['filename']);
+            }
+
+            $payload = [
+                'model'         => $model,
+                'prompt'        => $prompt,
+                'size'          => $size,
+                'n'             => 1,
+                'quality'       => $quality,
+                'background'    => $background,
+                'output_format' => $format,
+            ];
+
+            if (in_array($format, ['jpeg', 'webp'], true)) {
+                $payload['output_compression'] = $this->outputCompression();
+            }
+
+            Log::info('OpenAI sales agent poster request prepared', [
+                'agent_id' => $agent->getKey(),
+                'campaign_id' => $campaign->getKey(),
+                'subject_mode' => $subjectMode,
+                'reference_files' => array_values(array_map(static fn (array $reference): array => [
+                    'key' => $reference['key'],
+                    'label' => $reference['label'],
+                    'filename' => $reference['filename'],
+                    'url' => $reference['url'],
+                    'required' => $reference['required'],
+                    'available' => $reference['available'],
+                ], array_filter($resolvedReferences, static fn (array $reference): bool => $reference['available']))),
+                'prompt' => $prompt,
+                'payload_meta' => [
+                    'model' => $model,
+                    'size' => $size,
+                    'quality' => $quality,
+                    'background' => $background,
+                    'output_format' => $format,
+                ],
+            ]);
+
+            $requestStartedAt = microtime(true);
+            $response = $request->post(self::ENDPOINT, $payload);
+            $durationMs = (int) round((microtime(true) - $requestStartedAt) * 1000);
+
+            if (! $response->successful()) {
+                $apiMessage = $response->json('error.message') ?: ('HTTP ' . $response->status());
+
+                Log::error('OpenAI sales agent poster generation failed', [
+                    'agent_id' => $agent->getKey(),
+                    'campaign_id' => $campaign->getKey(),
+                    'status' => $response->status(),
+                    'error' => $apiMessage,
+                ]);
+
+                return [
+                    'ok' => false,
+                    'message' => 'OpenAI error: ' . $apiMessage,
+                    'rate_limited' => $response->status() === 429,
+                    'retry_after' => (int) ($response->header('retry-after') ?: 0),
+                ];
+            }
+
+            $b64 = $response->json('data.0.b64_json');
+            if (! $b64) {
+                return ['ok' => false, 'message' => 'OpenAI returned no image data.'];
+            }
+
+            $binary = base64_decode($b64, true);
+            if ($binary === false || $binary === '') {
+                return ['ok' => false, 'message' => 'Could not decode generated image.'];
+            }
+
+            $extension = $this->extensionForFormat($format);
+            $path = self::SALES_AGENT_POSTER_FOLDER . '/' . Str::random(40) . '.' . $extension;
+
+            Storage::disk('public')->put($path, $binary);
+
+            $usage = $this->extractUsage($response->json());
+            $cost = $this->estimateCost($model, $quality, $size, $usage);
+
+            return [
+                'ok'            => true,
+                'path'          => $path,
+                'url'           => Storage::disk('public')->url($path),
+                'cost_usd'      => $cost['total_cost_usd'],
+                'duration_ms'   => $durationMs,
+                'input_tokens'  => $usage['input_tokens'],
+                'output_tokens' => $usage['output_tokens'],
+                'total_tokens'  => $usage['total_tokens'],
+            ];
+        } catch (\Throwable $e) {
+            Log::error('OpenAI sales agent poster generation exception', [
+                'agent_id' => $agent->getKey(),
+                'campaign_id' => $campaign->getKey(),
+                'error' => $e->getMessage(),
+            ]);
+
+            return ['ok' => false, 'message' => 'Server error: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * @return array{
+     *   ok: bool,
+     *   prompt: string,
+     *   references: array<int, array{key: string, label: string, url: ?string, required: bool, available: bool}>,
+     *   message?: string
+     * }
+     */
+    public function previewSalesAgentPoster(SalesAgent $agent, SalesAgentCampaign $campaign, string $subjectMode = 'nakia'): array
+    {
+        $prompt = $this->buildSalesAgentPrompt($agent, $campaign, $subjectMode);
+        $references = array_values(array_map(
+            static fn (array $reference): array => [
+                'key' => $reference['key'],
+                'label' => $reference['label'],
+                'url' => $reference['url'],
+                'required' => $reference['required'],
+                'available' => $reference['available'],
+                'filename' => $reference['filename'],
+            ],
+            $this->resolveSalesAgentReferences($agent, $subjectMode)
+        ));
+        $missingRequired = array_values(array_filter($references, static fn (array $reference): bool => $reference['required'] && ! $reference['available']));
+
+        if ($missingRequired !== []) {
+            $labels = implode(', ', array_map(static fn (array $reference): string => $reference['label'], $missingRequired));
+
+            return [
+                'ok' => false,
+                'prompt' => $prompt,
+                'references' => $references,
+                'message' => 'Required image references are missing: ' . $labels . '.',
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'prompt' => $prompt,
+            'references' => $references,
+        ];
+    }
+
+    private function buildSalesAgentPrompt(SalesAgent $agent, SalesAgentCampaign $campaign, string $subjectMode): string
+    {
+        $replacements = [
+            '{{agent_name}}' => $agent->name,
+            '{{agent_phone}}' => $agent->phone,
+            '{{agent_code}}' => $agent->code,
+            '{{promo_price}}' => (string) $campaign->promo_price,
+            '{{promo_original_price}}' => (string) $campaign->promo_original_price,
+            '{{promo_end_date}}' => $campaign->promo_end_date?->format('d M Y') ?? '',
+        ];
+
+        $campaignPrompt = str_replace(array_keys($replacements), array_values($replacements), $campaign->prompt_template);
+
+        return trim(implode("\n\n", array_filter([
+            "Generate one polished Wakanda Jobs sales-agent campaign poster.",
+            $this->salesAgentReferencePrompt($agent, $subjectMode),
+            "Use the attached Wakanda Jobs logo references as brand elements only. Keep the text fully legible, premium, modern, and WhatsApp-shareable.",
+            $campaignPrompt,
+            "Do not include any document, card, contract, or paperwork prop anywhere in the image — no employment contract, no signed papers, nothing being handed over or presented. The person(s) should not be holding or gesturing toward any such object.",
+            "CRITICAL REALISM REQUIREMENT: render every person's skin with natural, photographic texture — visible pores, fine skin texture, subtle natural imperfections and asymmetry, like an unedited photo straight out of a professional camera. Avoid airbrushed, plastic, glossy, overly smooth, or 'beauty filter' skin. Avoid a CGI, 3D-rendered, illustrated, or synthetic/AI-generated look. Hands and fingers should look anatomically natural, not overly perfect or smoothed. The result should look like a real photograph of a real person, not a digital render.",
+            $this->salesAgentSubjectOverridePrompt($agent, $subjectMode),
+        ])));
+    }
+
+    /**
+     * Campaign prompt templates above may contain a literal physical description of
+     * a person (written for the default Nakia persona). When a different subject_mode
+     * is selected, that description otherwise out-weighs the brief reference instruction
+     * and the model keeps rendering Nakia regardless of which photo was attached. Re-stating
+     * the override last, after the campaign brief, makes it win.
+     */
+    private function salesAgentSubjectOverridePrompt(SalesAgent $agent, string $subjectMode): ?string
+    {
+        return match ($subjectMode) {
+            'agent' => "FINAL OVERRIDE (this takes precedence over any conflicting physical description above): the person in this poster is {$agent->name}, rendered using the attached agent photo as the only face/identity AND outfit reference. Ignore any ethnicity, hairstyle, build, or clothing description above (including any purple blazer or Ndebele-pattern trim) that does not match the attached agent photo — keep ONLY the pose, layout, and composition from the brief. The face and the outfit/clothing must both come from the attached agent photo exactly as worn there; do not redress {$agent->name} in different clothing. This applies EVEN IF the attached photo shows casual clothing (e.g. a t-shirt, striped shirt, tank top, or jeans) — keep that exact casual outfit as-is. Do NOT upgrade, formalize, or replace it with a blazer, suit, or business attire, and do NOT put {$agent->name} in a purple blazer or Ndebele-pattern trim under any circumstances, regardless of gender. FACE FIDELITY: copy the face from the attached agent photo as exactly as possible — same face shape, eyes, nose, mouth, skin tone, and hairstyle. Do NOT beautify, smooth, idealize, de-age, or genericize the face into a stock-photo look; the output face must be immediately recognizable as the same person in the attached photo, not just a similar-looking model.",
+            'both' => "FINAL OVERRIDE (this takes precedence over any conflicting layout or pose description above): render this as a TWO-PERSON composition in the same right-column area: Nakia (face AND outfit from the attached Nakia photo — she wears her own purple blazer look) and {$agent->name} (face AND outfit from the attached agent photo only) STANDING side by side, both facing the camera, both fully visible from roughly the waist up, both clearly recognizable as two distinct individuals, equally lit and in focus, neither hidden, cropped out, nor blended into a single face. {$agent->name}'s clothing must come ONLY from the attached agent photo exactly as worn there, even if it is casual (t-shirt, striped shirt, tank top, jeans, etc.) — do NOT put {$agent->name} in a purple blazer, Ndebele-pattern trim, or any outfit matching Nakia's; the two people must visibly wear different, distinct outfits matching their own respective photos. FACE FIDELITY: copy each person's face from their own attached photo as exactly as possible — same face shape, eyes, nose, mouth, skin tone, and hairstyle for both Nakia and {$agent->name}. Do NOT beautify, smooth, idealize, de-age, or genericize either face into a stock-photo look; both output faces must be immediately recognizable as the same people in their attached photos. Do NOT include an office desk or a laptop in this composition — there is no desk, no laptop, both are simply standing. Do NOT have either person hold, present, or gesture toward any document, card, contract, or paperwork of any kind — no such object should appear anywhere in the image. Both faces must be present in the final image; an image containing only one of them is wrong.",
+            default => null,
+        };
+    }
+
+    private function salesAgentReferencePrompt(SalesAgent $agent, string $subjectMode): string
+    {
+        return match ($subjectMode) {
+            'agent' => "Use the attached agent photo as the only human reference. Preserve the agent's EXACT facial identity as closely as possible: the same face shape, eyes, nose, mouth, skin tone, hairstyle, and any distinguishing features (facial hair, glasses, marks) seen in the attached photo. Treat the face as a likeness to match, not a starting point to reinterpret — do not beautify, idealize, swap to a different ethnicity, change the apparent age, or drift toward a generic stock-photo face. Only the pose, lighting, and framing should be restyled into a polished marketing poster; the face itself must stay recognizably {$agent->name} as seen in the reference photo. Do not use Nakia, do not invent a second person, and do not replace the agent with a generic model.",
+            'both' => "Use the attached Nakia photo and the attached agent photo together. Combine them into one coherent campaign visual, using Nakia as the lead Wakanda Jobs marketing persona and {$agent->name} as the featured local agent. For BOTH people, preserve their EXACT facial identity from their respective attached photos as closely as possible: same face shape, eyes, nose, mouth, skin tone, hairstyle, and any distinguishing features — do not beautify, idealize, or genericize either face. {$agent->name}'s face must stay recognizably his/her own from the agent photo, not a stylized approximation. Keep both faces recognizable, natural, and professionally integrated in the same poster. Do not omit either person.",
+            default => "Use the attached Nakia photo as the main human reference for the poster. Do not use any other person as the main subject unless the campaign prompt explicitly requires it.",
+        };
+    }
+
+    /**
+     * @return array<int, array{
+     *   key: string,
+     *   label: string,
+     *   url: ?string,
+     *   required: bool,
+     *   available: bool,
+     *   filename: string,
+     *   content: ?string
+     * }>
+     */
+    private function resolveSalesAgentReferences(SalesAgent $agent, string $subjectMode): array
+    {
+        $references = [];
+
+        foreach (self::WJ_LOGOS as $index => $url) {
+            $references[] = [
+                'key' => 'wakanda_logo_' . ($index + 1),
+                'label' => 'Wakanda logo ' . ($index + 1),
+                'url' => $url,
+                'required' => false,
+                'available' => true,
+                'filename' => 'wakanda-logo-' . ($index + 1) . '.png',
+                'content' => $this->fetchBytes($url),
+            ];
+        }
+
+        $nakiaUrl = $this->settingImageUrl('sales_agent_nakia_image')
+            ?? $this->settingImageUrl('auto_cv_bot_persona_image');
+        $agentUrl = $agent->photoUrl();
+        $salesAgentLogoUrl = $this->settingImageUrl('sales_agent_logo_image');
+
+        if (in_array($subjectMode, ['nakia', 'both'], true)) {
+            $references[] = [
+                'key' => 'nakia',
+                'label' => 'Nakia reference',
+                'url' => $nakiaUrl,
+                'required' => true,
+                'available' => filled($nakiaUrl),
+                'filename' => 'nakia.png',
+                'content' => $nakiaUrl ? $this->fetchBytes($nakiaUrl) : null,
+            ];
+        }
+
+        if (in_array($subjectMode, ['agent', 'both'], true)) {
+            $references[] = [
+                'key' => 'agent',
+                'label' => 'Sales agent photo',
+                'url' => $agentUrl,
+                'required' => true,
+                'available' => filled($agentUrl),
+                'filename' => 'agent-photo.png',
+                'content' => $agentUrl ? $this->fetchBytes($agent->photo ?: $agentUrl) : null,
+            ];
+        }
+
+        if (filled($salesAgentLogoUrl)) {
+            $references[] = [
+                'key' => 'sales_agent_logo',
+                'label' => 'Sales agent logo',
+                'url' => $salesAgentLogoUrl,
+                'required' => false,
+                'available' => true,
+                'filename' => 'sales-agent-logo.png',
+                'content' => $this->fetchBytes($salesAgentLogoUrl),
+            ];
+        }
+
+        foreach ($references as &$reference) {
+            if ($reference['required']) {
+                $reference['available'] = $reference['available'] && $reference['content'] !== null && $reference['content'] !== '';
+            } else {
+                $reference['available'] = $reference['content'] !== null && $reference['content'] !== '';
+            }
+        }
+        unset($reference);
+
+        return $references;
+    }
+
+    private function fetchSettingImageBytes(string $settingKey): ?string
+    {
+        $url = trim((string) setting($settingKey, ''));
+
+        if ($url === '') {
+            return null;
+        }
+
+        if (! RvMedia::isUsingCloud()) {
+            $path = RvMedia::getRealPath($url);
+
+            return is_file($path) ? (@file_get_contents($path) ?: null) : null;
+        }
+
+        $contents = @file_get_contents(RvMedia::getImageUrl($url));
+
+        return $contents !== false ? $contents : null;
+    }
+
+    private function settingImageUrl(string $settingKey): ?string
+    {
+        $url = trim((string) setting($settingKey, ''));
+
+        return $url !== '' ? RvMedia::getImageUrl($url) : null;
+    }
+
     private function buildPrompt(Job $job, string $type): string
     {
         return match ($type) {
@@ -469,7 +828,7 @@ class OpenAiImageService
     {
         try {
             if (Str::startsWith($pathOrUrl, ['http://', 'https://'])) {
-                $response = Http::timeout(30)->get($pathOrUrl);
+                $response = Http::retry(2, 200)->timeout(30)->get($pathOrUrl);
 
                 return $response->successful() ? $response->body() : null;
             }

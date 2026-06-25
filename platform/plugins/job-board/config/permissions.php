@@ -481,4 +481,59 @@ return [
         'flag' => 'auto-cv-bot.create',
         'parent_flag' => 'auto-cv-bot.index',
     ],
+    [
+        'name' => 'Sales Agents',
+        'flag' => 'sales-agents.index',
+        'parent_flag' => 'plugins.job-board',
+    ],
+    [
+        'name' => 'Create',
+        'flag' => 'sales-agents.create',
+        'parent_flag' => 'sales-agents.index',
+    ],
+    [
+        'name' => 'Edit',
+        'flag' => 'sales-agents.edit',
+        'parent_flag' => 'sales-agents.index',
+    ],
+    [
+        'name' => 'Delete',
+        'flag' => 'sales-agents.destroy',
+        'parent_flag' => 'sales-agents.index',
+    ],
+    [
+        'name' => 'Sales Agent Campaigns',
+        'flag' => 'sales-agent-campaigns.index',
+        'parent_flag' => 'sales-agents.index',
+    ],
+    [
+        'name' => 'Generated Images',
+        'flag' => 'sales-agent-campaigns.generated-images',
+        'parent_flag' => 'sales-agents.index',
+    ],
+    [
+        'name' => 'Create',
+        'flag' => 'sales-agent-campaigns.create',
+        'parent_flag' => 'sales-agent-campaigns.index',
+    ],
+    [
+        'name' => 'Edit',
+        'flag' => 'sales-agent-campaigns.edit',
+        'parent_flag' => 'sales-agent-campaigns.index',
+    ],
+    [
+        'name' => 'Delete',
+        'flag' => 'sales-agent-campaigns.destroy',
+        'parent_flag' => 'sales-agent-campaigns.index',
+    ],
+    [
+        'name' => 'Sales Agent Commissions',
+        'flag' => 'sales-agent-commissions.index',
+        'parent_flag' => 'sales-agents.index',
+    ],
+    [
+        'name' => 'Edit',
+        'flag' => 'sales-agent-commissions.edit',
+        'parent_flag' => 'sales-agent-commissions.index',
+    ],
 ];

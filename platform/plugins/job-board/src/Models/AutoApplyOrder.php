@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Models;
 
 use Botble\Base\Models\BaseModel;
+use Botble\JobBoard\Services\SalesAgentService;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
@@ -12,6 +13,10 @@ class AutoApplyOrder extends BaseModel
 
     protected $fillable = [
         'account_id',
+        'sales_agent_id',
+        'sales_agent_original_amount',
+        'sales_agent_discount_amount',
+        'sales_agent_code',
         'plan',
         'duration_days',
         'applications_allowed',
@@ -27,6 +32,8 @@ class AutoApplyOrder extends BaseModel
 
     protected $casts = [
         'amount'      => 'decimal:2',
+        'sales_agent_original_amount' => 'decimal:2',
+        'sales_agent_discount_amount' => 'decimal:2',
         'approved_at' => 'datetime',
     ];
 
@@ -84,10 +91,26 @@ class AutoApplyOrder extends BaseModel
         return $this->belongsTo(Account::class, 'account_id');
     }
 
+    public function salesAgent(): BelongsTo
+    {
+        return $this->belongsTo(SalesAgent::class, 'sales_agent_id');
+    }
+
     public function planLabel(): string
     {
         return self::plan($this->plan, includeDisabled: true)['label']
             ?? ucfirst(str_replace('_', ' ', $this->plan));
+    }
+
+    public function currentApplicationsAllowed(): int
+    {
+        $plan = self::plan($this->plan, includeDisabled: true);
+
+        if ($plan) {
+            return (int) ($plan['applications_per_month'] ?? 0);
+        }
+
+        return (int) $this->applications_allowed;
     }
 
     public function approve(): void
@@ -101,6 +124,16 @@ class AutoApplyOrder extends BaseModel
             'admin_status' => 'approved',
             'approved_at'  => now(),
         ]);
+
+        if ($this->sales_agent_id) {
+            $agent = SalesAgent::query()->find($this->sales_agent_id);
+
+            if ($agent) {
+                $service = app(SalesAgentService::class);
+                $service->recordReferral($agent, $this->account?->phone, $this->sales_agent_code, 'auto_apply', $this->account_id);
+                $service->creditCommission($agent, 'auto_apply_order', $this->getKey(), (float) $this->amount, $this->currency);
+            }
+        }
 
         // Activate the candidate's auto-apply preference
         AutoApplyPreference::updateOrCreate(
@@ -190,7 +223,7 @@ class AutoApplyOrder extends BaseModel
 
     public function applicationsAllowedForCycle(int $cycleIndex): int
     {
-        $rawAllowance = (int) $this->applications_allowed;
+        $rawAllowance = $this->currentApplicationsAllowed();
 
         if ($rawAllowance <= 0) {
             return -1;
@@ -212,13 +245,15 @@ class AutoApplyOrder extends BaseModel
 
     public function applicationsLabel(): string
     {
-        if ((int) $this->applications_allowed <= 0) {
+        $applicationsAllowed = $this->currentApplicationsAllowed();
+
+        if ($applicationsAllowed <= 0) {
             return 'Unlimited';
         }
 
         return $this->duration_days < 30
-            ? $this->applications_allowed . ' per plan'
-            : $this->applications_allowed . ' per 30 days';
+            ? $applicationsAllowed . ' per plan'
+            : $applicationsAllowed . ' per 30 days';
     }
 
     public static function statuses(): array

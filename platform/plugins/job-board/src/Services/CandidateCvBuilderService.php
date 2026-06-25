@@ -35,7 +35,7 @@ class CandidateCvBuilderService
             'List certificates, licences, trainings, or awards you have.',
             'Which languages do you speak, and what level?',
             'Who can be listed as references? Include name, role/company, phone, and email if available. If not, say "Available on request".',
-            'Is there anything else important for your CV, such as achievements, leadership, availability, or preferred location?',
+            'I have captured the main CV details so far. Is there anything *additional* you want on your CV, such as achievements, leadership, availability, or preferred location?',
         ];
     }
 

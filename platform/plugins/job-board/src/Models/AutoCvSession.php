@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Models;
 
 use Botble\Base\Models\BaseModel;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class AutoCvSession extends BaseModel
@@ -11,6 +12,8 @@ class AutoCvSession extends BaseModel
 
     protected $fillable = [
         'admin_id',
+        'sales_agent_id',
+        'sales_agent_code',
         'candidate_name',
         'whatsapp_number',
         'status',
@@ -44,6 +47,8 @@ class AutoCvSession extends BaseModel
         'awaiting_cv_upload',
         'awaiting_cv_photo',
         'candidate_photo_path',
+        'cv_recheck_requested',
+        'references_available_on_request',
     ];
 
     protected $casts = [
@@ -71,10 +76,17 @@ class AutoCvSession extends BaseModel
         'reopen_warning_sent_at' => 'datetime',
         'awaiting_cv_upload' => 'boolean',
         'awaiting_cv_photo' => 'boolean',
+        'cv_recheck_requested' => 'boolean',
+        'references_available_on_request' => 'boolean',
     ];
 
     public function messages(): HasMany
     {
         return $this->hasMany(AutoCvMessage::class, 'session_id');
+    }
+
+    public function salesAgent(): BelongsTo
+    {
+        return $this->belongsTo(SalesAgent::class, 'sales_agent_id');
     }
 }

@@ -14,6 +14,10 @@ class CareerServiceOrder extends BaseModel
         'service_name',
         'amount',
         'currency',
+        'sales_agent_id',
+        'sales_agent_original_amount',
+        'sales_agent_discount_amount',
+        'sales_agent_code',
         'customer_name',
         'customer_email',
         'customer_phone',
@@ -34,6 +38,8 @@ class CareerServiceOrder extends BaseModel
 
     protected $casts = [
         'amount' => 'float',
+        'sales_agent_original_amount' => 'float',
+        'sales_agent_discount_amount' => 'float',
         'delivered_at' => 'datetime',
         'ai_cv_feedback' => 'array',
     ];
@@ -53,6 +59,11 @@ class CareerServiceOrder extends BaseModel
     public function candidate(): BelongsTo
     {
         return $this->belongsTo(Account::class, 'candidate_id');
+    }
+
+    public function salesAgent(): BelongsTo
+    {
+        return $this->belongsTo(SalesAgent::class, 'sales_agent_id');
     }
 
     public static function services(): array

@@ -23,6 +23,7 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Foundation\Auth\Access\Authorizable;
 use Illuminate\Notifications\Notifiable;
@@ -160,6 +161,11 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
     public function avatar(): BelongsTo
     {
         return $this->belongsTo(MediaFile::class)->withDefault();
+    }
+
+    public function salesAgentProfile(): HasOne
+    {
+        return $this->hasOne(SalesAgent::class, 'candidate_account_id');
     }
 
     public function resumeDownloadUrl(): Attribute

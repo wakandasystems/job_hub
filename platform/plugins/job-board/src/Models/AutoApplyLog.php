@@ -13,6 +13,7 @@ class AutoApplyLog extends BaseModel
         'account_id',
         'job_id',
         'email_sent_to',
+        'message_id',
         'ai_email_subject',
         'ai_email_body',
         'ai_model_used',
@@ -25,16 +26,18 @@ class AutoApplyLog extends BaseModel
         'status',
         'error_message',
         'sent_at',
+        'employer_reply_forwarded_at',
     ];
 
     protected $casts = [
-        'match_reasons'     => 'array',
-        'match_score'       => 'integer',
-        'prompt_tokens'     => 'integer',
-        'completion_tokens' => 'integer',
-        'total_tokens'      => 'integer',
-        'ai_cost_usd'       => 'float',
-        'sent_at'           => 'datetime',
+        'match_reasons'                => 'array',
+        'match_score'                  => 'integer',
+        'prompt_tokens'                => 'integer',
+        'completion_tokens'            => 'integer',
+        'total_tokens'                 => 'integer',
+        'ai_cost_usd'                  => 'float',
+        'sent_at'                      => 'datetime',
+        'employer_reply_forwarded_at'  => 'datetime',
     ];
 
     public function account(): BelongsTo

@@ -9,6 +9,7 @@ use Botble\JobBoard\Models\SocialAutomation;
 use Botble\Media\Facades\RvMedia;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Client\Response;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -20,6 +21,7 @@ use ZipArchive;
 class AutoCvBotService
 {
     private const DEFAULT_MODEL = 'gpt-4o-mini';
+    private const SAMPLE_CACHE_VERSION = '2026-06-23-1';
 
     /** The AI assistant's name, shown to candidates — never refer to it as a "bot". */
     private const PERSONA_NAME = 'Nakia';
@@ -75,14 +77,19 @@ class AutoCvBotService
             'Certificates, licences, trainings, or awards — ask the candidate to describe each one in their own words (name, issuing body, year); only mention sending a photo as a fallback if they say they cannot remember the details',
             'Languages they speak and how well they speak each one (e.g. fluent, okay, a little)',
             'References (name, role/company, phone, email) or "Available on request"',
-            'Anything else important: achievements, leadership, availability, preferred location',
+            'Anything *additional* that is important: achievements, leadership, availability, preferred location',
         ];
     }
 
-    public function startSession(string $whatsappNumber, ?string $candidateName, ?int $adminId): array
+    public function startSession(string $whatsappNumber, ?string $candidateName, ?int $adminId, ?string $salesAgentCode = null): array
     {
+        $salesAgentService = app(SalesAgentService::class);
+        $agent = $salesAgentService->resolveAgent($salesAgentCode, $whatsappNumber);
+
         $session = AutoCvSession::query()->create([
             'admin_id' => $adminId,
+            'sales_agent_id' => $agent?->getKey(),
+            'sales_agent_code' => $agent ? $agent->code : null,
             'candidate_name' => $candidateName,
             'whatsapp_number' => $whatsappNumber,
             'status' => 'collecting',
@@ -91,6 +98,10 @@ class AutoCvBotService
             'answers' => [],
             'awaiting_cv_upload' => true,
         ]);
+
+        if ($agent) {
+            $salesAgentService->recordReferral($agent, $whatsappNumber, $salesAgentCode, 'cv_bot');
+        }
 
         $cvUploadQuestion = 'Do you already have a CV you can share?'
             . "\n\nIf you do, go ahead and send it over — a PDF, Word document, or even a clear photo all work."
@@ -236,17 +247,22 @@ PROMPT;
             return;
         }
 
-        if ($session->awaiting_cv_upload && $this->looksLikeBareYes($body)) {
-            $this->promptToSendCvNow($session, $body, $whapiMessageId);
-
-            return;
-        }
-
         if ($session->awaiting_cv_upload) {
-            // Whatever they said — a decline ("no") or their CV pasted as plain text — is handled
-            // generically by the normal AI turn below: a decline leaves structured_cv empty so the
-            // AI naturally starts from topic 1, while pasted CV text gets folded straight into
-            // structured_cv per the AI prompt's existing "fold in anything new" instruction.
+            $classification = $this->classifyCvUploadReply($body);
+
+            // 'yes' ("yes I have one") or 'wait' (ambiguous, e.g. "ok one sec") — in both cases
+            // stay patient and ask them to actually send the file rather than guessing and moving
+            // on, which previously dropped real "yes" replies that didn't match an exact phrase.
+            if ($classification === 'yes' || $classification === 'wait') {
+                $this->promptToSendCvNow($session, $body, $whapiMessageId, $classification === 'wait');
+
+                return;
+            }
+
+            // 'no' (a decline) or 'content' (their CV pasted as plain text) is handled generically
+            // by the normal AI turn below: a decline leaves structured_cv empty so the AI naturally
+            // starts from topic 1, while pasted CV text gets folded straight into structured_cv per
+            // the AI prompt's existing "fold in anything new" instruction.
             $session->awaiting_cv_upload = false;
         }
 
@@ -283,16 +299,37 @@ PROMPT;
 
         [$extractedText, $label] = $this->extractAttachmentText($session, $message, $whapiMessageId);
         $isCvUpload = (bool) $session->awaiting_cv_upload;
+        $isFinalCvRecheck = (bool) $session->awaiting_final_confirmation;
+        $isAdminCvRecheck = (bool) $session->cv_recheck_requested;
 
         if ($extractedText !== '') {
-            $body = $isCvUpload
-                ? trim('Candidate shared their existing CV as a file' . ($label ? " ({$label})" : '')
+            $body = match (true) {
+                $isCvUpload => trim('Candidate shared their existing CV as a file' . ($label ? " ({$label})" : '')
                     . ". Extract as much real information as possible from it across every topic below, "
-                    . "and only ask about whatever is still missing or unclear.\n\nExtracted text:\n\n" . $extractedText)
-                : trim('Candidate sent an attachment' . ($label ? " ({$label})" : '') . ". Extracted text:\n\n" . $extractedText);
+                    . "and only ask about whatever is still missing or unclear.\n\nExtracted text:\n\n" . $extractedText),
+                // Sent at the final review step, asked for specifically so we can catch anything the
+                // earlier interview missed — compare against what's already captured rather than
+                // treating it as a fresh, unrelated attachment.
+                $isFinalCvRecheck => trim('Candidate sent their CV file again' . ($label ? " ({$label})" : '')
+                    . " at the final review step so we can double-check everything was captured. Compare it against "
+                    . "the structured CV captured so far, fold in anything present here that is missing or different, "
+                    . "and keep everything already confirmed.\n\nExtracted text:\n\n" . $extractedText),
+                // An admin manually asked the candidate again mid-conversation (they may have missed
+                // the first ask) — treat the same way as the original CV upload, not as a one-off
+                // attachment for whatever topic happened to be in progress.
+                $isAdminCvRecheck => trim('Candidate shared their existing CV as a file' . ($label ? " ({$label})" : '')
+                    . " after being asked again. Extract as much real information as possible from it across every "
+                    . "topic below, compare it against what's already captured, and only ask about whatever is still "
+                    . "missing or unclear.\n\nExtracted text:\n\n" . $extractedText),
+                default => trim('Candidate sent an attachment' . ($label ? " ({$label})" : '') . ". Extracted text:\n\n" . $extractedText),
+            };
 
             if ($isCvUpload) {
                 $session->awaiting_cv_upload = false;
+            }
+
+            if ($isAdminCvRecheck) {
+                $session->cv_recheck_requested = false;
             }
 
             $this->recordInboundAndProcess($session, $body, $whapiMessageId, $message);
@@ -313,12 +350,21 @@ PROMPT;
             return;
         }
 
-        $fallback = $isCvUpload
-            ? "Thanks for sending that — I couldn't read enough from it, sorry. Could you try a clearer "
-                . "photo or a PDF/Word document, or just type out your CV details instead and I'll take it from there?"
-            : "Thanks, I received the file/photo, but I can't read enough CV details from it.\n\n"
+        $fallback = match (true) {
+            $isCvUpload => "Thanks for sending that — I couldn't read enough from it, sorry. Could you try a clearer "
+                . "photo or a PDF/Word document, or just type out your CV details instead and I'll take it from there?",
+            $isFinalCvRecheck => "Thanks for sending that — I couldn't read enough from it, sorry. No problem though — "
+                . "just reply DONE to confirm everything captured so far is correct, or send any *additional* details you want added.",
+            $isAdminCvRecheck => "Thanks for sending that — I couldn't read enough from it, sorry. Could you try a clearer "
+                . "photo or a PDF/Word document instead?",
+            default => "Thanks, I received the file/photo, but I can't read enough CV details from it.\n\n"
                 . 'Please type the certificate, licence, training, or award details in a normal WhatsApp message. '
-                . 'Include the name, issuing body, date/year, licence number if any, and expiry date if any.';
+                . 'Include the name, issuing body, date/year, licence number if any, and expiry date if any.',
+        };
+
+        if ($isAdminCvRecheck) {
+            $session->cv_recheck_requested = false;
+        }
 
         $errorMessage = null;
         $sent = $this->sendWhapiMessage($session->whatsapp_number, $fallback, $errorMessage);
@@ -354,15 +400,49 @@ PROMPT;
 
     private function looksLikeBareYes(string $body): bool
     {
-        $normalized = trim((string) preg_replace('/[^a-z ]/', '', strtolower($body)));
-
-        return in_array($normalized, [
-            'yes', 'yeah', 'yep', 'yup', 'sure', 'ok', 'okay',
-            'i do', 'i have one', 'i have a cv', 'yes i do', 'yes i have one',
-        ], true);
+        return $this->classifyCvUploadReply($body) === 'yes';
     }
 
-    private function promptToSendCvNow(AutoCvSession $session, string $inboundBody, ?string $whapiMessageId): void
+    /**
+     * Classifies a candidate's reply while we're waiting for them to either share an existing
+     * CV file or decline. The old version only matched an exact whitelist of phrases ("yes i do",
+     * "i have one", ...) — a natural reply like "Yes i have" fell through to the generic branch,
+     * which silently gave up on ever getting the file and jumped straight to the interview
+     * questions. This classifies by intent instead of exact wording, and treats anything short
+     * and ambiguous as "keep waiting" rather than abandoning the file request.
+     *
+     * - 'yes'     — clearly says they have one ("yes", "yeah", "I have it") — prompt them to send it.
+     * - 'no'      — clearly declines ("no", "don't have one") — move on to the interview.
+     * - 'content' — a long message, almost certainly their CV pasted as text — fold it in directly.
+     * - 'wait'    — short and ambiguous ("ok one sec", "sending now") — re-ask rather than guess.
+     */
+    private function classifyCvUploadReply(string $body): string
+    {
+        $normalized = trim((string) preg_replace('/[^a-z ]/', '', strtolower($body)));
+        $normalized = (string) preg_replace('/\s+/', ' ', $normalized);
+
+        if ($normalized === '') {
+            return 'content';
+        }
+
+        // A long message is almost certainly a pasted CV (or a detailed explanation), not a
+        // one-line yes/no — let the normal AI turn fold it straight into the structured CV.
+        if (str_word_count($normalized) > 10) {
+            return 'content';
+        }
+
+        if (preg_match('/\b(no|nope|nah|dont|doesnt|didnt|wont|cant|none|never)\b/', $normalized)) {
+            return 'no';
+        }
+
+        if (preg_match('/\b(yes|yeah|yea|yep|yup|sure|ok|okay|have|got)\b/', $normalized)) {
+            return 'yes';
+        }
+
+        return 'wait';
+    }
+
+    private function promptToSendCvNow(AutoCvSession $session, string $inboundBody, ?string $whapiMessageId, bool $ambiguous = false): void
     {
         if (! $this->logInboundMessage($session, $inboundBody, $whapiMessageId)) {
             return;
@@ -370,7 +450,11 @@ PROMPT;
 
         $session->forceFill(['last_reply_at' => now()])->save();
 
-        $this->sendAndLogOutbound($session, "Great — go ahead and send it now.\n\nA PDF, Word document, or a clear photo of it all work.");
+        $message = $ambiguous
+            ? "Just checking — do you have an existing CV you'd like to send (PDF, Word document, or a clear photo)?\n\nIf not, just reply \"no\" and we'll go through a few quick questions instead."
+            : "Great — go ahead and send it now.\n\nA PDF, Word document, or a clear photo of it all work.";
+
+        $this->sendAndLogOutbound($session, $message);
     }
 
     /** Records an inbound WhatsApp message, ignoring webhook redeliveries of the same message id. */
@@ -448,7 +532,12 @@ PROMPT;
         return Cache::lock("auto-cv-bot:inbound:{$digits}", 120)->get($callback);
     }
 
-    private function recordInboundAndProcess(AutoCvSession $session, string $body, ?string $whapiMessageId, ?array $payload = null): void
+    /**
+     * @param string $direction 'inbound' for a real WhatsApp reply, or 'admin' when an admin fed
+     *  content in on the candidate's behalf (e.g. an uploaded CV file) — kept distinct so the
+     *  transcript stays an honest record of who actually said what.
+     */
+    private function recordInboundAndProcess(AutoCvSession $session, string $body, ?string $whapiMessageId, ?array $payload = null, string $direction = 'inbound'): void
     {
         $body = trim($body);
 
@@ -456,10 +545,26 @@ PROMPT;
             return;
         }
 
+        // Whapi can redeliver the same inbound webhook without a whapi_message_id (or with a
+        // different one), so the unique-index check below can't catch it — two NULLs don't
+        // collide. Without this, the same reply gets run through a second, independent AI turn
+        // and produces a second, differently-worded outbound question for one candidate reply
+        // (seen in production: one reply, two near-identical follow-up questions a minute apart).
+        $isRecentDuplicate = AutoCvMessage::query()
+            ->where('session_id', $session->getKey())
+            ->where('direction', $direction)
+            ->where('body', $body)
+            ->where('created_at', '>=', now()->subSeconds(30))
+            ->exists();
+
+        if ($isRecentDuplicate) {
+            return;
+        }
+
         try {
             AutoCvMessage::query()->create([
                 'session_id' => $session->getKey(),
-                'direction' => 'inbound',
+                'direction' => $direction,
                 'body' => $body,
                 'whapi_message_id' => $whapiMessageId,
                 'whapi_payload' => $payload,
@@ -601,6 +706,30 @@ PROMPT;
             return;
         }
 
+        $askedClosedAdditionalTopicAgain = $this->questionTargetsPreviouslyClosedAdditionalTopic($session, (string) $decoded['next_message']);
+
+        if ($askedClosedAdditionalTopicAgain) {
+            $stuckPayload = $payload;
+            $stuckPayload['messages'][] = [
+                'role' => 'user',
+                'content' => "You are trying to reopen a topic the candidate already closed with a clear 'nothing *additional* to add' answer. Do not ask about that same topic again. Keep the topic resolved, preserve everything already captured for it, and compose next_message about a DIFFERENT unresolved topic or field instead.",
+            ];
+
+            try {
+                $stuckResponse = Http::timeout(90)->withToken($apiKey)->acceptJson()
+                    ->post('https://api.openai.com/v1/chat/completions', $stuckPayload);
+
+                $stuckDecoded = $stuckResponse->successful() ? $this->decodeAiJson($stuckResponse) : null;
+
+                if (is_array($stuckDecoded) && is_array($stuckDecoded['structured_cv'] ?? null) && is_string($stuckDecoded['next_message'] ?? null) && trim($stuckDecoded['next_message']) !== '') {
+                    $decoded = $stuckDecoded;
+                    $response = $stuckResponse;
+                }
+            } catch (Throwable) {
+                // Fall through with the original message rather than failing the turn.
+            }
+        }
+
         // Stronger safety net: this exact question has already been sent 2+ times before in this
         // session (not just immediately prior) — seen in production spiralling across several
         // turns with real answers given each time, never accepted, until the candidate gave up
@@ -608,11 +737,19 @@ PROMPT;
         // by this point, so force the model to stop asking and move on instead of trying again.
         $priorAskCount = $this->timesQuestionAlreadyAsked($session, (string) $decoded['next_message']);
 
-        if ($priorAskCount >= 2) {
+        // A real answer was already given once before to this same question (even reworded) —
+        // seen in production: the candidate fully answered "training during work experience," the
+        // topic detoured to education for several turns, and the bot still circled back and asked
+        // the identical question again. Waiting for a 3rd repeat before stepping in meant an
+        // already-answered question still got asked a 2nd time; if a real answer is on record,
+        // there's no good reason to ask again at all.
+        $alreadyAnsweredSubstantively = $priorAskCount >= 1 && $this->hasSubstantiveAnswerAlready($session, (string) $decoded['next_message']);
+
+        if ($priorAskCount >= 2 || $alreadyAnsweredSubstantively) {
             $stuckPayload = $payload;
             $stuckPayload['messages'][] = [
                 'role' => 'user',
-                'content' => "You are about to send the exact question \"{$decoded['next_message']}\" for at least the " . ($priorAskCount + 1) . 'th time. The candidate has already replied to it every previous time — stop asking it. Use whatever they most recently said as the final value for that field/entry, even if imperfect or informal (or set it to "Not specified" if you genuinely cannot tell what it is from anything they have said), mark it resolved, and compose next_message about a DIFFERENT topic or field instead.',
+                'content' => "You are about to send the exact question \"{$decoded['next_message']}\" for at least the " . ($priorAskCount + 1) . 'th time, and the candidate already gave a real answer to it before. Stop asking it. Use whatever they most recently said as the final value for that field/entry, even if imperfect or informal (or set it to "Not specified" if you genuinely cannot tell what it is from anything they have said), mark it resolved, and compose next_message about a DIFFERENT topic or field instead.',
             ];
 
             try {
@@ -658,6 +795,7 @@ PROMPT;
 
         $totalTopics = count($session->topics ?: self::topics());
         $sectionScores = $this->sanitizeSectionScores($decoded['section_scores'] ?? [], $session);
+        $sectionScores = $this->enforceClosedAdditionalTopics($sectionScores, $session);
         $sectionScores = $this->enforceMandatoryLanguagesTopic($sectionScores, (array) ($decoded['structured_cv'] ?? []), $session);
 
         // Completion is decided here, not by the model's own "is_complete"/"missing_topics" flags — those
@@ -691,6 +829,7 @@ PROMPT;
         }
 
         $nextMessage = trim((string) $decoded['next_message']);
+        $nextMessage = $this->normalizeReferenceFollowUpMessage($session, $nextMessage);
 
         if ($isComplete && $this->looksLikeCandidateQuestion($nextMessage)) {
             $isComplete = false;
@@ -1008,6 +1147,91 @@ PROMPT;
         return true;
     }
 
+    /**
+     * Admin-triggered: ask the candidate again whether they have an existing CV to send, in case
+     * they missed the very first ask or the conversation moved on before they got round to it.
+     * Unlike awaiting_cv_upload (used for the very first ask), this must NOT change how plain text
+     * replies are routed — the candidate may still be mid-interview on something unrelated, and we
+     * don't want their next ordinary answer mistaken for a yes/no about the CV. Setting
+     * cv_recheck_requested only changes how the *next attachment*, if any, gets interpreted.
+     */
+    public function requestCvUpload(AutoCvSession $session): bool
+    {
+        $message = "Hi" . ($session->candidate_name ? " {$session->candidate_name}" : '') . ", quick one — do you have an existing CV you could send us "
+            . "(PDF, Word document, or a clear photo)? It'll help us double-check everything is captured correctly.\n\n"
+            . "If you don't have one, no worries — just carry on answering the questions.";
+
+        $errorMessage = null;
+        $sent = $this->sendWhapiMessage($session->whatsapp_number, $message, $errorMessage);
+
+        if (! $sent) {
+            $session->forceFill(['error_message' => $errorMessage])->save();
+
+            return false;
+        }
+
+        AutoCvMessage::query()->create([
+            'session_id' => $session->getKey(),
+            'direction' => 'outbound',
+            'body' => $message,
+        ]);
+
+        $session->forceFill([
+            'status' => 'collecting',
+            'cv_recheck_requested' => true,
+            'last_question_text' => $message,
+            'last_question_sent_at' => now(),
+            'candidate_reminder_count' => 0,
+            'last_candidate_reminder_sent_at' => null,
+            'error_message' => null,
+            'error_trace' => null,
+        ])->save();
+
+        return true;
+    }
+
+    /**
+     * Admin-triggered: upload a CV file on the candidate's behalf (e.g. they sent it some other
+     * way — email, in person) and fold whatever it contains straight into the structured CV,
+     * reusing the same extraction pipeline a candidate-sent WhatsApp attachment goes through.
+     *
+     * @return array{success: bool, message: string}
+     */
+    public function processAdminUploadedCv(AutoCvSession $session, UploadedFile $file): array
+    {
+        $path = $file->getRealPath();
+
+        if (! $path || ! is_file($path)) {
+            return ['success' => false, 'message' => 'Could not read the uploaded file.'];
+        }
+
+        $mime = strtolower((string) $file->getMimeType());
+        $filename = $file->getClientOriginalName();
+        $lowerFilename = strtolower($filename);
+
+        $text = trim(match (true) {
+            str_contains($mime, 'pdf') || str_ends_with($lowerFilename, '.pdf') => $this->extractPdfText($session, $path),
+            str_contains($mime, 'wordprocessingml') || str_contains($mime, 'msword')
+                || str_ends_with($lowerFilename, '.docx') || str_ends_with($lowerFilename, '.doc') => $this->extractDocxText($path),
+            default => $this->extractImageText($session, $path, $mime),
+        });
+
+        if ($text === '') {
+            return ['success' => false, 'message' => "Couldn't read any usable text from that file — try a clearer photo or a different PDF/Word document."];
+        }
+
+        $session->forceFill(['cv_recheck_requested' => false])->save();
+
+        $body = "Admin uploaded the candidate's CV file on their behalf ({$filename}). Extract as much real information "
+            . "as possible from it across every topic below, compare it against what's already captured, fold in "
+            . "anything missing or different, and only ask about whatever is still missing or unclear.\n\n"
+            . "Extracted text:\n\n{$text}";
+
+        $this->recordInboundAndProcess($session, $body, null, null, 'admin');
+
+        return ['success' => true, 'message' => 'CV uploaded and processed — details have been folded into the structured CV.'];
+    }
+
     public function retryDocumentGeneration(AutoCvSession $session): bool
     {
         if (empty($session->structured_cv)) {
@@ -1076,8 +1300,13 @@ PROMPT;
             . 'standard you can expect. Sending our CV designs now as PDFs.';
 
         $errorMessage = null;
+        $personaImagePath = $this->settingImageLocalPath('auto_cv_bot_persona_image');
 
-        if (! $this->sendWhapiMessage($whatsappNumber, $intro, $errorMessage)) {
+        $introSent = $personaImagePath
+            ? $this->sendWhapiImage($whatsappNumber, $personaImagePath, $intro, $errorMessage)
+            : $this->sendWhapiMessage($whatsappNumber, $intro, $errorMessage);
+
+        if (! $introSent) {
             return [false, $errorMessage];
         }
 
@@ -1101,10 +1330,18 @@ PROMPT;
     {
         $roleSlug = Str::slug($role) ?: 'sample';
         $settingKey = "auto_cv_bot_sample_paths_{$roleSlug}";
-        $cached = json_decode((string) setting($settingKey, ''), true);
+        $cached = $this->normalizeSampleCachePayload(json_decode((string) setting($settingKey, ''), true));
+        $signature = $this->sampleDocumentsSignature();
 
-        if (is_array($cached) && $this->sampleDocumentsExist($cached)) {
-            return $cached;
+        if ($cached && $this->sampleDocumentsExist($cached['documents']) && ($cached['signature'] ?? '') === $signature) {
+            return $cached['documents'];
+        }
+
+        if ($cached && ! empty($cached['cv'])) {
+            $documents = $this->storeSampleDocuments($cached['cv'], $roleSlug, $role);
+            $this->storeSampleCachePayload($settingKey, $cached['cv'], $documents, $signature);
+
+            return $documents;
         }
 
         $cv = $this->generateSampleCv($role);
@@ -1114,10 +1351,58 @@ PROMPT;
         }
 
         $paths = $this->storeSampleDocuments($cv, $roleSlug, $role);
-
-        setting()->set($settingKey, json_encode($paths))->save();
+        $this->storeSampleCachePayload($settingKey, $cv, $paths, $signature);
 
         return $paths;
+    }
+
+    private function normalizeSampleCachePayload(mixed $cached): ?array
+    {
+        if (! is_array($cached) || $cached === []) {
+            return null;
+        }
+
+        if (isset($cached['documents']) && is_array($cached['documents'])) {
+            return [
+                'signature' => (string) ($cached['signature'] ?? ''),
+                'cv' => is_array($cached['cv'] ?? null) ? $cached['cv'] : null,
+                'documents' => $cached['documents'],
+            ];
+        }
+
+        // Backward compatibility for the old setting shape that stored only the document paths.
+        $looksLikeLegacyDocuments = collect($cached)->every(fn ($row) => is_array($row) && isset($row['pdf_path']));
+
+        if ($looksLikeLegacyDocuments) {
+            return [
+                'signature' => '',
+                'cv' => null,
+                'documents' => $cached,
+            ];
+        }
+
+        return null;
+    }
+
+    private function storeSampleCachePayload(string $settingKey, array $cv, array $documents, string $signature): void
+    {
+        setting()->set($settingKey, json_encode([
+            'signature' => $signature,
+            'cv' => $cv,
+            'documents' => $documents,
+        ]))->save();
+    }
+
+    private function sampleDocumentsSignature(): string
+    {
+        $templatePath = platform_path('plugins/job-board/resources/views/candidate-alerts/cv-builder-pdf.blade.php');
+        $templateStamp = is_file($templatePath) ? (string) filemtime($templatePath) : 'missing';
+
+        return sha1(implode('|', [
+            self::SAMPLE_CACHE_VERSION,
+            $templateStamp,
+            implode(',', ['premium', 'academic', 'creative', 'ats']),
+        ]));
     }
 
     private function sampleDocumentsExist(array $paths): bool
@@ -1414,6 +1699,49 @@ PROMPT;
         ])->save();
 
         return $this->resendCurrentQuestion($session->fresh());
+    }
+
+    /**
+     * Admin-triggered: manually send the same "here's what I've got, please confirm everything is
+     * correct, reply DONE" check-in that the bot sends automatically once it judges the interview
+     * complete. Lets an admin nudge a candidate into that step early, without force-closing the
+     * conversation the way endConversationNow() does.
+     */
+    public function requestFinalConfirmation(AutoCvSession $session): bool
+    {
+        if ($session->status === 'completed') {
+            return false;
+        }
+
+        $message = $this->finalConfirmationMessage($session);
+
+        $errorMessage = null;
+        $sent = $this->sendWhapiMessage($session->whatsapp_number, $message, $errorMessage);
+
+        if (! $sent) {
+            $session->forceFill(['error_message' => $errorMessage])->save();
+
+            return false;
+        }
+
+        AutoCvMessage::query()->create([
+            'session_id' => $session->getKey(),
+            'direction' => 'outbound',
+            'body' => $message,
+        ]);
+
+        $session->forceFill([
+            'status' => 'collecting',
+            'awaiting_final_confirmation' => true,
+            'last_question_text' => $message,
+            'last_question_sent_at' => now(),
+            'candidate_reminder_count' => 0,
+            'last_candidate_reminder_sent_at' => null,
+            'reopen_warning_sent_at' => null,
+            'error_message' => null,
+        ])->save();
+
+        return true;
     }
 
     /**
@@ -2249,19 +2577,21 @@ Given the full conversation so far and the structured CV captured so far, you mu
 2. Decide which topic numbers (1-12, matching the list above) are not yet adequately covered, and return them as "missing_topics". A topic only counts as "covered" once its own score under rule 9 would be 90 or above (a "green" score) — never remove a topic from "missing_topics" just because you asked about it, or because the candidate gave a vague or partial answer. Keep asking follow-up questions about a topic, one at a time, until you can honestly score it 90+.
 3. Read the candidate's latest reply carefully before deciding what to do next:
    - If it is a real, substantive answer (even if informal or incomplete), accept it, extract what you can, and move on per rule 5.
-   - If it is a confusion signal, a non-answer, OR a clarification request — e.g. "I don't understand", "huh?", "what do you mean", "skip", "kindly clarify", "can you explain that a bit more", "not sure what you mean by [topic]", "could you give an example", a one-word reply that doesn't address what was asked, an emoji, or anything unrelated — do NOT just reword or resend the same question again, and NEVER reply with text that is the same or almost the same as the question you already asked. A polite request to clarify (even one that names the topic, like "kindly clarify a bit on the projects") still counts here — it is asking you to explain differently, not confirming they have nothing to add. (Exception: a one-word decline like "no"/"none"/"nothing" given in reply to a yes/no "is there anything else to add?" confirmation question IS a real, complete answer — see rule 5 — not a confusion signal.) Instead, explain the SAME topic in the simplest possible everyday language, break it into one tiny piece at a time, and give a short concrete example of the kind of answer you want — make up your own example that fits the ACTUAL topic currently being clarified, never reuse an example written for a different topic. For instance, if the topic being clarified is education, you might say something like "No problem! For example, you could just say: 'I studied at Kitwe Technical College, Diploma in IT, 2019 to 2021.' What school or college did you go to, and what did you study?" — but if the topic is projects, your example must be about a project (e.g. "No problem! For example, you could just say: 'I built a small poultry-feeding business plan for a school project.' Have you done anything like that?"), not about education or anything unrelated. Keep the topic and "missing_topics" unchanged in this case — you are still waiting for the same topic to be answered, not moving to a new question.
+   - If it is a confusion signal, a non-answer, OR a clarification request — e.g. "I don't understand", "huh?", "what do you mean", "skip", "kindly clarify", "can you explain that a bit more", "not sure what you mean by [topic]", "could you give an example", a one-word reply that doesn't address what was asked, an emoji, or anything unrelated — do NOT just reword or resend the same question again, and NEVER reply with text that is the same or almost the same as the question you already asked. A polite request to clarify (even one that names the topic, like "kindly clarify a bit on the projects") still counts here — it is asking you to explain differently, not confirming they have nothing to add. (Exception: a one-word decline like "no"/"none"/"nothing" given in reply to a yes/no "is there anything else to add?" confirmation question IS a real, complete answer — see rule 5 — not a confusion signal.) Instead, explain the SAME topic in the simplest possible everyday language, break it into one tiny piece at a time, and give a short concrete example of the kind of answer you want — make up your own example that fits the ACTUAL topic currently being clarified, never reuse an example written for a different topic. For instance, if the topic being clarified is education, you might say something like "No problem. You can send it like this: *School*: Kitwe Technical College, *Qualification*: Diploma in IT, *Years*: 2019 to 2021. Which school or college did you go to, and what did you study?" — but if the topic is projects, your example must be about a project (e.g. "No problem. You can send it like this: *Project*: a poultry-feeding business plan for school. Have you done anything like that?"), not about education or anything unrelated. Never use square brackets like [School], [Qualification], or [Field of Study] in candidate-facing messages — that looks unnatural in WhatsApp. If you need placeholders or labels in an example, use WhatsApp-friendly emphasis such as *School*, *Qualification*, *Field of study*, *Years*, or _School_, _Qualification_, _Field of study_, _Years_ instead. Keep the topic and "missing_topics" unchanged in this case — you are still waiting for the same topic to be answered, not moving to a new question.
    - Never present a simplified/example explanation as if it were a brand-new question — the candidate should clearly feel you are patiently re-explaining the same thing, not asking something different.
    - If the candidate gives only an abbreviation or acronym for the name of an institution, employer, or certifying body (e.g. "CBU", "UNZA", "NIPA", "BGS"), do not accept it and move straight to asking for other details (such as dates or job title) about that same entry, and do not silently expand it yourself even if you are confident you recognise it. Ask them directly to confirm or spell out the full name, by itself, before asking for any other details about that same entry — unless they explicitly say they don't know the full name or that there isn't a longer version, in which case accept the abbreviation as given and continue with the remaining details. Only put a full institution/employer name in structured_cv once the candidate has actually confirmed or typed it themselves. If the candidate names SEVERAL abbreviated institutions/employers in the same reply (e.g. "I worked at BGS and CBU"), ask them to confirm or spell out the full name for ALL of them together in that one clarifying message — and that message must contain ONLY the request for full names, nothing else. Do not combine it with a request for job titles, dates, or responsibilities; ask those only in a later message, once the full names are confirmed.
 4. Topic 2 (bio and contact details) bundles several distinct pieces of information — mobile number, email address, residential address/town or city, age, marital status, and LinkedIn URL. NEVER ask for more than one of these in the same message, even though they all belong to the same topic — candidates skip or forget fields when asked for several things at once. WRONG example, never do this: "could you please provide your mobile number, email address, residential address, town or city, age, marital status, and LinkedIn profile" — that is six fields in one message. Ask for them ONE AT A TIME, in plain, friendly, everyday language rather than form-like wording (e.g. "What's the best mobile number to reach you on?" rather than "Please provide your mobile number"; "Which town or city do you live in?" rather than "residential address"). Ask in a sensible order: mobile number first (it's essential for contacting them), then email, then town/city, then age, then marital status, then LinkedIn last as a casual optional ask (e.g. "Do you have a LinkedIn profile? No worries if not, we can skip that one."). Only move to the next field once the candidate has answered or clearly declined the current one — never bundle two unanswered fields into a single follow-up. Topic 2 only counts as covered once every field has been asked about and either answered or explicitly declined. A decline of any one field (e.g. "I don't have an email yet", "no LinkedIn", "I'd rather not say my age") must be treated exactly like a rule 5 "don't know" — accept it immediately, store that field as an empty string, treat it as fully resolved, and never ask about that specific field again for the rest of the conversation, no matter how many turns later or how differently worded the question is. This has gone wrong in production: a candidate explicitly said "I don't have any email address yet" and was still asked "Could you please share your email address when you have one?" a turn later and again the next day — that is exactly what this rule forbids.
 5. Topics 5 (education), 6 (work experience), 7 (internships/volunteer/projects), 9 (certificates/awards), and 11 (references) can have more than one entry:
    - For each entry the candidate mentions, make sure you collect every key field before treating that entry as done: for work experience — full employer name, job title, start and end dates (or "present"), and what they did; for education — full institution name, qualification, field of study, and start/end years; for projects, certifications, and references — the equivalent key details (e.g. dates for projects, issuing body and year for certificates). If the candidate has given some but not all of these for an entry, ask specifically for the missing piece(s) next — do not skip ahead to a different entry or a different topic while details are still missing for the current one. Never name more than one entry (e.g. two different schools or two different employers) in the same question, even if they're missing the exact same field — ask about one entry at a time, fully, before moving to the next.
+   - Special rule for topic 11 (references): once the candidate has sent ANY real reference detail at all — even if it is only a phone number, only an email address, or only a company name — NEVER resend the generic opener asking them to "share any references" as if nothing was captured. From that point onward, your next_message must clearly acknowledge that you already captured what they sent, then ask only whether they have any *additional* references to add or whether they are done. Example shape: "I've captured the reference detail you sent. If you have any *additional* references, please send them now. If not, just reply done." This must read like a follow-up confirmation, not like the same question being repeated.
    - If the candidate says they don't know, can't remember, or aren't sure about ONE specific missing piece (e.g. the exact dates of a job or the exact year a certificate was issued) — whether that's their very first reply to that question or after you've already reassured them once that it's okay not to know — accept that immediately as the final answer for that piece. Store it as an empty string in structured_cv (or "Present"/"Not specified" if that fits better), treat that piece as resolved, not missing, and move straight on to the next missing piece or the next entry, or close out the topic per the rule below if nothing else is missing. Do NOT ask that same specific piece of that same entry again afterwards, even in gentler, rephrased, or "just let me know if you're not sure" wording — once a candidate has said they don't know something, asking again (in any phrasing) reads as not listening, not as patience. When scoring this entry's topic under rule 9, treat a piece resolved this way as answered, not missing — do not let a "don't know" piece hold a topic's score below 90 once every other piece of every entry is genuinely known.
-   - Once you believe every entry the candidate has mentioned so far for that topic is fully detailed, do NOT immediately mark the topic as covered or move to a different topic. First ask a short confirmation question such as "Is that all your work experience, or is there anything else to add?" Only remove the topic from "missing_topics" once the candidate gives a clear answer confirming there is nothing more — this includes short/one-word declines such as "no", "none", "nothing", "nope", "no more", "that's all", "I'm done", or the same word repeated/emphasised (e.g. "NO!", "nothing else"). Treat ANY one-word or short decline reply to this specific confirmation question as a valid "nothing more" answer, not as confusion under rule 3 — rule 3's "non-answer" handling is for when the candidate doesn't address what was asked at all, not for a plain no/none/nothing reply to a yes/no confirmation question. If they mention another entry instead of declining, treat it the same way (collect its full details, then ask again if that's everything).
-6. Once a topic has a real, complete answer (and, for the list-type topics above, once the candidate has confirmed there is nothing more to add), compose the single next WhatsApp message: a friendly, concise question about ONE topic — and, per rule 4, at most ONE field within that topic — that still needs covering. Never ask about more than one topic, or more than one field of topic 2, at a time. Prefer asking about a topic you haven't touched at all yet; but once every topic (1-12) has been asked about at least once, go back and revisit whichever topic currently has the LOWEST score with a clarifying follow-up — keep cycling back through the weak topics, one at a time, asking for more detail or clarity, until each one reaches 90+. Never skip a topic permanently just because the candidate's first answer to it was thin. Hard constraint: never compose next_message about a topic that already scores 90+ under rule 9 in this very response, and never repeat a question about a specific field or piece the candidate has already explicitly said they don't know per rule 5 — both are fully resolved, not pending, no matter how far back in the conversation they were settled. Many candidates have not been to college and some may be applying for senior roles despite that — always use simple, everyday words a primary-school reading level can follow, never jargon or "big" words (say "level" or "how well", not "proficiency"; say "skills, tools, or things you're good at", not "competencies"; say "your last job", not "most recent employment"). If a CV term has no simple everyday equivalent, briefly explain it in plain words the first time you use it.
+   - Once you believe every entry the candidate has mentioned so far for that topic is fully detailed, do NOT immediately mark the topic as covered or move to a different topic. First ask a short confirmation question that clearly shows you were listening by briefly mentioning what has already been captured before asking if there is anything *additional* to add. Example shape: "So far I have your work at X and Y. Is there anything *additional* to add?" Avoid wording that sounds like you simply repeated the last question. Only remove the topic from "missing_topics" once the candidate gives a clear answer confirming there is nothing more — this includes short/one-word declines such as "no", "none", "nothing", "nope", "no more", "that's all", "I'm done", or the same word repeated/emphasised (e.g. "NO!", "nothing else"). Treat ANY one-word or short decline reply to this specific confirmation question as a valid "nothing more" answer, not as confusion under rule 3 — rule 3's "non-answer" handling is for when the candidate doesn't address what was asked at all, not for a plain no/none/nothing reply to a yes/no confirmation question. If they mention another entry instead of declining, treat it the same way (collect its full details, then ask again if that's everything).
+   - Topic 12 ("Anything *additional* that is important: achievements, leadership, availability, preferred location") follows the SAME close-out rule even though it is not a list of schools or jobs. If you ask whether there is anything *additional* to add for topic 12 and the candidate replies with a clear decline like "no", "none", "no more", "nothing else", "none available", or "that's all", treat topic 12 as fully resolved immediately and never ask about achievements, leadership, availability, or preferred location again later unless the candidate themselves volunteers a correction or a new detail.
+6. Once a topic has a real, complete answer (and, for the list-type topics above, once the candidate has confirmed there is nothing more to add), compose the single next WhatsApp message: a friendly, concise question about ONE topic — and, per rule 4, at most ONE field within that topic — that still needs covering. Never ask about more than one topic, or more than one field of topic 2, at a time. Prefer asking about a topic you haven't touched at all yet; but once every topic (1-12) has been asked about at least once, go back and revisit whichever topic currently has the LOWEST score with a clarifying follow-up — keep cycling back through the weak topics, one at a time, asking for more detail or clarity, until each one reaches 90+. Never skip a topic permanently just because the candidate's first answer to it was thin. Hard constraint: never compose next_message about a topic that already scores 90+ under rule 9 in this very response, and never repeat a question about a specific field or piece the candidate has already explicitly said they don't know per rule 5 — both are fully resolved, not pending, no matter how far back in the conversation they were settled. If you use the word additional in next_message, always format it exactly as *additional*. When asking whether there is more to add for a topic, mention what you have already captured first so the follow-up sounds like a confirmation, not a repeated question. Many candidates have not been to college and some may be applying for senior roles despite that — always use simple, everyday words a primary-school reading level can follow, never jargon or "big" words (say "level" or "how well", not "proficiency"; say "skills, tools, or things you're good at", not "competencies"; say "your last job", not "most recent employment"). If a CV term has no simple everyday equivalent, briefly explain it in plain words the first time you use it.
 7. Once every topic (1-12) would score 90 or above under rule 9, set "is_complete" to true and make "next_message" a short, friendly closing line thanking the candidate and saying their CV is being prepared. If even one topic is still below 90, keep "is_complete" false and keep working through rule 6 until it isn't.
 8. Rewrite informal answers into professional CV language when filling structured_cv. Use British English spelling. For "responsibilities" in work experience, write each as its own short bullet starting with a strong action verb (e.g. Led, Built, Reduced, Delivered, Automated, Designed, Managed) and include a number, percentage, time saved, or team size whenever the candidate's answer makes one available — never write generic duties-only phrasing like "Responsible for...". Use past tense for previous roles and present tense only for a role the candidate is still currently in.
-9. For EVERY topic number 1-12, return a "section_scores" entry keyed by that number, with a "label" (short name of the topic), a "score" from 0-100 rating how complete and useful the information given so far is for that topic (0 = nothing provided, 100 = clear and complete), and "improve" — a short, specific, actionable tip for what would make that section stronger (empty string if score is 90 or above). Score honestly based on what is actually known, not on intentions. IMPORTANT exception: if the candidate has clearly and directly stated they have NONE for a topic where that is a normal, valid answer (e.g. "no work experience, I'm a fresh graduate", "no certificates", "none" for internships/projects), that is a complete answer, not a missing one — score it 90-100, leave the corresponding structured_cv array empty, and move on. Do not keep asking about a topic the candidate has already clearly said does not apply to them. Same rule for a "don't know" piece resolved per rule 5: once every field of every entry in a topic is either a real value or explicitly resolved as "don't know", score that topic 90-100 and set "improve" to an empty string — never leave "improve" suggesting you still need the very piece the candidate already said they don't know. Hard constraint: never score a topic 90+ if you have never actually asked the candidate about it and they have never volunteered anything for it — a topic with zero turns spent on it and an empty structured_cv entry must score low (well under 50), no matter how many other topics are already done or how long the interview has run. Languages (topic 10) in particular has no valid "none" answer — everyone speaks at least one language — so it must never score 90+ until at least one language has actually been captured. Topic 4 (personal profile) is inherently soft and subjective, unlike a date or an employer name — a short list of 2-3 genuine traits or strengths in the candidate's own words (e.g. "hardworking, trustworthy, eager to learn") is already a complete answer, score it 90+ immediately. Do not ask "tell me more about your strengths" a second time once any concrete traits have been given — repeating that request when the candidate has already answered reads as not listening, and a short, honest list is a normal, finished answer for this topic, not a thin one.
-10. Based on everything known so far in structured_cv (skills, education, experience — even if still incomplete), suggest 3-5 realistic job positions in Zambia this candidate could apply for right now, as "suggested_job_positions": an array of {"title": "", "reason": ""} — "reason" is one short sentence on why it fits. Update this list every turn as more information comes in. If there isn't enough information yet to suggest anything sensible, return an empty array.
+9. For EVERY topic number 1-12, return a "section_scores" entry keyed by that number, with a "label" (short name of the topic), a "score" from 0-100 rating how complete and useful the information given so far is for that topic (0 = nothing provided, 100 = clear and complete), and "improve" — a short, specific, actionable tip for what would make that section stronger (empty string if score is 90 or above). Score honestly based on what is actually known, not on intentions. IMPORTANT exception: if the candidate has clearly and directly stated they have NONE for a topic where that is a normal, valid answer (e.g. "no work experience, I'm a fresh graduate", "no certificates", "none" for internships/projects), that is a complete answer, not a missing one — score it 90-100, leave the corresponding structured_cv array empty, and move on. Do not keep asking about a topic the candidate has already clearly said does not apply to them. The same applies after an *additional* confirmation follow-up: if the candidate clearly says there is nothing more to add for that topic, treat that topic as closed, score it 90-100, leave "improve" empty, and do not reopen it later unless the candidate brings new information themselves. Same rule for a "don't know" piece resolved per rule 5: once every field of every entry in a topic is either a real value or explicitly resolved as "don't know", score that topic 90-100 and set "improve" to an empty string — never leave "improve" suggesting you still need the very piece the candidate already said they don't know. Hard constraint: never score a topic 90+ if you have never actually asked the candidate about it and they have never volunteered anything for it — a topic with zero turns spent on it and an empty structured_cv entry must score low (well under 50), no matter how many other topics are already done or how long the interview has run. Languages (topic 10) in particular has no valid "none" answer — everyone speaks at least one language — so it must never score 90+ until at least one language has actually been captured. Topic 4 (personal profile) is inherently soft and subjective, unlike a date or an employer name — a short list of 2-3 genuine traits or strengths in the candidate's own words (e.g. "hardworking, trustworthy, eager to learn") is already a complete answer, score it 90+ immediately. Do not ask "tell me more about your strengths" a second time once any concrete traits have been given — repeating that request when the candidate has already answered reads as not listening, and a short, honest list is a normal, finished answer for this topic, not a thin one.
+10. Based on everything known so far in structured_cv (skills, education, experience — even if still incomplete), suggest 3-5 realistic job positions in Zambia this candidate could apply for right now, as "suggested_job_positions": an array of {"title": "", "reason": ""} — "reason" is one short sentence on why it fits. Update this list every turn as more information comes in. If there isn't enough information yet to suggest anything sensible, return an empty array. These suggestions must stay tightly grounded in the candidate's real background. Do not suggest software developer, programmer, IT support, data, engineering, finance, legal, medical, or other specialist roles unless the structured_cv contains direct evidence for them in experience, education, certifications, projects, or skills. Never let an example title from this prompt leak into the output unless the candidate's own data genuinely supports it.
 11. If the candidate's latest reply signals tiredness, frustration, or impatience with the process itself (e.g. "I'm tired of repeating myself", "have you finished?", "are we done yet", "this is taking forever", "I already told you this") rather than just answering normally, stop drilling for more detail. Apologise briefly and warmly in next_message, accept whatever has already been given for every topic as final (filling genuinely unanswered pieces with "Not specified" rather than asking again), and move things toward wrapping up — do not ask another detailed follow-up question in the same next_message you apologise in.
 
 Formatting "next_message": real WhatsApp conversations read as several short separate messages, not long paragraphs. If next_message naturally contains more than one distinct thought (e.g. an acknowledgement plus a question, or an explanation plus an example plus a question), write each distinct thought as its own short message and separate them with a blank line — the same way a real person sends a few short texts in a row rather than one long paragraph. Never describe what you will do with their information internally — no "I'll note that down", "I'll add that to your CV", "I'll extract...", "I'll process..." or similar; just acknowledge naturally and move on.
@@ -2281,9 +2611,7 @@ Return ONLY valid JSON, no markdown, in this exact shape:
     "1": {"label": "Full name", "score": 100, "improve": ""},
     "2": {"label": "Contact details", "score": 60, "improve": "Add an email address"}
   },
-  "suggested_job_positions": [
-    {"title": "Junior Software Developer", "reason": "Has a relevant IT degree and software development interest."}
-  ],
+  "suggested_job_positions": [],
   "next_message": "",
   "is_complete": false
 }
@@ -2340,16 +2668,29 @@ PROMPT;
         return (bool) preg_match('/\b(could you|please provide|please confirm|please list|what|when|where|which|who|do you|can you)\b/i', $message);
     }
 
-    /** Catches the model echoing the exact same question back instead of clarifying. */
+    /**
+     * Boilerplate words the model's questions are built from, regardless of topic — stripping
+     * these leaves just the topic-specific nouns (e.g. "achievements", "leadership", "roles"),
+     * which is what actually identifies whether two differently-worded questions are the same ask.
+     */
+    private const QUESTION_STOPWORDS = [
+        'a', 'about', 'additional', 'an', 'and', 'any', 'are', 'as', 'at', 'be', 'briefly', 'by',
+        'can', 'could', 'describe', 'detail', 'details', 'did', 'do', 'does', 'explain', 'for',
+        'from', 'give', 'had', 'has', 'have', 'help', 'i', 'if', 'in', 'is', 'it', 'its', 'just',
+        'kindly', 'know', 'let', 'list', 'me', 'mention', 'more', 'of', 'on', 'or', 'other',
+        'please', 'provide', 'share', 'some', 'strengthen', 'tell', 'that', 'the', 'this', 'to',
+        'us', 'was', 'we', 'what', 'when', 'where', 'which', 'who', 'will', 'with', 'would', 'you',
+        'your', 'youve', 'cv',
+    ];
+
+    /** Catches the model echoing the same question back (even reworded) instead of clarifying. */
     private function isRepeatOfLastQuestion(string $message, ?string $lastQuestion): bool
     {
         if (! $lastQuestion) {
             return false;
         }
 
-        $normalizedMessage = $this->normalizeQuestionText($message);
-
-        return $normalizedMessage !== '' && $normalizedMessage === $this->normalizeQuestionText($lastQuestion);
+        return $this->isSameQuestionTopic($message, $lastQuestion);
     }
 
     private function normalizeQuestionText(string $text): string
@@ -2357,24 +2698,289 @@ PROMPT;
         return trim((string) preg_replace('/[^a-z0-9 ]/', '', strtolower($text)));
     }
 
+    /** The topic-specific words left once generic question boilerplate is stripped out. */
+    private function questionKeywords(string $text): array
+    {
+        $normalized = $this->normalizeQuestionText($text);
+
+        if ($normalized === '') {
+            return [];
+        }
+
+        return collect(explode(' ', $normalized))
+            ->filter(fn (string $word) => $word !== '' && ! in_array($word, self::QUESTION_STOPWORDS, true))
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Two questions are "the same" if most of their topic-specific words overlap, even when the
+     * model has reworded the surrounding boilerplate (e.g. "any other achievements or leadership
+     * roles" vs "any additional achievements or leadership roles" both reduce to the same
+     * {achievements, leadership, roles} set). Exact-string matching missed this — each reword
+     * dodged the repeat check, so the candidate kept getting asked the same thing.
+     */
+    private function isSameQuestionTopic(string $a, string $b): bool
+    {
+        $wordsA = $this->questionKeywords($a);
+        $wordsB = $this->questionKeywords($b);
+
+        if ($wordsA === [] || $wordsB === []) {
+            return false;
+        }
+
+        $smaller = min(count($wordsA), count($wordsB));
+
+        // A single shared word is too weak a signal on its own (e.g. both happen to mention
+        // "skills") — require it to be the entire (one-word) topic on both sides.
+        if ($smaller === 1) {
+            return $wordsA === $wordsB;
+        }
+
+        return (count(array_intersect($wordsA, $wordsB)) / $smaller) >= 0.6;
+    }
+
     /**
      * isRepeatOfLastQuestion() only catches an immediate echo of the single most recent question.
      * Seen in production: the same question gets asked again several turns later (after other
      * questions in between, each time with a real answer already given) — a genuine stuck loop
      * that the immediate-repeat check can't see because last_question_text has since moved on.
-     * Counts how many times this exact question has already been sent anywhere in this session.
+     * Counts how many times this question (or a reworded version of it) has already been sent
+     * anywhere in this session.
      */
     private function timesQuestionAlreadyAsked(AutoCvSession $session, string $message): int
     {
-        $normalizedMessage = $this->normalizeQuestionText($message);
-
-        if ($normalizedMessage === '') {
+        if ($this->questionKeywords($message) === []) {
             return 0;
         }
 
         return collect($session->answers ?: [])
-            ->filter(fn (array $turn) => $this->normalizeQuestionText((string) ($turn['question_sent'] ?? '')) === $normalizedMessage)
+            ->filter(fn (array $turn) => $this->isSameQuestionTopic((string) ($turn['question_sent'] ?? ''), $message))
             ->count();
+    }
+
+    /**
+     * Whether the candidate already gave a real, informative answer (not "yes 2023 to 2024" left
+     * dangling, not "I don't know") to this question (or a reworded version of it) anywhere in the
+     * session. Seen in production: a candidate fully answered "training during work experience"
+     * once, the topic detoured to education for several turns, then the bot circled back and asked
+     * the exact same question again verbatim — only the 3rd+ repeat was being caught (see
+     * timesQuestionAlreadyAsked()), so a question already answered once still got asked a 2nd time
+     * before the safety net kicked in. If a real answer is already on record, there is no good
+     * reason to ask again at all, regardless of how many times it's been asked.
+     */
+    private function hasSubstantiveAnswerAlready(AutoCvSession $session, string $message): bool
+    {
+        if ($this->questionKeywords($message) === []) {
+            return false;
+        }
+
+        return collect($session->answers ?: [])
+            ->filter(fn (array $turn) => $this->isSameQuestionTopic((string) ($turn['question_sent'] ?? ''), $message))
+            ->contains(fn (array $turn) => $this->isSubstantiveAnswer((string) ($turn['reply'] ?? '')));
+    }
+
+    private function isSubstantiveAnswer(string $reply): bool
+    {
+        $normalized = trim((string) preg_replace('/[^a-z0-9 ]/', '', strtolower($reply)));
+
+        if ($normalized === '') {
+            return false;
+        }
+
+        if (in_array($normalized, ['i dont know', 'dont know', 'not sure', 'none', 'na', 'idk', 'no idea', 'not applicable'], true)) {
+            return false;
+        }
+
+        return str_word_count($normalized) >= 2 || (bool) preg_match('/\d/', $normalized);
+    }
+
+    private function questionTargetsPreviouslyClosedAdditionalTopic(AutoCvSession $session, string $message): bool
+    {
+        if ($this->questionKeywords($message) === []) {
+            return false;
+        }
+
+        foreach ($this->closedAdditionalPromptQuestions($session) as $closedQuestion) {
+            if ($this->isSameQuestionTopic($closedQuestion, $message)) {
+                return true;
+            }
+        }
+
+        $topicNumber = $this->inferTopicNumberFromQuestion($session, $message);
+
+        return $topicNumber !== null && in_array($topicNumber, $this->closedAdditionalTopicNumbers($session), true);
+    }
+
+    private function closedAdditionalPromptQuestions(AutoCvSession $session): array
+    {
+        return collect($session->answers ?: [])
+            ->filter(fn (array $turn) => $this->isAdditionalConfirmationQuestion((string) ($turn['question_sent'] ?? '')))
+            ->filter(fn (array $turn) => $this->isNegativeAdditionalClosureReply((string) ($turn['reply'] ?? '')))
+            ->map(fn (array $turn) => (string) ($turn['question_sent'] ?? ''))
+            ->filter()
+            ->values()
+            ->all();
+    }
+
+    private function closedAdditionalTopicNumbers(AutoCvSession $session): array
+    {
+        return collect($this->closedAdditionalPromptQuestions($session))
+            ->map(fn (string $question) => $this->inferTopicNumberFromQuestion($session, $question))
+            ->filter(fn ($topicNumber) => is_int($topicNumber))
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function isAdditionalConfirmationQuestion(string $question): bool
+    {
+        $normalized = strtolower(trim((string) preg_replace('/\s+/', ' ', str_replace('*', '', $question))));
+
+        if ($normalized === '' || ! str_contains($normalized, 'additional')) {
+            return false;
+        }
+
+        return str_contains($normalized, 'anything additional')
+            || str_contains($normalized, 'anything more')
+            || str_contains($normalized, 'anything else')
+            || str_contains($normalized, 'more to add')
+            || str_contains($normalized, 'else to add')
+            || str_contains($normalized, 'additional to add');
+    }
+
+    private function normalizeReferenceFollowUpMessage(AutoCvSession $session, string $message): string
+    {
+        if ($message === '') {
+            return $message;
+        }
+
+        if ($this->inferTopicNumberFromQuestion($session, $message) !== 11) {
+            return $message;
+        }
+
+        if (! $this->hasSubstantiveAnswerAlready($session, $message)) {
+            return $message;
+        }
+
+        if ($this->isClearReferenceAdditionalFollowUp($message)) {
+            return $message;
+        }
+
+        return "I've captured the reference details you've already sent.\n\n"
+            . "If you have any *additional* references, please send them now.\n\n"
+            . 'If not, just reply done.';
+    }
+
+    private function isClearReferenceAdditionalFollowUp(string $message): bool
+    {
+        $normalized = strtolower(trim((string) preg_replace('/\s+/', ' ', str_replace('*', '', $message))));
+
+        if ($normalized === '') {
+            return false;
+        }
+
+        $mentionsCaptured = str_contains($normalized, 'captured')
+            || str_contains($normalized, 'got the reference')
+            || str_contains($normalized, 'got your reference')
+            || str_contains($normalized, 'received the reference')
+            || str_contains($normalized, 'received your reference');
+
+        $mentionsAdditional = str_contains($normalized, 'additional');
+        $mentionsDone = str_contains($normalized, 'reply done')
+            || str_contains($normalized, 'you are done')
+            || str_contains($normalized, "you're done")
+            || str_contains($normalized, 'if not')
+            || str_contains($normalized, 'thats all')
+            || str_contains($normalized, "that's all");
+
+        return $mentionsCaptured && $mentionsAdditional && $mentionsDone;
+    }
+
+    private function isNegativeAdditionalClosureReply(string $reply): bool
+    {
+        $normalized = strtolower(trim((string) preg_replace('/[^a-z0-9 ]/', '', $reply)));
+
+        if ($normalized === '') {
+            return false;
+        }
+
+        $normalized = preg_replace('/\s+/', ' ', $normalized) ?: $normalized;
+
+        if (in_array($normalized, [
+            'no',
+            'none',
+            'nothing',
+            'nope',
+            'no more',
+            'nothing else',
+            'none available',
+            'thats all',
+            'that is all',
+            'im done',
+            'done',
+            'no other additional roles or achievement',
+            'no other additional roles or achievements',
+            'no other roles or achievement',
+            'no other roles or achievements',
+            'no other achievements',
+            'none available',
+        ], true)) {
+            return true;
+        }
+
+        if (str_word_count($normalized) > 8) {
+            return false;
+        }
+
+        return str_starts_with($normalized, 'no ')
+            || str_starts_with($normalized, 'none ')
+            || str_starts_with($normalized, 'nothing ')
+            || str_contains($normalized, ' no more')
+            || str_contains($normalized, ' nothing else')
+            || str_contains($normalized, ' thats all')
+            || str_contains($normalized, ' that is all');
+    }
+
+    private function inferTopicNumberFromQuestion(AutoCvSession $session, string $question): ?int
+    {
+        $questionKeywords = $this->questionKeywords($question);
+
+        if ($questionKeywords === []) {
+            return null;
+        }
+
+        $bestTopic = null;
+        $bestScore = 0.0;
+        $topics = $session->topics ?: self::topics();
+        $sectionScores = $session->section_scores ?: [];
+
+        foreach ($topics as $index => $topic) {
+            $topicKeywords = $this->questionKeywords((string) $topic);
+            $labelKeywords = $this->questionKeywords((string) (($sectionScores[(string) ($index + 1)]['label'] ?? '')));
+            $candidateKeywords = array_values(array_unique(array_merge($topicKeywords, $labelKeywords)));
+
+            if ($candidateKeywords === []) {
+                continue;
+            }
+
+            $intersection = count(array_intersect($questionKeywords, $candidateKeywords));
+            $smaller = min(count($questionKeywords), count($candidateKeywords));
+
+            if ($intersection === 0 || $smaller === 0) {
+                continue;
+            }
+
+            $score = $intersection / $smaller;
+
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $bestTopic = $index + 1;
+            }
+        }
+
+        return $bestScore >= 0.5 ? $bestTopic : null;
     }
 
     private function finalConfirmationMessage(AutoCvSession $session, bool $acknowledgeUpdate = false): string
@@ -2385,6 +2991,7 @@ PROMPT;
         return trim($prefix
             . ($summary !== '' ? $summary . "\n\n" : '')
             . "Before I prepare your CV, please confirm that you have provided everything you want included.\n\n"
+            . "If you have your old CV file, you can also send it now (PDF, Word document, or a clear photo) so we can double-check everything from it has been captured.\n\n"
             . "Reply DONE if everything is complete, or send any extra details you still want added.");
     }
 
@@ -2956,6 +3563,220 @@ PROMPT;
         return $result;
     }
 
+    public function refreshDerivedSessionData(AutoCvSession $session, bool $persist = true): AutoCvSession
+    {
+        $cv = $this->sanitizeCv((array) ($session->structured_cv ?: []), $session);
+        $sectionScores = $this->recalculateSectionScores($session, $cv, $session->section_scores ?: []);
+
+        $session->forceFill([
+            'structured_cv' => $cv,
+            'section_scores' => $sectionScores,
+            'suggested_job_positions' => $this->sanitizeJobPositions($session->suggested_job_positions ?: []),
+        ]);
+
+        if ($persist && $session->isDirty()) {
+            $session->save();
+        }
+
+        return $session;
+    }
+
+    private function recalculateSectionScores(AutoCvSession $session, array $cv, mixed $existingScores): array
+    {
+        $scores = $this->sanitizeSectionScores($existingScores, $session);
+        $fallbacks = $this->fallbackSectionScoresFromCv($session, $cv);
+
+        foreach ($fallbacks as $key => $fallback) {
+            if (! isset($scores[$key])) {
+                continue;
+            }
+
+            $existingScore = (int) ($scores[$key]['score'] ?? 0);
+            $fallbackScore = (int) ($fallback['score'] ?? 0);
+
+            if ($fallbackScore > $existingScore) {
+                $scores[$key]['score'] = $fallbackScore;
+                $scores[$key]['improve'] = $fallbackScore >= 90 ? '' : (string) ($fallback['improve'] ?? '');
+            } elseif ($existingScore === 0 && $fallbackScore === 0 && trim((string) ($scores[$key]['improve'] ?? '')) === '') {
+                $scores[$key]['improve'] = (string) ($fallback['improve'] ?? '');
+            }
+        }
+
+        $scores = $this->enforceMandatoryLanguagesTopic($scores, $cv, $session);
+
+        return $this->enforceClosedAdditionalTopics($scores, $session);
+    }
+
+    private function fallbackSectionScoresFromCv(AutoCvSession $session, array $cv): array
+    {
+        $experience = collect($cv['experience'] ?? [])->filter(fn ($row) => is_array($row));
+        $education = collect($cv['education'] ?? [])->filter(fn ($row) => is_array($row));
+        $projects = collect($cv['projects'] ?? [])->filter(fn ($row) => is_array($row));
+        $languages = collect($cv['languages'] ?? [])->filter(fn ($row) => is_array($row));
+        $references = collect($cv['references'] ?? [])->filter(fn ($row) => is_array($row));
+        $certifications = collect($cv['certifications'] ?? [])->filter(fn ($row) => is_array($row) || is_string($row));
+
+        return [
+            '1' => $this->scoreScalarSection($cv['full_name'] ?? '', 'Add the candidate\'s full name.'),
+            '2' => $this->scoreContactSection($cv),
+            '3' => $this->scoreScalarSection($cv['headline'] ?? '', 'Add the job title or type of role they want.'),
+            '4' => $this->scoreScalarSection($cv['summary'] ?? '', 'Add a short profile or strengths summary.'),
+            '5' => $this->scoreCollectionSection($education, function (array $row): int {
+                return $this->rowCompletenessScore($row, ['institution', 'qualification', 'field', 'start_year', 'end_year']);
+            }, 'Add at least one education entry with school, qualification, and years.'),
+            '6' => $this->scoreCollectionSection($experience, function (array $row): int {
+                $score = $this->rowCompletenessScore($row, ['job_title', 'company', 'start_date', 'end_date']);
+                $hasResponsibilities = collect($row['responsibilities'] ?? [])
+                    ->contains(fn ($value) => trim((string) $value) !== '');
+
+                return min(100, $score + ($hasResponsibilities ? 20 : 0));
+            }, 'Add employer, job title, dates, and what they did.'),
+            '7' => $this->scoreCollectionSection($projects, function (array $row): int {
+                return $this->rowCompletenessScore($row, ['name', 'description', 'link']);
+            }, 'Add any projects, volunteer work, or internships with a short description.'),
+            '8' => $this->scoreListSection($cv['skills'] ?? [], 'Add skills, tools, or things the candidate is good at.'),
+            '9' => $this->scoreCertificationsSection($certifications),
+            '10' => $this->scoreCollectionSection($languages, function (array $row): int {
+                return $this->rowCompletenessScore($row, ['language', 'proficiency']);
+            }, 'Add the language and how well the candidate speaks it.'),
+            '11' => $this->scoreReferencesSection($references, (bool) $session->references_available_on_request),
+            '12' => $this->scoreAdditionalSection($cv),
+        ];
+    }
+
+    private function scoreScalarSection(mixed $value, string $improve): array
+    {
+        $filled = trim((string) $value) !== '';
+
+        return [
+            'score' => $filled ? 100 : 0,
+            'improve' => $filled ? '' : $improve,
+        ];
+    }
+
+    private function scoreContactSection(array $cv): array
+    {
+        $weights = [
+            'phone' => 25,
+            'email' => 25,
+            'location' => 25,
+            'address' => 10,
+            'age' => 5,
+            'marital_status' => 5,
+            'linkedin' => 5,
+        ];
+
+        $score = 0;
+
+        foreach ($weights as $field => $weight) {
+            if (trim((string) ($cv[$field] ?? '')) !== '') {
+                $score += $weight;
+            }
+        }
+
+        return [
+            'score' => min(100, $score),
+            'improve' => $score >= 90 ? '' : 'Add any missing contact details still worth including.',
+        ];
+    }
+
+    private function scoreCollectionSection($rows, callable $rowScorer, string $emptyImprove): array
+    {
+        if ($rows->isEmpty()) {
+            return ['score' => 0, 'improve' => $emptyImprove];
+        }
+
+        $score = (int) round($rows->map(fn (array $row) => $rowScorer($row))->avg() ?: 0);
+
+        return [
+            'score' => max(0, min(100, $score)),
+            'improve' => $score >= 90 ? '' : 'Add the remaining missing details for this section.',
+        ];
+    }
+
+    private function scoreListSection(array $values, string $improve): array
+    {
+        $count = collect($values)->filter(fn ($value) => trim((string) $value) !== '')->count();
+
+        if ($count === 0) {
+            return ['score' => 0, 'improve' => $improve];
+        }
+
+        $score = min(100, 60 + ($count * 20));
+
+        return [
+            'score' => $score,
+            'improve' => $score >= 90 ? '' : 'Add a few more strong, relevant skills.',
+        ];
+    }
+
+    private function scoreCertificationsSection($rows): array
+    {
+        if ($rows->isEmpty()) {
+            return ['score' => 0, 'improve' => 'Add any certificates, licences, or trainings if they have them.'];
+        }
+
+        $score = (int) round($rows->map(function ($row): int {
+            if (is_string($row)) {
+                return trim($row) !== '' ? 70 : 0;
+            }
+
+            return $this->rowCompletenessScore($row, ['name', 'issuing_body', 'date']);
+        })->avg() ?: 0);
+
+        return [
+            'score' => max(0, min(100, $score)),
+            'improve' => $score >= 90 ? '' : 'Add the issuing body or year for each certificate.',
+        ];
+    }
+
+    private function scoreReferencesSection($rows, bool $availableOnRequest): array
+    {
+        if ($availableOnRequest) {
+            return ['score' => 100, 'improve' => ''];
+        }
+
+        if ($rows->isEmpty()) {
+            return ['score' => 0, 'improve' => 'Add references or mark them as available on request.'];
+        }
+
+        $score = (int) round($rows->map(fn (array $row) => $this->rowCompletenessScore($row, ['name', 'role', 'company', 'phone', 'email']))->avg() ?: 0);
+
+        return [
+            'score' => max(0, min(100, $score)),
+            'improve' => $score >= 90 ? '' : 'Add the missing phone, email, or role details for each reference.',
+        ];
+    }
+
+    private function scoreAdditionalSection(array $cv): array
+    {
+        $count = collect($cv['notes_for_admin'] ?? [])->filter(fn ($value) => trim((string) $value) !== '')->count();
+
+        if ($count === 0) {
+            return ['score' => 0, 'improve' => 'Add any extra achievements, availability, or preferred location details.'];
+        }
+
+        $score = min(100, 70 + ($count * 15));
+
+        return [
+            'score' => $score,
+            'improve' => $score >= 90 ? '' : 'Add any other useful achievements or availability details.',
+        ];
+    }
+
+    private function rowCompletenessScore(array $row, array $fields): int
+    {
+        if ($fields === []) {
+            return 0;
+        }
+
+        $filled = collect($fields)
+            ->filter(fn (string $field) => trim((string) ($row[$field] ?? '')) !== '')
+            ->count();
+
+        return (int) round(($filled / count($fields)) * 100);
+    }
+
     /**
      * Unlike work experience, certificates, or projects, every candidate speaks at least one
      * language — there's no legitimate "doesn't apply to me" answer for this topic. Seen in
@@ -2991,6 +3812,22 @@ PROMPT;
         return $sectionScores;
     }
 
+    private function enforceClosedAdditionalTopics(array $sectionScores, AutoCvSession $session): array
+    {
+        foreach ($this->closedAdditionalTopicNumbers($session) as $topicNumber) {
+            $key = (string) $topicNumber;
+
+            if (! isset($sectionScores[$key])) {
+                continue;
+            }
+
+            $sectionScores[$key]['score'] = max(95, (int) ($sectionScores[$key]['score'] ?? 0));
+            $sectionScores[$key]['improve'] = '';
+        }
+
+        return $sectionScores;
+    }
+
     private function sanitizeJobPositions(mixed $positions): array
     {
         return collect(is_array($positions) ? $positions : [])
@@ -3018,12 +3855,13 @@ PROMPT;
         ];
 
         // If the candidate actually gave real references, show them on the CV. Only fall back to
-        // "Available on request" when none were collected.
+        // "Available on request" when none were collected, or when the admin has explicitly
+        // overridden it via references_available_on_request.
         $renderCv = $cv;
         $hasReferences = collect($cv['references'] ?? [])
             ->contains(fn ($row) => is_array($row) && trim(implode('', array_filter($row))) !== '');
 
-        if (! $hasReferences) {
+        if ($session->references_available_on_request || ! $hasReferences) {
             $renderCv['references'] = [['name' => 'Available on request', 'role' => '', 'company' => '', 'phone' => '', 'email' => '']];
         }
 

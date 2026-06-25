@@ -37,9 +37,11 @@ use Botble\JobBoard\Models\Package;
 use Botble\JobBoard\Models\SalaryReport;
 use Botble\JobBoard\Models\SalaryReportPurchase;
 use Botble\JobBoard\Models\CandidateAlert;
+use Botble\JobBoard\Models\SalesAgent;
 use Botble\JobBoard\Models\VipAlertOrder;
 use Botble\JobBoard\Models\WakandaVerificationRequest;
 use Botble\JobBoard\Services\CouponService;
+use Botble\JobBoard\Services\SalesAgentService;
 use Botble\JobBoard\Supports\InvoiceHelper;
 use Botble\JobBoard\Supports\TwigExtension;
 use Botble\Dashboard\Events\RenderingDashboardWidgets;
@@ -659,6 +661,8 @@ class HookServiceProvider extends ServiceProvider
                         return $data;
                     }
 
+                    $this->applySalesAgentDiscount($order, $request, $order->candidate_phone);
+
                     $plan = VipAlertOrder::plan($order->plan, includeDisabled: true);
 
                     session([
@@ -834,6 +838,9 @@ class HookServiceProvider extends ServiceProvider
 
                     /** @var Account $account */
                     $account = auth('account')->user();
+
+                    $this->applySalesAgentDiscount($order, $request, $account?->phone);
+
                     $plan = AutoApplyOrder::plan($order->plan, includeDisabled: true);
 
                     session([
@@ -887,6 +894,9 @@ class HookServiceProvider extends ServiceProvider
 
                     /** @var Account $account */
                     $account = auth('account')->user();
+
+                    $this->applySalesAgentDiscount($order, $request, $account?->phone);
+
                     $package = $order->package;
 
                     session([
@@ -1011,6 +1021,8 @@ class HookServiceProvider extends ServiceProvider
                         'customer_email' => $customerEmail,
                         'customer_phone' => $customerPhone,
                     ]);
+
+                    $this->applySalesAgentDiscount($order, $request, $customerPhone);
 
                     session([
                         'career_service_order_id' => $order->getKey(),
@@ -1714,6 +1726,36 @@ class HookServiceProvider extends ServiceProvider
         }
 
         return $name;
+    }
+
+    /**
+     * Resolves a sales agent from the submitted referral code or the order's phone number
+     * (sticky — once a phone is tied to an agent, it keeps attributing without a code), then
+     * discounts the order's amount and stamps sales_agent_id on it. Idempotent: skipped once
+     * an order already has a sales_agent_id so repeated payment attempts don't re-discount it.
+     */
+    protected function applySalesAgentDiscount($order, Request $request, ?string $phone): void
+    {
+        if ($order->sales_agent_id) {
+            return;
+        }
+
+        $agent = app(SalesAgentService::class)->resolveAgent($request->input('sales_agent_code'), $phone);
+
+        if (! $agent) {
+            return;
+        }
+
+        $originalAmount = (float) $order->amount;
+        [$discountedAmount, $discountAmount] = app(SalesAgentService::class)->applyDiscount($originalAmount);
+
+        $order->update([
+            'sales_agent_id' => $agent->getKey(),
+            'sales_agent_original_amount' => $originalAmount,
+            'sales_agent_discount_amount' => $discountAmount,
+            'sales_agent_code' => $agent->code,
+            'amount' => $discountedAmount,
+        ]);
     }
 
     protected function convertOrderAmount(float $amount): float

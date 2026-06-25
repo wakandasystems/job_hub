@@ -29,6 +29,7 @@ use Botble\JobBoard\Console\Commands\ProcessDueSocialBroadcastsCommand;
 use Botble\JobBoard\Console\Commands\SendCandidateFilterTipsCommand;
 use Botble\JobBoard\Console\Commands\CompleteAutoCvFinalConfirmationsCommand;
 use Botble\JobBoard\Console\Commands\BackfillImageVariantsCommand;
+use Botble\JobBoard\Console\Commands\ForwardEmployerRepliesCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
 
@@ -68,6 +69,7 @@ class CommandServiceProvider extends ServiceProvider
             SendCandidateFilterTipsCommand::class,
             CompleteAutoCvFinalConfirmationsCommand::class,
             BackfillImageVariantsCommand::class,
+            ForwardEmployerRepliesCommand::class,
         ]);
 
         $this->app->afterResolving(Schedule::class, function (Schedule $schedule): void {
@@ -96,6 +98,7 @@ class CommandServiceProvider extends ServiceProvider
             $schedule->command(ProcessDueSocialBroadcastsCommand::class)->everyFiveMinutes()->withoutOverlapping();
             $schedule->command(SendCandidateFilterTipsCommand::class)->everyThirtyMinutes()->withoutOverlapping();
             $schedule->command(CompleteAutoCvFinalConfirmationsCommand::class)->everyMinute()->withoutOverlapping();
+            $schedule->command(ForwardEmployerRepliesCommand::class)->everyFiveMinutes()->withoutOverlapping();
         });
     }
 }

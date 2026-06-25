@@ -11,22 +11,119 @@
     ];
 @endphp
 
+@push('header')
+    <style>
+        .cv-editable {
+            display: inline-block;
+            min-width: 14px;
+            border-radius: 3px;
+            padding: 0 2px;
+            outline: none;
+        }
+        .cv-editable:hover {
+            background: rgba(13, 110, 253, .08);
+        }
+        .cv-editable:focus {
+            background: rgba(13, 110, 253, .12);
+            box-shadow: 0 0 0 1px rgba(13, 110, 253, .4);
+        }
+        .cv-editable:empty::before {
+            content: attr(data-empty-text);
+            color: #d63939;
+        }
+        .cv-editable.is-saved {
+            background: rgba(45, 194, 117, .25);
+        }
+        .cv-section {
+            border: 1px solid var(--tblr-border-color, rgba(0, 0, 0, .1));
+            border-radius: var(--tblr-border-radius, .375rem);
+            padding: .75rem .9rem;
+            margin-bottom: .75rem;
+        }
+        .cv-section:last-child {
+            margin-bottom: 0;
+        }
+        .candidate-hero {
+            display: grid;
+            grid-template-columns: minmax(260px, 1.4fr) minmax(240px, 1fr) minmax(150px, auto);
+            gap: 1rem 1.25rem;
+            align-items: center;
+            width: 100%;
+        }
+        .candidate-hero__profile {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            min-width: 0;
+        }
+        .candidate-hero__avatar {
+            width: 72px;
+            height: 72px;
+            border-radius: 18px;
+            object-fit: cover;
+            background: linear-gradient(135deg, #e9ecef, #f8f9fa);
+            border: 1px solid var(--tblr-border-color, rgba(0, 0, 0, .1));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #6c757d;
+            flex: 0 0 72px;
+            overflow: hidden;
+        }
+        .candidate-hero__contact {
+            display: flex;
+            flex-wrap: wrap;
+            gap: .5rem;
+            align-content: center;
+            min-width: 0;
+        }
+        .candidate-hero__score {
+            min-width: 150px;
+            text-align: right;
+            justify-self: end;
+        }
+        .candidate-hero__score-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            line-height: 1;
+        }
+        .candidate-hero__score-label {
+            letter-spacing: .04em;
+            text-transform: uppercase;
+        }
+        @media (max-width: 991.98px) {
+            .candidate-hero {
+                grid-template-columns: 1fr;
+            }
+            .candidate-hero__score {
+                justify-self: start;
+                text-align: left;
+            }
+        }
+    </style>
+@endpush
+
 @section('content')
     <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
         <div>
-            <h4 class="mb-1 fw-bolder">{{ $session->candidate_name ?: $session->whatsapp_number }}</h4>
+            <h4 class="mb-1 fw-bolder">CV Bot Session</h4>
             <div class="text-muted small">
-                <i class="ti ti-brand-whatsapp me-1"></i>{{ $session->whatsapp_number }}
+                <x-core::icon name="ti ti-brand-whatsapp" class="me-1" />{{ $session->whatsapp_number }}
                 <span class="badge bg-{{ $statusColors[$session->status] ?? 'secondary' }} text-white ms-2" id="statusBadge">{{ ucfirst($session->status) }}</span>
-                <span class="text-success small ms-2 d-none" id="liveIndicator"><i class="ti ti-circle-filled" style="font-size:8px"></i> live</span>
+                <span class="text-success small ms-2 d-none" id="liveIndicator"><x-core::icon name="ti ti-circle-filled" style="font-size:8px" /> live</span>
             </div>
         </div>
         <div class="d-flex flex-wrap gap-2">
             <button type="button" class="btn btn-outline-primary btn-sm" id="btnContinueInterview">
-                <i class="ti ti-player-play me-1"></i> Continue Interview
+                <x-core::icon name="ti ti-player-play" class="me-1" /> Continue Interview
             </button>
+            @if (!in_array($session->status, ['paused', 'completed'], true))
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="btnPauseSession">
+                    <x-core::icon name="ti ti-player-pause" class="me-1" /> Pause
+                </button>
+            @endif
             <a href="{{ route('job-board.auto-cv-bot.index') }}" class="btn btn-outline-dark btn-sm">
-                <i class="ti ti-arrow-left me-1"></i> Back to CV Bot
+                <x-core::icon name="ti ti-arrow-left" class="me-1" /> Back to CV Bot
             </a>
         </div>
     </div>
@@ -59,7 +156,7 @@
                 </x-core::card.body>
                 <x-core::card.footer id="resendFooter" class="{{ $session->status === 'collecting' ? '' : 'd-none' }}">
                     <button type="button" class="btn btn-outline-dark btn-sm" id="btnResendQuestion">
-                        <i class="ti ti-send me-1"></i> Resend Last Question
+                        <x-core::icon name="ti ti-send" class="me-1" /> Resend Last Question
                     </button>
                     <span id="resendError" class="text-danger small ms-2"></span>
                 </x-core::card.footer>
@@ -107,6 +204,32 @@
         </div>
     </div>
 
+    <div class="modal fade" id="modal-upload-cv" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Upload Candidate's CV</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="uploadCvForm">
+                    <div class="modal-body">
+                        <p class="text-muted small">Use this if you already have the candidate's CV (e.g. they sent it some other way). It will be read and folded straight into the structured CV below — no need to wait on WhatsApp.</p>
+                        <label class="form-label fw-semibold small">CV file</label>
+                        <input type="file" class="form-control" id="uploadCvFile" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" required>
+                        <div class="form-text">PDF, Word document, or a clear photo. Max 20 MB.</div>
+                        <div class="text-danger small mt-2 d-none" id="uploadCvError"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary" id="btnSubmitUploadCv">
+                            <x-core::icon name="ti ti-upload" class="me-1" /> Upload &amp; Process
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="modal-end-conversation" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -122,7 +245,7 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-danger" id="btnConfirmEndConversation">
-                        <i class="ti ti-circle-check me-1"></i> Send &amp; End Conversation
+                        <x-core::icon name="ti ti-circle-check" class="me-1" /> Send &amp; End Conversation
                     </button>
                 </div>
             </div>
@@ -212,7 +335,14 @@
 
                     document.getElementById('statusBanner').innerHTML = data.banner_html;
                     $transcript.innerHTML = data.transcript_html;
-                    document.getElementById('cvPreviewBody').innerHTML = data.cv_html;
+
+                    var $activeEl = document.activeElement;
+                    var isEditingCv = $activeEl && $activeEl.classList && $activeEl.classList.contains('cv-editable');
+
+                    if (!isEditingCv) {
+                        document.getElementById('cvPreviewBody').innerHTML = data.cv_html;
+                    }
+
                     document.getElementById('improveBody').innerHTML = data.improve_html;
                     document.getElementById('jobPositionsBody').innerHTML = data.job_positions_html;
                     document.getElementById('downloadsFooter').innerHTML = data.downloads_html;
@@ -418,6 +548,98 @@
                         return;
                     }
 
+                    var requestCvButton = event.target.closest('.js-request-cv-upload');
+
+                    if (requestCvButton) {
+                        var requestCvOriginalHtml = requestCvButton.innerHTML;
+                        requestCvButton.disabled = true;
+                        requestCvButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Sending';
+
+                        fetch(requestCvButton.dataset.url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'),
+                                'Accept': 'application/json',
+                            },
+                        })
+                            .then(function (response) {
+                                return response.json().then(function (data) {
+                                    return { ok: response.ok, data: data };
+                                });
+                            })
+                            .then(function (result) {
+                                requestCvButton.disabled = false;
+                                requestCvButton.innerHTML = requestCvOriginalHtml;
+
+                                if (!result.ok) {
+                                    Botble.showError(result.data.error || 'Failed to send the CV request.');
+                                    return;
+                                }
+
+                                Botble.showSuccess(result.data.message || 'Asked the candidate again for their CV.');
+                                poll();
+
+                                if (!pollTimer) {
+                                    document.getElementById('liveIndicator').classList.remove('d-none');
+                                    pollTimer = setInterval(poll, 3000);
+                                }
+                            })
+                            .catch(function () {
+                                requestCvButton.disabled = false;
+                                requestCvButton.innerHTML = requestCvOriginalHtml;
+                                Botble.showError('Network error — please try again.');
+                            });
+
+                        return;
+                    }
+
+                    var requestConfirmationButton = event.target.closest('.js-request-final-confirmation');
+
+                    if (requestConfirmationButton) {
+                        var requestConfirmationOriginalHtml = requestConfirmationButton.innerHTML;
+                        requestConfirmationButton.disabled = true;
+                        requestConfirmationButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Sending';
+
+                        fetch(requestConfirmationButton.dataset.url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'),
+                                'Accept': 'application/json',
+                            },
+                        })
+                            .then(function (response) {
+                                return response.json().then(function (data) {
+                                    return { ok: response.ok, data: data };
+                                });
+                            })
+                            .then(function (result) {
+                                requestConfirmationButton.disabled = false;
+                                requestConfirmationButton.innerHTML = requestConfirmationOriginalHtml;
+
+                                if (!result.ok) {
+                                    Botble.showError(result.data.error || 'Failed to send the confirmation check-in.');
+                                    return;
+                                }
+
+                                Botble.showSuccess(result.data.message || 'Confirmation check-in sent.');
+                                poll();
+
+                                if (!pollTimer) {
+                                    document.getElementById('liveIndicator').classList.remove('d-none');
+                                    pollTimer = setInterval(poll, 3000);
+                                }
+                            })
+                            .catch(function () {
+                                requestConfirmationButton.disabled = false;
+                                requestConfirmationButton.innerHTML = requestConfirmationOriginalHtml;
+                                Botble.showError('Network error — please try again.');
+                            });
+
+                        return;
+                    }
+
                     var askResendButton = event.target.closest('.js-ask-candidate-resend');
 
                     if (askResendButton) {
@@ -494,6 +716,53 @@
                             .catch(function () {
                                 retryGenerationButton.disabled = false;
                                 retryGenerationButton.innerHTML = retryOriginalHtml;
+                                Botble.showError('Network error — please try again.');
+                            });
+
+                        return;
+                    }
+
+                    var clearSectionButton = event.target.closest('.js-clear-cv-section');
+
+                    if (clearSectionButton) {
+                        var clearOriginalHtml = clearSectionButton.innerHTML;
+                        clearSectionButton.disabled = true;
+                        clearSectionButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+                        fetch(clearSectionButton.dataset.url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'),
+                                'Accept': 'application/json',
+                            },
+                            body: JSON.stringify({ section: clearSectionButton.dataset.section }),
+                        })
+                            .then(function (response) {
+                                return response.json().then(function (data) {
+                                    return { ok: response.ok, data: data };
+                                });
+                            })
+                            .then(function (result) {
+                                if (!result.ok) {
+                                    clearSectionButton.disabled = false;
+                                    clearSectionButton.innerHTML = clearOriginalHtml;
+                                    Botble.showError(result.data.error || 'Failed to clear section.');
+                                    return;
+                                }
+
+                                document.getElementById('cvPreviewBody').innerHTML = result.data.cv_html;
+                                if (result.data.job_positions_html) {
+                                    document.getElementById('jobPositionsBody').innerHTML = result.data.job_positions_html;
+                                }
+                                if (result.data.improve_html) {
+                                    document.getElementById('improveBody').innerHTML = result.data.improve_html;
+                                }
+                                Botble.showSuccess(result.data.message || 'Section cleared.');
+                            })
+                            .catch(function () {
+                                clearSectionButton.disabled = false;
+                                clearSectionButton.innerHTML = clearOriginalHtml;
                                 Botble.showError('Network error — please try again.');
                             });
 
@@ -618,6 +887,200 @@
                     })
                     .catch(function () {
                         $btn.prop('disabled', false).html(originalHtml);
+                        Botble.showError('Network error — please try again.');
+                    });
+            });
+
+            document.getElementById('uploadCvForm')?.addEventListener('submit', function (event) {
+                event.preventDefault();
+
+                var fileInput = document.getElementById('uploadCvFile');
+                var $error = $('#uploadCvError').addClass('d-none').text('');
+
+                if (!fileInput.files.length) {
+                    return;
+                }
+
+                var $btn = $('#btnSubmitUploadCv').prop('disabled', true);
+                var originalHtml = $btn.html();
+                $btn.html('<span class="spinner-border spinner-border-sm me-1"></span>Processing');
+
+                var formData = new FormData();
+                formData.append('cv_file', fileInput.files[0]);
+
+                fetch('{{ route('job-board.auto-cv-bot.upload-cv', $session->id) }}', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'),
+                        'Accept': 'application/json',
+                    },
+                    body: formData,
+                })
+                    .then(function (response) {
+                        return response.json().then(function (data) {
+                            return { ok: response.ok, data: data };
+                        });
+                    })
+                    .then(function (result) {
+                        $btn.prop('disabled', false).html(originalHtml);
+
+                        if (!result.ok) {
+                            $error.removeClass('d-none').text(result.data.error || 'Failed to upload the CV.');
+                            return;
+                        }
+
+                        bootstrap.Modal.getOrCreateInstance(document.getElementById('modal-upload-cv')).hide();
+                        document.getElementById('uploadCvForm').reset();
+                        Botble.showSuccess(result.data.message || 'CV uploaded and processed.');
+                        poll();
+
+                        if (!pollTimer) {
+                            document.getElementById('liveIndicator').classList.remove('d-none');
+                            pollTimer = setInterval(poll, 3000);
+                        }
+                    })
+                    .catch(function () {
+                        $btn.prop('disabled', false).html(originalHtml);
+                        $error.removeClass('d-none').text('Network error — please try again.');
+                    });
+            });
+
+            document.addEventListener('change', function (event) {
+                var toggle = event.target.closest('.js-toggle-references-on-request');
+
+                if (!toggle) {
+                    return;
+                }
+
+                var enabled = toggle.checked;
+                toggle.disabled = true;
+
+                fetch(toggle.dataset.url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'),
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ enabled: enabled }),
+                })
+                    .then(function (response) {
+                        return response.json().then(function (data) {
+                            return { ok: response.ok, data: data };
+                        });
+                    })
+                    .then(function (result) {
+                        toggle.disabled = false;
+
+                        if (!result.ok) {
+                            toggle.checked = !enabled;
+                            Botble.showError(result.data.error || 'Failed to update.');
+                            return;
+                        }
+
+                        Botble.showSuccess(result.data.message || 'Updated.');
+                    })
+                    .catch(function () {
+                        toggle.disabled = false;
+                        toggle.checked = !enabled;
+                        Botble.showError('Network error — please try again.');
+                    });
+            });
+
+            var cvFieldUrl = '{{ route('job-board.auto-cv-bot.update-cv-field', $session->id) }}';
+
+            document.addEventListener('focus', function (event) {
+                var el = event.target;
+
+                if (el.classList && el.classList.contains('cv-editable')) {
+                    el.dataset.originalValue = el.textContent.trim();
+                }
+            }, true);
+
+            document.addEventListener('blur', function (event) {
+                var el = event.target;
+
+                if (!el.classList || !el.classList.contains('cv-editable')) {
+                    return;
+                }
+
+                var value = el.textContent.trim();
+
+                if (el.dataset.originalValue === value) {
+                    return;
+                }
+
+                el.dataset.originalValue = value;
+
+                fetch(cvFieldUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'),
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ field: el.dataset.field, value: value }),
+                })
+                    .then(function (response) {
+                        return response.json().then(function (data) {
+                            return { ok: response.ok, data: data };
+                        });
+                    })
+                    .then(function (result) {
+                        if (!result.ok) {
+                            Botble.showError(result.data.error || 'Failed to save edit.');
+                            return;
+                        }
+
+                        if (result.data.cv_html) {
+                            document.getElementById('cvPreviewBody').innerHTML = result.data.cv_html;
+                        }
+
+                        if (result.data.job_positions_html) {
+                            document.getElementById('jobPositionsBody').innerHTML = result.data.job_positions_html;
+                        }
+
+                        if (result.data.improve_html) {
+                            document.getElementById('improveBody').innerHTML = result.data.improve_html;
+                        }
+
+                        el.classList.add('is-saved');
+                        setTimeout(function () { el.classList.remove('is-saved'); }, 1000);
+                    })
+                    .catch(function () {
+                        Botble.showError('Network error — could not save edit.');
+                    });
+            }, true);
+
+            document.getElementById('btnPauseSession')?.addEventListener('click', function () {
+                var $btn = $(this).prop('disabled', true);
+
+                fetch('{{ route('job-board.auto-cv-bot.pause', $session->id) }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'),
+                        'Accept': 'application/json',
+                    },
+                })
+                    .then(function (response) {
+                        return response.json().then(function (data) {
+                            return { ok: response.ok, data: data };
+                        });
+                    })
+                    .then(function (result) {
+                        $btn.prop('disabled', false);
+
+                        if (!result.ok) {
+                            Botble.showError(result.data.error || 'Failed to pause session.');
+                            return;
+                        }
+
+                        Botble.showSuccess(result.data.message || 'Session paused.');
+                        window.location.reload();
+                    })
+                    .catch(function () {
+                        $btn.prop('disabled', false);
                         Botble.showError('Network error — please try again.');
                     });
             });

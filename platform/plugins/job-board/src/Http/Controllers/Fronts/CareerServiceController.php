@@ -6,7 +6,9 @@ use Botble\Base\Http\Controllers\BaseController;
 use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\CareerServiceOrder;
 use Botble\JobBoard\Models\Currency;
+use Botble\JobBoard\Models\SalesAgent;
 use Botble\JobBoard\Services\CvScoringService;
+use Botble\JobBoard\Services\SalesAgentService;
 use Botble\Payment\Services\Gateways\BankTransferPaymentService;
 use Botble\Payment\Services\Gateways\CodPaymentService;
 use Botble\Payment\Enums\PaymentMethodEnum;
@@ -138,6 +140,16 @@ class CareerServiceController extends BaseController
             'customer_phone' => $request->input('customer_phone', $order->customer_phone),
             'status'         => 'paid',
         ]);
+
+        if ($order->sales_agent_id) {
+            $agent = SalesAgent::query()->find($order->sales_agent_id);
+
+            if ($agent) {
+                $service = app(SalesAgentService::class);
+                $service->recordReferral($agent, $order->customer_phone, $order->sales_agent_code, 'career_service', auth('account')->id());
+                $service->creditCommission($agent, 'career_service_order', $order->getKey(), (float) $order->amount, $order->currency);
+            }
+        }
 
         session()->forget([
             'career_service_order_id',

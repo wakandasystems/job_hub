@@ -14,6 +14,7 @@ use Botble\Media\Facades\RvMedia;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Throwable;
 
 class AutoApplyService
@@ -312,7 +313,7 @@ PROMPT;
     /**
      * Send the application email with CV attached, Reply-To set to candidate's email.
      */
-    public function sendApplicationEmail(Account $account, Job $job, string $subject, string $body, string $toEmail): bool
+    public function sendApplicationEmail(Account $account, Job $job, string $subject, string $body, string $toEmail, string $messageId): bool
     {
         $resumePath = trim((string) $account->resume);
         $attachmentPath = $resumePath !== '' ? RvMedia::getRealPath($resumePath) : null;
@@ -331,10 +332,15 @@ PROMPT;
         }
 
         try {
-            Mail::raw($body, function ($message) use ($account, $subject, $toEmail, $attachmentPath, $resumePath) {
+            Mail::raw($body, function ($message) use ($account, $subject, $toEmail, $attachmentPath, $resumePath, $messageId) {
                 $message->to($toEmail)
                     ->subject($subject)
                     ->replyTo($account->email, "{$account->first_name} {$account->last_name}");
+
+                // Tags the outgoing Message-ID so a later employer reply (which quotes it back via
+                // In-Reply-To/References) can be matched to this exact AutoApplyLog row and forwarded
+                // to the candidate, even when the employer's auto-responder ignores Reply-To.
+                $message->getSymfonyMessage()->getHeaders()->addIdHeader('Message-ID', $messageId);
 
                 if ($attachmentPath && file_exists($attachmentPath)) {
                     $ext = pathinfo($resumePath, PATHINFO_EXTENSION) ?: 'pdf';
@@ -506,7 +512,8 @@ PROMPT;
         }
 
         // Send the email
-        $sent = $this->sendApplicationEmail($account, $job, $result['subject'], $result['body'], $toEmail);
+        $messageId = sprintf('auto-apply-%s@%s', (string) Str::uuid(), parse_url(config('app.url'), PHP_URL_HOST) ?: 'wakandajobs.com');
+        $sent = $this->sendApplicationEmail($account, $job, $result['subject'], $result['body'], $toEmail, "<{$messageId}>");
 
         if ($sent) {
             // Create a JobApplication record
@@ -541,6 +548,7 @@ PROMPT;
             'account_id'        => $account->id,
             'job_id'            => $job->id,
             'email_sent_to'     => $toEmail,
+            'message_id'        => $sent ? $messageId : null,
             'ai_email_subject'  => $result['subject'],
             'ai_email_body'     => $result['body'],
             'ai_model_used'     => $aiModel ?: AutoApplyOrder::globalAiModel(),

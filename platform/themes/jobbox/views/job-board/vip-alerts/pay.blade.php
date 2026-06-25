@@ -41,6 +41,11 @@
                         @include('plugins/payment::partials.payment-methods')
                         {!! apply_filters(PAYMENT_FILTER_AFTER_PAYMENT_METHOD, null) !!}
 
+                        <div class="mb-3">
+                            <label for="sales_agent_code" class="form-label small fw-semibold">Have a referral code? (optional)</label>
+                            <input type="text" name="sales_agent_code" id="sales_agent_code" class="form-control" placeholder="e.g. MELISSA10" style="text-transform:uppercase">
+                        </div>
+
                         <x-core::button
                             class="payment-checkout-btn w-100 btn-apply-big"
                             color="success"

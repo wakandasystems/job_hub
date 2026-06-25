@@ -14,18 +14,24 @@ use Botble\JobBoard\Models\AutoApplyPreference;
 use Botble\JobBoard\Models\AutoApplyPreview;
 use Botble\JobBoard\Models\AutoApplyQuota;
 use Botble\JobBoard\Models\Category;
+use Botble\JobBoard\Models\CandidateAlert;
 use Botble\JobBoard\Models\Company;
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\JobExperience;
+use Botble\JobBoard\Models\AutoCvSession;
 use Botble\JobBoard\Services\AutoApplyService;
 use Botble\JobBoard\Services\CvScoringService;
+use Botble\JobBoard\Services\WhapiSenderService;
 use Botble\Media\Facades\RvMedia;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class AutoApplyOrderController extends BaseController
 {
@@ -39,7 +45,7 @@ class AutoApplyOrderController extends BaseController
     {
         $this->pageTitle('Auto Apply Orders');
 
-        $query = AutoApplyOrder::query()->with('account')->latest();
+        $query = AutoApplyOrder::query()->with(['account.avatar'])->latest();
 
         if ($status = $request->query('status')) {
             $query->where('admin_status', $status);
@@ -54,6 +60,9 @@ class AutoApplyOrderController extends BaseController
         }
 
         $orders = $query->paginate(30)->withQueryString();
+        $jobCountsByOrderId = $orders->getCollection()
+            ->mapWithKeys(fn (AutoApplyOrder $order) => [$order->id => $this->summarizeOrderJobCounts($order)]);
+
         $preferences = AutoApplyPreference::query()
             ->whereIn('account_id', $orders->getCollection()->pluck('account_id')->filter()->all())
             ->get()
@@ -110,7 +119,7 @@ class AutoApplyOrderController extends BaseController
 
         return view(
             'plugins/job-board::auto-apply-orders.index',
-            compact('orders', 'stats', 'experiences', 'plans', 'editOrdersData')
+            compact('orders', 'stats', 'experiences', 'plans', 'editOrdersData', 'jobCountsByOrderId')
         );
     }
 
@@ -454,41 +463,8 @@ class AutoApplyOrderController extends BaseController
         $keyword = trim((string) $request->query('q'));
         $perPage = 10;
         $page = max(1, (int) $request->query('page', 1));
-
-        $query = Job::query()
-            ->where('status', JobStatusEnum::PUBLISHED)
-            ->whereNotNull('apply_email')
-            ->where('apply_email', '!=', '')
-            ->with(['autoApplyLogs' => fn ($q) => $q->where('account_id', $autoApplyOrder->account_id)])
-            ->orderByRaw(
-                '(select count(*) from jb_auto_apply_logs where jb_auto_apply_logs.job_id = jb_jobs.id and jb_auto_apply_logs.account_id = ?) asc',
-                [$autoApplyOrder->account_id]
-            )
-            ->latest();
-
         $preference = AutoApplyPreference::query()->where('account_id', $autoApplyOrder->account_id)->first();
-        $countryIds = $preference?->country_ids ?? [];
-
-        if (! empty($countryIds)) {
-            $query->whereIn('country_id', $countryIds);
-        }
-
-        $preferenceKeywords = array_values(array_filter(array_map('trim', (array) ($preference?->keywords ?? []))));
-
-        if ($preferenceKeywords) {
-            $query->where(function ($q) use ($preferenceKeywords): void {
-                foreach ($preferenceKeywords as $kw) {
-                    $pattern = $this->keywordRegexPattern($kw);
-                    $q->orWhereRaw('LOWER(name) REGEXP ?', [$pattern])
-                        ->orWhereRaw('LOWER(description) REGEXP ?', [$pattern])
-                        ->orWhereRaw('LOWER(address) REGEXP ?', [$pattern]);
-                }
-            });
-        }
-
-        if ($keyword !== '') {
-            $query->where('name', 'LIKE', "%{$keyword}%");
-        }
+        $query = $this->buildActiveJobsQuery($autoApplyOrder, $keyword, true);
 
         $selectColumns = ['id', 'name', 'description', 'address', 'apply_email', 'created_at', 'application_closing_date', 'company_id', 'country_id'];
 
@@ -514,9 +490,83 @@ class AutoApplyOrderController extends BaseController
 
         return $response->setData([
             'account_id' => $autoApplyOrder->account_id,
+            'match_score_threshold' => (int) (($preference?->match_score_threshold) ?? AutoApplyOrder::globalMatchThreshold()),
             'items' => $items,
             'pagination' => $pagination,
         ]);
+    }
+
+    public function sendAllActiveJobs(AutoApplyOrder $autoApplyOrder, Request $request, BaseHttpResponse $response)
+    {
+        if (! $autoApplyOrder->account) {
+            return $response->setError()->setMessage('This order has no candidate attached.');
+        }
+
+        $account = $autoApplyOrder->account;
+
+        if (trim((string) $account->resume) === '') {
+            return $response->setError()->setMessage('Candidate has no CV uploaded.');
+        }
+
+        $keyword = trim((string) $request->input('q', ''));
+        $threshold = (int) (AutoApplyPreference::query()
+            ->where('account_id', $account->id)
+            ->value('match_score_threshold') ?? AutoApplyOrder::globalMatchThreshold());
+
+        $jobs = $this->buildActiveJobsQuery($autoApplyOrder, $keyword)
+            ->get(['id', 'name', 'description', 'address', 'apply_email', 'created_at', 'application_closing_date', 'company_id', 'country_id']);
+
+        if ($jobs->isEmpty()) {
+            return $response->setError()->setMessage('No matching active jobs were found.');
+        }
+
+        $processedJobIds = AutoApplyLog::query()
+            ->where('account_id', $account->id)
+            ->whereIn('job_id', $jobs->pluck('id'))
+            ->pluck('job_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $processedLookup = array_fill_keys($processedJobIds, true);
+        $summary = [
+            'matched_total' => $jobs->count(),
+            'queued' => 0,
+            'already_processed' => 0,
+            'below_threshold' => 0,
+            'scoring_failed' => 0,
+            'missing_apply_email' => 0,
+            'queued_job_ids' => [],
+            'below_threshold_job_ids' => [],
+            'scoring_failed_job_ids' => [],
+            'already_processed_job_ids' => [],
+        ];
+
+        foreach ($jobs as $job) {
+            $result = $this->queueAutoApplyJob($account, $job, $threshold, isset($processedLookup[$job->id]));
+
+            if (! isset($summary[$result['status']])) {
+                continue;
+            }
+
+            $summary[$result['status']]++;
+
+            if (! empty($result['job_id'])) {
+                $statusKey = $result['status'] . '_job_ids';
+
+                if (isset($summary[$statusKey])) {
+                    $summary[$statusKey][] = (int) $result['job_id'];
+                }
+            }
+        }
+
+        return $response
+            ->setData($summary)
+            ->setMessage(
+                "Queued {$summary['queued']} job(s) across all matching pages. "
+                . "{$summary['already_processed']} already processed, "
+                . "{$summary['below_threshold']} below threshold, "
+                . "{$summary['scoring_failed']} could not be scored."
+            );
     }
 
     public function previewSetupJobs(Request $request, BaseHttpResponse $response)
@@ -610,6 +660,7 @@ class AutoApplyOrderController extends BaseController
             'company_url' => $job->company?->url,
             'country' => $job->country?->name ?? '',
             'country_flag' => $this->countryFlagEmoji((string) ($job->country?->code ?? '')),
+            'address' => trim((string) $job->address),
             'apply_email' => $job->apply_email,
             'created_at' => $job->created_at?->toDateString(),
             'closing_date' => $job->application_closing_date?->toDateString(),
@@ -619,6 +670,223 @@ class AutoApplyOrderController extends BaseController
             'log_status' => $log?->status,
             'log_sent_at' => $log?->sent_at?->toDateString(),
             'log_error' => $log?->error_message,
+        ];
+    }
+
+    private function resolveAutoApplyScore(Account $account, Job $job): ?int
+    {
+        $log = AutoApplyLog::query()
+            ->where('account_id', $account->id)
+            ->where('job_id', $job->id)
+            ->latest('id')
+            ->first();
+
+        if ($log && $log->match_score !== null) {
+            return (int) $log->match_score;
+        }
+
+        $profileSyncedAt = $account->profile_updated_at ?? $account->updated_at;
+        $aiModel = AutoApplyOrder::globalAiModel();
+
+        $cached = AutoApplyPreview::query()
+            ->where('account_id', $account->id)
+            ->where('job_id', $job->id)
+            ->where('ai_model', $aiModel)
+            ->first();
+
+        if (
+            $cached
+            && $cached->score !== null
+            && $cached->account_profile_synced_at
+            && $profileSyncedAt
+            && $cached->account_profile_synced_at->gte($profileSyncedAt)
+        ) {
+            return (int) $cached->score;
+        }
+
+        $service = app(AutoApplyService::class);
+        $cvText = $service->extractCvText($account);
+        $profile = $service->buildCandidateProfile($account, $cvText);
+        $result = $service->generateApplicationEmail($account, $job, $profile, $aiModel);
+
+        if (! $result || ! isset($result['score'])) {
+            return null;
+        }
+
+        AutoApplyPreview::updateOrCreate(
+            ['account_id' => $account->id, 'job_id' => $job->id, 'ai_model' => $aiModel],
+            [
+                'score' => (int) $result['score'],
+                'reasons' => $result['reasons'] ?? [],
+                'subject' => $result['subject'] ?? '',
+                'body' => $result['body'] ?? '',
+                'prompt_tokens' => $result['prompt_tokens'] ?? null,
+                'completion_tokens' => $result['completion_tokens'] ?? null,
+                'total_tokens' => $result['total_tokens'] ?? null,
+                'cost_usd' => $result['cost'] ?? null,
+                'account_profile_synced_at' => $profileSyncedAt,
+            ]
+        );
+
+        return (int) $result['score'];
+    }
+
+    private function queueAutoApplyJob(Account $account, Job $job, int $threshold, bool $alreadyProcessed = false): array
+    {
+        if ($alreadyProcessed) {
+            return [
+                'status' => 'already_processed',
+                'job_id' => $job->id,
+            ];
+        }
+
+        if (trim((string) $job->apply_email) === '') {
+            return [
+                'status' => 'missing_apply_email',
+                'job_id' => $job->id,
+            ];
+        }
+
+        $score = $this->resolveAutoApplyScore($account, $job);
+
+        if ($score === null) {
+            return [
+                'status' => 'scoring_failed',
+                'job_id' => $job->id,
+            ];
+        }
+
+        if ($score < $threshold) {
+            return [
+                'status' => 'below_threshold',
+                'job_id' => $job->id,
+            ];
+        }
+
+        \Botble\JobBoard\Jobs\ProcessAutoApplySendJob::dispatch($account->id, $job->id)->onQueue('emails');
+
+        return [
+            'status' => 'queued',
+            'job_id' => $job->id,
+        ];
+    }
+
+    private function buildActiveJobsQuery(AutoApplyOrder $autoApplyOrder, string $keyword = '', bool $includeLogs = false): Builder
+    {
+        $query = Job::query()
+            ->where('status', JobStatusEnum::PUBLISHED)
+            ->whereNotNull('apply_email')
+            ->where('apply_email', '!=', '')
+            ->orderByRaw(
+                '(select count(*) from jb_auto_apply_logs where jb_auto_apply_logs.job_id = jb_jobs.id and jb_auto_apply_logs.account_id = ?) asc',
+                [$autoApplyOrder->account_id]
+            )
+            ->latest();
+
+        if ($includeLogs) {
+            $query->with(['autoApplyLogs' => fn ($q) => $q->where('account_id', $autoApplyOrder->account_id)->latest('id')]);
+        }
+
+        $preference = AutoApplyPreference::query()->where('account_id', $autoApplyOrder->account_id)->first();
+        $countryIds = $preference?->country_ids ?? [];
+
+        if (! empty($countryIds)) {
+            $query->whereIn('country_id', $countryIds);
+        }
+
+        $preferenceKeywords = array_values(array_filter(array_map('trim', (array) ($preference?->keywords ?? []))));
+
+        if ($preferenceKeywords) {
+            $query->where(function ($q) use ($preferenceKeywords): void {
+                foreach ($preferenceKeywords as $kw) {
+                    $pattern = $this->keywordRegexPattern($kw);
+                    $q->orWhereRaw('LOWER(name) REGEXP ?', [$pattern])
+                        ->orWhereRaw('LOWER(description) REGEXP ?', [$pattern])
+                        ->orWhereRaw('LOWER(address) REGEXP ?', [$pattern]);
+                }
+            });
+        }
+
+        if ($keyword !== '') {
+            $query->where('name', 'LIKE', "%{$keyword}%");
+        }
+
+        return $query;
+    }
+
+    private function summarizeOrderJobCounts(AutoApplyOrder $order): array
+    {
+        if (! $order->account_id || trim((string) $order->account?->resume) === '') {
+            return [
+                'ready' => null,
+                'applied' => null,
+                'total_matching' => null,
+                'unsent_total' => null,
+            ];
+        }
+
+        $matchingJobsQuery = $this->buildActiveJobsQuery($order)->reorder();
+        $totalMatching = (clone $matchingJobsQuery)->count('jb_jobs.id');
+
+        if ($totalMatching < 1) {
+            return [
+                'ready' => 0,
+                'applied' => 0,
+                'total_matching' => 0,
+                'unsent_total' => 0,
+            ];
+        }
+
+        $matchingJobIds = (clone $matchingJobsQuery)->select('jb_jobs.id');
+        $appliedJobIds = AutoApplyLog::query()
+            ->where('account_id', $order->account_id)
+            ->whereIn('job_id', $matchingJobIds)
+            ->distinct()
+            ->pluck('job_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $applied = count($appliedJobIds);
+        $unsentTotal = max($totalMatching - $applied, 0);
+
+        if ($unsentTotal < 1) {
+            return [
+                'ready' => 0,
+                'applied' => $applied,
+                'total_matching' => $totalMatching,
+                'unsent_total' => 0,
+            ];
+        }
+
+        $unsentJobsQuery = $this->buildActiveJobsQuery($order)->reorder();
+
+        if ($appliedJobIds !== []) {
+            $unsentJobsQuery->whereNotIn('jb_jobs.id', $appliedJobIds);
+        }
+
+        $preference = AutoApplyPreference::query()->where('account_id', $order->account_id)->first();
+        $threshold = (int) (($preference?->match_score_threshold) ?? AutoApplyOrder::globalMatchThreshold());
+        $profileSyncedAt = $order->account?->profile_updated_at ?? $order->account?->updated_at;
+        $aiModel = AutoApplyOrder::globalAiModel();
+
+        $ready = AutoApplyPreview::query()
+            ->where('account_id', $order->account_id)
+            ->where('ai_model', $aiModel)
+            ->where('score', '>=', $threshold)
+            ->when(
+                $profileSyncedAt,
+                fn ($query) => $query->whereNotNull('account_profile_synced_at')
+                    ->where('account_profile_synced_at', '>=', $profileSyncedAt)
+            )
+            ->whereIn('job_id', (clone $unsentJobsQuery)->select('jb_jobs.id'))
+            ->distinct()
+            ->count('job_id');
+
+        return [
+            'ready' => $ready,
+            'applied' => $applied,
+            'total_matching' => $totalMatching,
+            'unsent_total' => $unsentTotal,
         ];
     }
 
@@ -639,15 +907,33 @@ class AutoApplyOrderController extends BaseController
             return $response->setError()->setNextUrl(route('auto-apply-orders.index'))->setMessage('Candidate has no CV uploaded.');
         }
 
-        if (AutoApplyLog::query()->where('account_id', $account->id)->where('job_id', $job->id)->exists()) {
+        $threshold = (int) (AutoApplyPreference::query()
+            ->where('account_id', $account->id)
+            ->value('match_score_threshold') ?? AutoApplyOrder::globalMatchThreshold());
+        $result = $this->queueAutoApplyJob(
+            $account,
+            $job,
+            $threshold,
+            AutoApplyLog::query()->where('account_id', $account->id)->where('job_id', $job->id)->exists()
+        );
+
+        if ($result['status'] === 'already_processed') {
             return $response->setError()->setNextUrl(route('auto-apply-orders.index'))->setMessage('This job has already been processed for this candidate.');
         }
 
-        if (trim((string) $job->apply_email) === '') {
+        if ($result['status'] === 'missing_apply_email') {
             return $response->setError()->setNextUrl(route('auto-apply-orders.index'))->setMessage('This job cannot be auto-applied because it has no application email.');
         }
 
-        \Botble\JobBoard\Jobs\ProcessAutoApplySendJob::dispatch($account->id, $job->id)->onQueue('emails');
+        if ($result['status'] === 'scoring_failed') {
+            return $response->setError()->setMessage('Could not confirm the AI match score for this job. Preview it first, then try again.');
+        }
+
+        if ($result['status'] === 'below_threshold') {
+            $score = $this->resolveAutoApplyScore($account, $job);
+
+            return $response->setError()->setMessage("This job scores {$score}% for this candidate, below the {$threshold}% threshold, so it cannot be sent.");
+        }
 
         return $response
             ->setNextUrl(route('auto-apply-logs.index', ['account_id' => $account->id]))
@@ -662,7 +948,13 @@ class AutoApplyOrderController extends BaseController
         $planKeys = array_keys(AutoApplyOrder::plans());
 
         $data = $request->validate([
-            'account_id'              => ['required', 'exists:jb_accounts,id'],
+            'account_id'              => ['nullable', 'exists:jb_accounts,id'],
+            'create_candidate_account'=> ['nullable', 'boolean'],
+            'candidate_first_name'    => ['nullable', 'string', 'max:120'],
+            'candidate_last_name'     => ['nullable', 'string', 'max:120'],
+            'candidate_email'         => ['nullable', 'email', 'max:150'],
+            'candidate_phone'         => ['nullable', 'string', 'max:30'],
+            'candidate_whatsapp_number' => ['nullable', 'string', 'max:30'],
             'plan'                    => ['required', Rule::in($planKeys)],
             'keywords'                => ['nullable', 'array'],
             'category_ids'            => ['nullable', 'array'],
@@ -674,16 +966,34 @@ class AutoApplyOrderController extends BaseController
             'is_active'               => ['nullable', 'boolean'],
         ]);
 
-        if ($request->hasFile('cv_file')) {
-            $request->validate(['cv_file' => ['file', 'mimes:pdf,doc,docx,txt', 'max:10240']]);
+        $account = null;
+        $generatedPassword = null;
 
-            if ($account = Account::query()->find($data['account_id'])) {
-                $this->persistCandidateCv($account, $request->file('cv_file'));
+        if (! empty($data['account_id'])) {
+            $account = Account::query()->find($data['account_id']);
+        } elseif ($request->boolean('create_candidate_account')) {
+            if (! $request->hasFile('cv_file')) {
+                return $response->setError()->setMessage('Upload a CV first so we can create the candidate account from it.');
+            }
+
+            [$account, $generatedPassword, $createError] = $this->createCandidateAccountFromSetup($data);
+
+            if (! $account) {
+                return $response->setError()->setMessage($createError ?: 'Could not create the candidate account.');
             }
         }
 
+        if (! $account) {
+            return $response->setError()->setMessage('Select an existing candidate or create a new one from the uploaded CV.');
+        }
+
+        if ($request->hasFile('cv_file')) {
+            $request->validate(['cv_file' => ['file', 'mimes:pdf,doc,docx,txt', 'max:10240']]);
+            $this->persistCandidateCv($account, $request->file('cv_file'));
+        }
+
         $preference = AutoApplyPreference::updateOrCreate(
-            ['account_id' => $data['account_id']],
+            ['account_id' => $account->id],
             [
                 'keywords'                => $data['keywords'] ?? [],
                 'category_ids'            => $data['category_ids'] ?? [],
@@ -700,7 +1010,7 @@ class AutoApplyOrderController extends BaseController
 
         // Record an order so this admin-configured candidate shows up in the Auto Apply Orders list
         AutoApplyOrder::updateOrCreate(
-            ['account_id' => $data['account_id'], 'plan' => $data['plan']],
+            ['account_id' => $account->id, 'plan' => $data['plan']],
             [
                 ...$planValues,
                 'payment_method'       => 'admin',
@@ -711,11 +1021,53 @@ class AutoApplyOrderController extends BaseController
             ]
         );
 
-        AutoApplyQuota::syncForAccount($data['account_id']);
+        AutoApplyQuota::syncForAccount($account->id);
+
+        $order = AutoApplyOrder::query()
+            ->where('account_id', $account->id)
+            ->where('plan', $data['plan'])
+            ->with('account')
+            ->latest('id')
+            ->first();
+
+        if ($order) {
+            $inviteError = $this->sendCandidateInvite($order, $generatedPassword);
+
+            if ($inviteError !== null) {
+                return $response
+                    ->setError()
+                    ->setNextUrl(route('auto-apply-orders.index'))
+                    ->setMessage('Auto Apply was configured, but the invite failed: ' . $inviteError);
+            }
+        }
 
         return $response
             ->setNextUrl(route('auto-apply-orders.index'))
             ->setMessage('Auto Apply preference configured for candidate.');
+    }
+
+    public function resendInvite(AutoApplyOrder $autoApplyOrder, BaseHttpResponse $response)
+    {
+        $order = $autoApplyOrder->fresh(['account']);
+
+        if (! $order?->account) {
+            return $response
+                ->setError()
+                ->setMessage('Candidate account not found for this order.');
+        }
+
+        $errorMessage = $this->sendCandidateInvite($order);
+
+        if ($errorMessage !== null) {
+            return $response
+                ->setError()
+                ->setNextUrl(route('auto-apply-orders.index'))
+                ->setMessage($errorMessage);
+        }
+
+        return $response
+            ->setNextUrl(route('auto-apply-orders.index'))
+            ->setMessage('Auto Apply invite sent to the candidate on WhatsApp.');
     }
 
     /**
@@ -824,5 +1176,243 @@ class AutoApplyOrderController extends BaseController
             );
         } catch (\Throwable) {
         }
+    }
+
+    private function sendCandidateInvite(AutoApplyOrder $order, ?string $plainPassword = null): ?string
+    {
+        $account = $order->account;
+
+        if (! $account) {
+            return 'Candidate account not found for this order.';
+        }
+
+        $phone = $this->resolveWhatsAppNumber($account);
+
+        if ($phone === '') {
+            return 'Candidate has no WhatsApp number on file.';
+        }
+
+        $plan = AutoApplyOrder::plan($order->plan, includeDisabled: true)
+            ?? ['label' => $order->planLabel()];
+
+        $preference = AutoApplyPreference::query()->where('account_id', $account->id)->first();
+        $categories = collect($preference?->category_ids ?? [])
+            ->filter()
+            ->whenNotEmpty(fn ($query) => Category::query()->whereIn('id', $query->all())->pluck('name'))
+            ->implode(', ');
+        $countries = collect($preference?->country_ids ?? [])
+            ->filter()
+            ->whenNotEmpty(fn ($query) => DB::table('countries')->whereIn('id', $query->all())->pluck('name'))
+            ->implode(', ');
+        $keywords = collect($preference?->keywords ?? [])->filter()->implode(', ');
+
+        $lines = [
+            'Hi ' . ($account->first_name ?: $account->name ?: 'there') . ',',
+            "You've been successfully added to the Wakanda Jobs Auto Apply programme.",
+            'Your subscription is now active.',
+            '',
+            '*Subscription details*',
+            'Plan: ' . ($plan['label'] ?? $order->planLabel()),
+            'Usage limit: ' . $order->applicationsLabel(),
+            'Expires: ' . ($order->expiresAt()?->toFormattedDateString() ?? 'N/A'),
+            '',
+            '*What we have captured so far*',
+            'CV on file: ' . ($account->resume ? 'Yes' : 'No'),
+            'Match threshold: ' . (($preference?->match_score_threshold ?? AutoApplyOrder::globalMatchThreshold())) . '%',
+        ];
+
+        if ($keywords !== '') {
+            $lines[] = 'Keywords: ' . $keywords;
+        }
+
+        if ($categories !== '') {
+            $lines[] = 'Categories: ' . $categories;
+        }
+
+        if ($countries !== '') {
+            $lines[] = 'Countries: ' . $countries;
+        }
+
+        if ($preference?->location_keyword) {
+            $lines[] = 'Preferred location: ' . $preference->location_keyword;
+        }
+
+        $lines[] = '';
+        $lines[] = 'Auto Apply will now submit matching jobs on your behalf using your CV and AI-written application emails.';
+        $lines[] = 'If you want anything changed, just reply to this message.';
+
+        $message = implode("\n", $lines);
+        $imagePath = $this->settingImageLocalPath('auto_cv_bot_persona_image');
+        $errorMessage = null;
+        $sender = app(WhapiSenderService::class);
+
+        $sent = $imagePath
+            ? $sender->sendImage($phone, $imagePath, $message, $errorMessage)
+            : $sender->sendText($phone, $message, $errorMessage);
+
+        if (! $sent) {
+            return $errorMessage ?: 'Could not send the Auto Apply invite.';
+        }
+
+        $loginUrl = route('public.account.login');
+        $dashboardUrl = route('public.account.dashboard');
+        $credentialsMessage = "Your Wakanda Jobs account is ready.\n\n"
+            . '*Login email:* ' . $account->email
+            . ($plainPassword ? "\n*Temporary password:* {$plainPassword}" : '')
+            . "\n\nUse your email address to sign in.";
+        $linksMessage = "Login: {$loginUrl}\n\nDashboard: {$dashboardUrl}";
+
+        if (! $sender->sendText($phone, $credentialsMessage, $errorMessage)) {
+            return $errorMessage ?: 'The invite image was sent, but the account details message failed.';
+        }
+
+        if (! $sender->sendText($phone, $linksMessage, $errorMessage)) {
+            return $errorMessage ?: 'The invite image was sent, but the login links message failed.';
+        }
+
+        $this->sendCandidateInviteEmail($order, $plainPassword);
+
+        return null;
+    }
+
+    private function sendCandidateInviteEmail(AutoApplyOrder $order, ?string $plainPassword = null): void
+    {
+        $account = $order->account;
+
+        if (! $account?->email) {
+            return;
+        }
+
+        $plan = AutoApplyOrder::plan($order->plan, includeDisabled: true)
+            ?? ['label' => $order->planLabel()];
+        $loginUrl = route('public.account.login');
+        $dashboardUrl = route('public.account.dashboard');
+
+        $body = "Hi {$account->first_name},\n\n"
+            . "Welcome to Wakanda Jobs Auto Apply.\n\n"
+            . "Your subscription is now active.\n\n"
+            . "Plan: {$plan['label']}\n"
+            . "Usage limit: {$order->applicationsLabel()}\n"
+            . "Expires: " . ($order->expiresAt()?->toFormattedDateString() ?? 'N/A') . "\n\n"
+            . "Your Wakanda Jobs account details:\n"
+            . "Email: {$account->email}\n"
+            . ($plainPassword ? "Temporary password: {$plainPassword}\n" : '')
+            . "\nLogin here:\n{$loginUrl}\n\n"
+            . "Your dashboard:\n{$dashboardUrl}\n\n"
+            . "Wakanda Jobs — wakandajobs.com";
+
+        try {
+            Mail::raw($body, function ($msg) use ($account, $plan): void {
+                $msg->to($account->email, "{$account->first_name} {$account->last_name}")
+                    ->subject("Your Wakanda Jobs Account & Auto Apply Are Ready — {$plan['label']}");
+            });
+        } catch (\Throwable) {
+        }
+    }
+
+    private function createCandidateAccountFromSetup(array $data): array
+    {
+        $firstName = trim((string) ($data['candidate_first_name'] ?? ''));
+        $lastName = trim((string) ($data['candidate_last_name'] ?? ''));
+        $email = strtolower(trim((string) ($data['candidate_email'] ?? '')));
+        $phone = trim((string) ($data['candidate_phone'] ?? ''));
+        $whatsapp = trim((string) ($data['candidate_whatsapp_number'] ?? ''));
+
+        if ($firstName === '' || $lastName === '') {
+            return [null, null, 'Please confirm both first name and last name before creating the candidate account.'];
+        }
+
+        if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return [null, null, 'Please confirm a valid candidate email before creating the account.'];
+        }
+
+        if ($phone === '' && $whatsapp === '') {
+            return [null, null, 'Please confirm at least one phone or WhatsApp number before creating the account.'];
+        }
+
+        if (Account::query()->whereRaw('LOWER(email) = ?', [$email])->exists()) {
+            return [null, null, 'An account with this email already exists. Search and select that candidate instead.'];
+        }
+
+        $plainPassword = Str::random(10);
+
+        $account = Account::query()->forceCreate([
+            'type' => AccountTypeEnum::JOB_SEEKER,
+            'first_name' => $firstName,
+            'last_name' => $lastName,
+            'email' => $email,
+            'phone' => $phone ?: $whatsapp,
+            'whatsapp_number' => $whatsapp ?: $phone,
+            'password' => Hash::make($plainPassword),
+            'is_public_profile' => false,
+            'confirmed_at' => now(),
+            'profile_updated_at' => now(),
+        ]);
+
+        return [$account, $plainPassword, null];
+    }
+
+    private function resolveWhatsAppNumber(Account $account): string
+    {
+        $direct = trim((string) ($account->whatsapp_number ?: $account->phone));
+
+        if ($direct !== '') {
+            return $direct;
+        }
+
+        $fullName = trim((string) $account->name);
+
+        if ($fullName !== '') {
+            $sessionNumber = trim((string) AutoCvSession::query()
+                ->where('candidate_name', $fullName)
+                ->whereNotNull('whatsapp_number')
+                ->latest('id')
+                ->value('whatsapp_number'));
+
+            if ($sessionNumber !== '') {
+                return $sessionNumber;
+            }
+
+            $alertNumber = trim((string) CandidateAlert::query()
+                ->where(function ($query) use ($account, $fullName): void {
+                    $query->where('account_id', $account->id)
+                        ->orWhere('candidate_name', $fullName);
+                })
+                ->whereNotNull('candidate_phone')
+                ->latest('id')
+                ->value('candidate_phone'));
+
+            if ($alertNumber !== '') {
+                return $alertNumber;
+            }
+        }
+
+        return '';
+    }
+
+    private function settingImageLocalPath(string $settingKey): ?string
+    {
+        $url = trim((string) setting($settingKey, ''));
+
+        if ($url === '') {
+            return null;
+        }
+
+        if (! RvMedia::isUsingCloud()) {
+            $path = RvMedia::getRealPath($url);
+
+            return is_file($path) ? $path : null;
+        }
+
+        $contents = @file_get_contents(RvMedia::getImageUrl($url));
+
+        if ($contents === false) {
+            return null;
+        }
+
+        $tempPath = tempnam(sys_get_temp_dir(), 'auto_apply_img_') . '.' . (pathinfo($url, PATHINFO_EXTENSION) ?: 'jpg');
+        file_put_contents($tempPath, $contents);
+
+        return $tempPath;
     }
 }

@@ -25,31 +25,31 @@
         .hero-top { width: 100%; }
         .monogram-wrap {
             float: right;
-            width: 46px;
-            height: 46px;
+            width: 60px;
+            height: 60px;
         }
         .monogram {
             display: table;
-            width: 46px;
-            height: 46px;
+            width: 60px;
+            height: 60px;
             border: 1px solid #b08d57;
             border-radius: 50%;
             overflow: hidden;
         }
         .monogram span {
             display: table-cell;
-            width: 46px;
-            height: 46px;
+            width: 60px;
+            height: 60px;
             text-align: center;
             vertical-align: middle;
             color: #d8b88a;
             font-family: "DejaVu Serif", serif;
-            font-size: 16px;
+            font-size: 19px;
             letter-spacing: .02em;
         }
         .monogram img {
-            width: 46px;
-            height: 46px;
+            width: 60px;
+            height: 60px;
             border-radius: 50%;
         }
         h1 {
@@ -163,8 +163,10 @@
     @endif
     <div class="hero">
         <div class="hero-top">
+            {{-- Academic keeps the initials monogram but never the actual photo — a formal CV
+                 design convention this template otherwise breaks for the other 3 designs. --}}
             @if($design !== 'ats')
-                @if($photoDataUri)
+                @if($photoDataUri && $design !== 'academic')
                     <div class="monogram-wrap"><div class="monogram"><img src="{{ $photoDataUri }}" alt=""></div></div>
                 @elseif($initials !== '')
                     <div class="monogram-wrap"><div class="monogram"><span>{{ $initials }}</span></div></div>

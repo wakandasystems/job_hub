@@ -3,14 +3,16 @@
 namespace Botble\JobBoard\Jobs;
 
 use Botble\JobBoard\Models\Account;
+use Botble\JobBoard\Models\AutoCvSession;
+use Botble\JobBoard\Models\CandidateAlert;
 use Botble\JobBoard\Models\Job;
-use Botble\JobBoard\Models\SocialAutomation;
+use Botble\JobBoard\Services\WhapiSenderService;
+use Botble\Media\Facades\RvMedia;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
@@ -53,10 +55,10 @@ class NotifyCandidateAutoApplySentJob implements ShouldQueue
         $company = $job->company?->name;
 
         $body = "Hi {$account->first_name},\n\n"
-            . "Good news — Wakanda Jobs Auto Apply has automatically submitted your application for:\n\n"
+            . "I have just applied for:\n\n"
             . $job->name . ($company ? " at {$company}" : '') . "\n{$jobUrl}\n\n"
-            . "No action is needed from you. We'll keep applying to new matching jobs on your behalf for the rest of your plan.\n\n"
-            . 'Wakanda Jobs Auto Apply';
+            . "No action is needed from you. I will keep applying to new matching jobs for you for the rest of your plan.\n\n"
+            . 'Nakia';
 
         if ($this->coverLetterBody) {
             $body .= "\n\n---\nHere's exactly what we sent on your behalf:\n\n"
@@ -66,7 +68,7 @@ class NotifyCandidateAutoApplySentJob implements ShouldQueue
 
         try {
             Mail::raw($body, function ($message) use ($email, $job) {
-                $message->to($email)->subject("Auto Apply: We applied for \"{$job->name}\" on your behalf");
+                $message->to($email)->subject("I applied for \"{$job->name}\"");
             });
         } catch (Throwable $e) {
             Log::error('AutoApply: Candidate notification email failed', [
@@ -79,13 +81,13 @@ class NotifyCandidateAutoApplySentJob implements ShouldQueue
 
     private function sendWhatsApp(Account $account, Job $job): void
     {
-        $phone = trim((string) ($account->whatsapp_number ?: $account->phone));
+        $phone = $this->resolveWhatsAppNumber($account);
         if ($phone === '') {
-            return;
-        }
+            Log::warning('AutoApply: Candidate WhatsApp notification skipped because no number was found', [
+                'account_id' => $account->id,
+                'job_id' => $job->id,
+            ]);
 
-        [$token, $gatewayUrl] = $this->getWhapiCredentials();
-        if (! $token) {
             return;
         }
 
@@ -93,9 +95,9 @@ class NotifyCandidateAutoApplySentJob implements ShouldQueue
         $company = $job->company?->name;
 
         $message = "Hi {$account->first_name},\n\n"
-            . "Wakanda Jobs Auto Apply has just applied for *{$job->name}*" . ($company ? " at {$company}" : '') . " on your behalf.\n"
+            . "I have just applied for *{$job->name}*" . ($company ? " at {$company}" : '') . ".\n"
             . "{$jobUrl}\n\n"
-            . '_Wakanda Jobs Auto Apply_';
+            . '_Nakia_';
 
         if ($this->coverLetterBody) {
             $message .= "\n\n---\n*Here's exactly what we sent on your behalf:*\n\n"
@@ -103,33 +105,85 @@ class NotifyCandidateAutoApplySentJob implements ShouldQueue
                 . $this->coverLetterBody;
         }
 
-        $jid = preg_replace('/\D/', '', $phone) . '@s.whatsapp.net';
+        $sender = app(WhapiSenderService::class);
+        $errorMessage = null;
+        $confirmationImagePath = $this->settingImageLocalPath('auto_cv_bot_confirmation_image');
 
-        try {
-            Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
-                'to' => $jid,
-                'body' => $message,
-            ]);
-        } catch (Throwable $e) {
+        $sent = $confirmationImagePath
+            ? $sender->sendImage($phone, $confirmationImagePath, $message, $errorMessage)
+            : $sender->sendText($phone, $message, $errorMessage);
+
+        if (! $sent) {
             Log::error('AutoApply: Candidate WhatsApp notification failed', [
                 'account_id' => $account->id,
                 'job_id' => $job->id,
-                'error' => $e->getMessage(),
+                'phone' => $phone,
+                'error' => $errorMessage ?: 'Unknown WhatsApp send failure',
             ]);
         }
     }
 
-    private function getWhapiCredentials(): array
+    private function settingImageLocalPath(string $settingKey): ?string
     {
-        $automation = SocialAutomation::where('platform', 'whapi')->where('is_active', true)->first();
-        if (! $automation) {
-            return [null, null];
+        $url = trim((string) setting($settingKey, ''));
+
+        if ($url === '') {
+            return null;
         }
 
-        $settings = $automation->settings ?? [];
-        $token = SocialAutomation::whapiToken($automation);
-        $gatewayUrl = rtrim(trim((string) ($settings['gateway_url'] ?? '')), '/') ?: 'https://gate.whapi.cloud';
+        if (! RvMedia::isUsingCloud()) {
+            $path = RvMedia::getRealPath($url);
 
-        return $token ? [$token, $gatewayUrl] : [null, null];
+            return is_file($path) ? $path : null;
+        }
+
+        $contents = @file_get_contents(RvMedia::getImageUrl($url));
+
+        if ($contents === false) {
+            return null;
+        }
+
+        $tempPath = tempnam(sys_get_temp_dir(), 'auto_apply_done_') . '.' . (pathinfo($url, PATHINFO_EXTENSION) ?: 'jpg');
+        file_put_contents($tempPath, $contents);
+
+        return $tempPath;
+    }
+
+    private function resolveWhatsAppNumber(Account $account): string
+    {
+        $direct = trim((string) ($account->whatsapp_number ?: $account->phone));
+
+        if ($direct !== '') {
+            return $direct;
+        }
+
+        $fullName = trim((string) $account->name);
+
+        if ($fullName !== '') {
+            $sessionNumber = trim((string) AutoCvSession::query()
+                ->where('candidate_name', $fullName)
+                ->whereNotNull('whatsapp_number')
+                ->latest('id')
+                ->value('whatsapp_number'));
+
+            if ($sessionNumber !== '') {
+                return $sessionNumber;
+            }
+
+            $alertNumber = trim((string) CandidateAlert::query()
+                ->where(function ($query) use ($account, $fullName): void {
+                    $query->where('account_id', $account->id)
+                        ->orWhere('candidate_name', $fullName);
+                })
+                ->whereNotNull('candidate_phone')
+                ->latest('id')
+                ->value('candidate_phone'));
+
+            if ($alertNumber !== '') {
+                return $alertNumber;
+            }
+        }
+
+        return '';
     }
 }

@@ -5,10 +5,12 @@ namespace Botble\JobBoard\Http\Controllers;
 use Botble\Base\Http\Controllers\BaseController;
 use Botble\Base\Supports\Breadcrumb;
 use Botble\JobBoard\Models\AutoCvSession;
+use Botble\JobBoard\Models\SalesAgent;
 use Botble\JobBoard\Services\AutoCvBotService;
 use Botble\Media\Facades\RvMedia;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -135,6 +137,122 @@ class AutoCvBotController extends BaseController
         return response()->json(['message' => 'CV bot session resumed.']);
     }
 
+    public function updateCvField(AutoCvSession $autoCvSession, Request $request, AutoCvBotService $service): JsonResponse
+    {
+        $data = $request->validate([
+            'field' => ['required', 'string', 'max:190', 'regex:/^[a-z_]+(\.\d+(\.[a-z_]+)?)?$/'],
+            'value' => ['nullable', 'string', 'max:5000'],
+        ]);
+
+        $scalarFields = [
+            'full_name', 'headline', 'phone', 'email', 'location', 'address',
+            'age', 'marital_status', 'linkedin', 'summary',
+        ];
+
+        $rowFields = [
+            'education' => ['qualification', 'institution'],
+            'experience' => ['job_title', 'company', 'start_date', 'end_date'],
+            'projects' => ['name', 'description', 'link'],
+            'references' => ['name', 'role', 'company', 'phone', 'email'],
+            'languages' => ['language', 'proficiency'],
+            'certifications' => ['name'],
+        ];
+
+        $listFields = ['skills', 'certifications'];
+
+        $field = $data['field'];
+        $allowed = in_array($field, $scalarFields, true);
+
+        if (! $allowed && preg_match('/^([a-z_]+)\.(\d+)\.([a-z_]+)$/', $field, $matches)) {
+            $allowed = in_array($matches[3], $rowFields[$matches[1]] ?? [], true);
+        }
+
+        if (! $allowed && preg_match('/^([a-z_]+)\.(\d+)$/', $field, $matches)) {
+            $allowed = in_array($matches[1], $listFields, true);
+        }
+
+        if (! $allowed) {
+            return response()->json(['error' => 'This field cannot be edited.'], 422);
+        }
+
+        $cv = $autoCvSession->structured_cv ?: [];
+        Arr::set($cv, $field, trim((string) ($data['value'] ?? '')));
+        $autoCvSession->forceFill(['structured_cv' => $cv])->save();
+        $service->refreshDerivedSessionData($autoCvSession);
+
+        return response()->json([
+            'message' => 'Saved.',
+            'cv_html' => view('plugins/job-board::auto-cv-bot._cv_preview', ['session' => $autoCvSession])->render(),
+            'job_positions_html' => view('plugins/job-board::auto-cv-bot._job_positions', ['session' => $autoCvSession])->render(),
+            'improve_html' => view('plugins/job-board::auto-cv-bot._improve', ['session' => $autoCvSession])->render(),
+        ]);
+    }
+
+    public function clearCvSection(AutoCvSession $autoCvSession, Request $request, AutoCvBotService $service): JsonResponse
+    {
+        $sectionScalarFields = [
+            'name' => ['full_name'],
+            'headline' => ['headline'],
+            'contact' => ['phone', 'email', 'location', 'address', 'age', 'marital_status', 'linkedin'],
+            'summary' => ['summary'],
+        ];
+
+        $sectionArrayFields = ['education', 'experience', 'projects', 'skills', 'certifications', 'languages', 'references'];
+
+        $data = $request->validate([
+            'section' => ['required', 'string', Rule::in(array_merge(array_keys($sectionScalarFields), $sectionArrayFields, ['photo']))],
+        ]);
+
+        $section = $data['section'];
+
+        if ($section === 'photo') {
+            $autoCvSession->forceFill(['candidate_photo_path' => null])->save();
+            $service->refreshDerivedSessionData($autoCvSession);
+
+            return response()->json([
+                'message' => 'Section cleared.',
+                'cv_html' => view('plugins/job-board::auto-cv-bot._cv_preview', ['session' => $autoCvSession])->render(),
+                'job_positions_html' => view('plugins/job-board::auto-cv-bot._job_positions', ['session' => $autoCvSession])->render(),
+                'improve_html' => view('plugins/job-board::auto-cv-bot._improve', ['session' => $autoCvSession])->render(),
+            ]);
+        }
+
+        $cv = $autoCvSession->structured_cv ?: [];
+
+        if (isset($sectionScalarFields[$section])) {
+            foreach ($sectionScalarFields[$section] as $field) {
+                $cv[$field] = '';
+            }
+        } else {
+            $cv[$section] = [];
+        }
+
+        $autoCvSession->forceFill(['structured_cv' => $cv])->save();
+        $service->refreshDerivedSessionData($autoCvSession);
+
+        return response()->json([
+            'message' => 'Section cleared.',
+            'cv_html' => view('plugins/job-board::auto-cv-bot._cv_preview', ['session' => $autoCvSession])->render(),
+            'job_positions_html' => view('plugins/job-board::auto-cv-bot._job_positions', ['session' => $autoCvSession])->render(),
+            'improve_html' => view('plugins/job-board::auto-cv-bot._improve', ['session' => $autoCvSession])->render(),
+        ]);
+    }
+
+    public function toggleReferencesAvailableOnRequest(AutoCvSession $autoCvSession, Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'enabled' => ['required', 'boolean'],
+        ]);
+
+        $autoCvSession->forceFill(['references_available_on_request' => $data['enabled']])->save();
+
+        return response()->json([
+            'message' => $data['enabled']
+                ? 'Generated CVs will show "Available on request" for references.'
+                : 'Generated CVs will show the listed references again.',
+        ]);
+    }
+
     public function destroy(AutoCvSession $autoCvSession): JsonResponse
     {
         Storage::disk('local')->deleteDirectory('auto-cv-bot/session-' . $autoCvSession->getKey());
@@ -203,12 +321,14 @@ class AutoCvBotController extends BaseController
         $data = $request->validate([
             'whatsapp_number' => ['required', 'string', 'max:40'],
             'candidate_name' => ['nullable', 'string', 'max:150'],
+            'sales_agent_code' => ['nullable', 'string', 'max:30'],
         ]);
 
         [$session, $error] = $service->startSession(
             trim($data['whatsapp_number']),
             trim((string) ($data['candidate_name'] ?? '')) ?: null,
-            Auth::id()
+            Auth::id(),
+            trim((string) ($data['sales_agent_code'] ?? '')) ?: null
         );
 
         if ($error) {
@@ -218,6 +338,51 @@ class AutoCvBotController extends BaseController
         return response()->json([
             'message' => 'CV bot started. Opening question sent on WhatsApp.',
             'redirect' => route('job-board.auto-cv-bot.show', $session->getKey()),
+        ]);
+    }
+
+    public function searchAgents(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'q' => ['nullable', 'string', 'max:100'],
+            'page' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $query = SalesAgent::query()
+            ->select(['id', 'name', 'code', 'phone', 'status'])
+            ->orderBy('name');
+
+        $term = trim((string) ($data['q'] ?? ''));
+
+        if ($term !== '') {
+            $query->where(function ($subQuery) use ($term): void {
+                $subQuery
+                    ->where('name', 'like', '%' . $term . '%')
+                    ->orWhere('code', 'like', '%' . $term . '%')
+                    ->orWhere('phone', 'like', '%' . $term . '%');
+            });
+        }
+
+        $agents = $query
+            ->paginate(3, ['*'], 'page', max(1, (int) ($data['page'] ?? 1)))
+            ->through(function (SalesAgent $agent): array {
+                return [
+                    'id' => $agent->getKey(),
+                    'name' => $agent->name,
+                    'code' => $agent->code,
+                    'phone' => $agent->phone,
+                    'status' => $agent->status,
+                ];
+            });
+
+        return response()->json([
+            'data' => $agents->items(),
+            'meta' => [
+                'current_page' => $agents->currentPage(),
+                'last_page' => $agents->lastPage(),
+                'per_page' => $agents->perPage(),
+                'total' => $agents->total(),
+            ],
         ]);
     }
 
@@ -240,6 +405,7 @@ class AutoCvBotController extends BaseController
     {
         $this->pageTitle('CV Bot — ' . ($autoCvSession->candidate_name ?: $autoCvSession->whatsapp_number));
 
+        app(AutoCvBotService::class)->refreshDerivedSessionData($autoCvSession);
         $autoCvSession->load(['messages' => fn ($query) => $query->oldest()]);
 
         return view('plugins/job-board::auto-cv-bot.show', ['session' => $autoCvSession]);
@@ -247,6 +413,7 @@ class AutoCvBotController extends BaseController
 
     public function poll(AutoCvSession $autoCvSession): JsonResponse
     {
+        app(AutoCvBotService::class)->refreshDerivedSessionData($autoCvSession);
         $autoCvSession->load(['messages' => fn ($query) => $query->oldest()]);
 
         return response()->json([
@@ -304,6 +471,34 @@ class AutoCvBotController extends BaseController
         ]);
     }
 
+    public function requestCvUpload(AutoCvSession $autoCvSession, AutoCvBotService $service): JsonResponse
+    {
+        $sent = $service->requestCvUpload($autoCvSession);
+
+        if (! $sent) {
+            return response()->json(['error' => 'Could not send the CV request on WhatsApp.'], 422);
+        }
+
+        return response()->json([
+            'message' => 'Asked the candidate again for their CV on WhatsApp.',
+        ]);
+    }
+
+    public function uploadCv(AutoCvSession $autoCvSession, Request $request, AutoCvBotService $service): JsonResponse
+    {
+        $data = $request->validate([
+            'cv_file' => ['required', 'file', 'mimes:pdf,doc,docx,jpg,jpeg,png', 'max:20480'],
+        ]);
+
+        $result = $service->processAdminUploadedCv($autoCvSession, $data['cv_file']);
+
+        if (! $result['success']) {
+            return response()->json(['error' => $result['message']], 422);
+        }
+
+        return response()->json(['message' => $result['message']]);
+    }
+
     public function retryGeneration(AutoCvSession $autoCvSession, AutoCvBotService $service): JsonResponse
     {
         $completed = $service->retryDocumentGeneration($autoCvSession);
@@ -353,6 +548,19 @@ class AutoCvBotController extends BaseController
         }
 
         return response()->json(['message' => 'Interview reopened and the last question was resent.']);
+    }
+
+    public function requestFinalConfirmation(AutoCvSession $autoCvSession, AutoCvBotService $service): JsonResponse
+    {
+        $sent = $service->requestFinalConfirmation($autoCvSession);
+
+        if (! $sent) {
+            return response()->json(['error' => 'Could not send the confirmation check-in on WhatsApp.'], 422);
+        }
+
+        return response()->json([
+            'message' => 'Confirmation check-in sent on WhatsApp. The candidate can reply DONE or send more details.',
+        ]);
     }
 
     public function endConversation(AutoCvSession $autoCvSession, Request $request, AutoCvBotService $service): JsonResponse

@@ -72,6 +72,8 @@
                             <th>Candidate</th>
                             <th>Plan</th>
                             <th>Limit</th>
+                            <th>Ready</th>
+                            <th>Applied</th>
                             <th>Amount</th>
                             <th>Payment</th>
                             <th>Status</th>
@@ -83,27 +85,61 @@
                         @forelse($orders as $order)
                             @php
                                 $hasCv = trim((string) $order->account?->resume) !== '';
+                                $jobCounts = $jobCountsByOrderId[$order->id] ?? [
+                                    'ready' => null,
+                                    'applied' => null,
+                                    'total_matching' => null,
+                                    'unsent_total' => null,
+                                ];
                             @endphp
-                            <tr @class(['table-danger' => ! $hasCv])>
+                            <tr
+                                data-order-id="{{ $order->id }}"
+                                @class(['table-danger' => ! $hasCv])>
                                 <td>#{{ $order->id }}</td>
                                 <td>
-                                    <div class="fw-medium">
+                                    <div class="d-flex align-items-center gap-2">
                                         @if($order->account)
-                                            <a href="{{ route('accounts.edit', $order->account_id) }}">{{ $order->account->name }}</a>
-                                        @else
-                                            Deleted
+                                            <img
+                                                src="{{ $order->account->avatar_thumb_url }}"
+                                                alt="{{ $order->account->name }}"
+                                                class="rounded-circle border flex-shrink-0"
+                                                style="width:32px;height:32px;object-fit:cover;"
+                                            >
                                         @endif
+                                        <div class="min-w-0">
+                                            <div class="fw-medium">
+                                                @if($order->account)
+                                                    <a href="{{ route('accounts.edit', $order->account_id) }}">{{ $order->account->name }}</a>
+                                                @else
+                                                    Deleted
+                                                @endif
+                                            </div>
+                                            <div class="text-muted small">{{ $order->account?->email }}</div>
+                                            @if(! $hasCv)
+                                                <span class="badge bg-danger text-white mt-1">Inactive · Missing CV</span>
+                                            @endif
+                                        </div>
                                     </div>
-                                    <div class="text-muted small">{{ $order->account?->email }}</div>
-                                    @if(! $hasCv)
-                                        <span class="badge bg-danger text-white mt-1">Inactive · Missing CV</span>
-                                    @endif
                                 </td>
                                 <td>
                                     <span class="badge bg-primary text-white">{{ $order->planLabel() }} · {{ $order->duration_days }} days</span>
                                 </td>
                                 <td>
                                         {{ $order->applicationsLabel() }}
+                                </td>
+                                <td>
+                                    @if($jobCounts['ready'] === null)
+                                        <span class="text-muted">—</span>
+                                    @else
+                                        <span class="badge bg-success text-white js-order-ready-count">{{ number_format($jobCounts['ready']) }}</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if($jobCounts['applied'] === null)
+                                        <span class="text-muted">—</span>
+                                    @else
+                                        <span class="badge bg-secondary text-white js-order-applied-count">{{ number_format($jobCounts['applied']) }}</span>
+                                    @endif
                                 </td>
                                 <td>{{ $order->currency }} {{ number_format($order->amount, 2) }}</td>
                                 <td>
@@ -126,23 +162,18 @@
                                 <td>{{ $order->created_at?->toDateString() }}</td>
                                 <td class="text-end">
                                     <div class="d-inline-flex gap-1 flex-wrap justify-content-end">
-                                        <button type="button" class="btn btn-sm btn-icon btn-outline-primary"
-                                            title="Edit order"
-                                            aria-label="Edit order"
-                                            data-bs-toggle="modal" data-bs-target="#editOrderModal"
-                                            data-action="{{ route('auto-apply-orders.update', $order) }}"
+                                        <button type="button" class="btn btn-sm btn-icon btn-outline-success js-row-send-all"
+                                            title="{{ $hasCv ? 'Send all matching jobs' : 'Candidate CV missing' }}"
+                                            aria-label="Send all matching jobs"
                                             data-order-id="{{ $order->id }}"
-                                            data-label="{{ $order->account?->name ?? 'Deleted candidate' }} — {{ $order->planLabel() }}"
-                                            data-plan="{{ $order->plan }}"
-                                            data-duration-days="{{ $order->duration_days }}"
-                                            data-applications-allowed="{{ $order->applications_allowed }}"
-                                            data-amount="{{ $order->amount }}"
-                                            data-currency="{{ $order->currency }}"
-                                            data-payment-method="{{ $order->payment_method }}"
-                                            data-status="{{ $order->status }}"
-                                            data-admin-status="{{ $order->admin_status }}"
-                                            data-notes="{{ $order->notes }}">
-                                            <x-core::icon name="ti ti-edit" />
+                                            data-send-all-url="{{ route('auto-apply-orders.send-all-active-jobs', $order) }}"
+                                            data-account-id="{{ $order->account_id }}"
+                                            data-label="{{ $order->account?->name ?? 'this candidate' }}"
+                                            data-ready-count="{{ $jobCounts['ready'] ?? 0 }}"
+                                            data-unsent-total="{{ $jobCounts['unsent_total'] ?? 0 }}"
+                                            data-applied-count="{{ $jobCounts['applied'] ?? 0 }}"
+                                            @disabled(! $hasCv || (($jobCounts['ready'] ?? 0) < 1))>
+                                            <x-core::icon name="ti ti-send-2" />
                                         </button>
                                         @if($order->admin_status === 'pending')
                                             <button type="button" class="btn btn-sm btn-icon btn-success"
@@ -153,6 +184,34 @@
                                                 data-label="{{ $order->account?->name ?? '' }} — {{ $order->planLabel() }}">
                                                 <x-core::icon name="ti ti-check" />
                                             </button>
+                                        @elseif($order->admin_status === 'approved')
+                                            <button type="button" class="btn btn-sm btn-icon btn-success" title="Approved" aria-label="Approved" disabled>
+                                                <x-core::icon name="ti ti-check" />
+                                            </button>
+                                        @else
+                                            <button type="button" class="btn btn-sm btn-icon btn-outline-success" title="Approval unavailable" aria-label="Approval unavailable" disabled>
+                                                <x-core::icon name="ti ti-check" />
+                                            </button>
+                                        @endif
+                                        <button type="button" class="btn btn-sm btn-icon btn-outline-primary"
+                                            title="Edit order"
+                                            aria-label="Edit order"
+                                            data-bs-toggle="modal" data-bs-target="#editOrderModal"
+                                            data-action="{{ route('auto-apply-orders.update', $order) }}"
+                                            data-order-id="{{ $order->id }}"
+                                            data-label="{{ $order->account?->name ?? 'Deleted candidate' }} — {{ $order->planLabel() }}"
+                                            data-plan="{{ $order->plan }}"
+                                            data-duration-days="{{ $order->duration_days }}"
+                                            data-applications-allowed="{{ $order->currentApplicationsAllowed() }}"
+                                            data-amount="{{ $order->amount }}"
+                                            data-currency="{{ $order->currency }}"
+                                            data-payment-method="{{ $order->payment_method }}"
+                                            data-status="{{ $order->status }}"
+                                            data-admin-status="{{ $order->admin_status }}"
+                                            data-notes="{{ $order->notes }}">
+                                            <x-core::icon name="ti ti-edit" />
+                                        </button>
+                                        @if($order->admin_status === 'pending')
                                             <button type="button" class="btn btn-sm btn-icon btn-danger"
                                                 title="Reject order"
                                                 aria-label="Reject order"
@@ -167,6 +226,7 @@
                                             aria-label="Preview active jobs"
                                             data-bs-toggle="modal" data-bs-target="#activeJobsModal"
                                             data-url="{{ route('auto-apply-orders.active-jobs', $order) }}"
+                                            data-send-all-url="{{ route('auto-apply-orders.send-all-active-jobs', $order) }}"
                                             data-account-id="{{ $order->account_id }}"
                                             data-label="{{ $order->account?->name ?? 'this candidate' }}"
                                             @disabled(! $hasCv)>
@@ -178,6 +238,16 @@
                                             aria-label="View auto apply logs">
                                             <x-core::icon name="ti ti-list-details" />
                                         </a>
+                                        @if($order->account)
+                                            <form method="POST" action="{{ route('auto-apply-orders.resend-invite', $order) }}" class="d-inline">
+                                                @csrf
+                                                <button type="submit" class="btn btn-sm btn-icon btn-outline-success"
+                                                    title="Resend invite"
+                                                    aria-label="Resend invite">
+                                                    <x-core::icon name="ti ti-brand-whatsapp" />
+                                                </button>
+                                            </form>
+                                        @endif
                                         @if($order->admin_status !== 'cancelled')
                                             <button type="button" class="btn btn-sm btn-icon btn-outline-warning"
                                                 title="Disable auto apply"
@@ -201,7 +271,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="text-center text-muted py-4">No auto apply orders found.</td>
+                                <td colspan="11" class="text-center text-muted py-4">No auto apply orders found.</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -521,6 +591,12 @@
             <div class="modal-content">
                 <form method="POST" action="{{ route('auto-apply-orders.setup-for-candidate') }}" enctype="multipart/form-data">
                     @csrf
+                    <input type="hidden" name="create_candidate_account" id="setupCreateCandidateAccount" value="0">
+                    <input type="hidden" name="candidate_first_name" id="setupCandidateFirstNameHidden">
+                    <input type="hidden" name="candidate_last_name" id="setupCandidateLastNameHidden">
+                    <input type="hidden" name="candidate_email" id="setupCandidateEmailHidden">
+                    <input type="hidden" name="candidate_phone" id="setupCandidatePhoneHidden">
+                    <input type="hidden" name="candidate_whatsapp_number" id="setupCandidateWhatsappHidden">
                     <div class="modal-header">
                         <h5 class="modal-title">Setup Auto Apply for Candidate</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -585,6 +661,11 @@
                                     <div class="col-12">
                                         <label class="form-label">Candidate</label>
                                         <input type="hidden" name="account_id" id="setupAccountId" required>
+                                        <div id="setupCreateCandidateNotice" class="alert alert-primary py-2 px-3 mb-2 d-none">
+                                            <div class="fw-semibold mb-1"><i class="ti ti-user-plus me-1"></i> New candidate account will be created from this CV</div>
+                                            <div class="small" id="setupCreateCandidateNoticeText"></div>
+                                            <button type="button" class="btn btn-sm btn-link p-0 mt-1" id="setupCreateCandidateEditBtn">Review details</button>
+                                        </div>
                                         <div id="candidateSelected" class="alert alert-success py-2 px-3 mb-2 d-none">
                                             <i class="ti ti-user-check me-1"></i>
                                             <span id="candidateSelectedLabel"></span>
@@ -732,6 +813,9 @@
                     <div class="d-flex gap-2 mb-3">
                         <input type="text" class="form-control" id="activeJobsSearch" placeholder="Search active jobs...">
                         <button type="button" class="btn btn-outline-primary" id="activeJobsSearchBtn">Search</button>
+                        <button type="button" class="btn btn-outline-secondary" id="activeJobsRefreshBtn" title="Refresh latest send statuses">
+                            <i class="ti ti-refresh me-1"></i> Refresh
+                        </button>
                         <button type="button" class="btn btn-success text-nowrap" id="activeJobsSendAllBtn" title="Send all unsent jobs currently shown on this page">
                             <i class="ti ti-send me-1"></i> Send All
                         </button>
@@ -755,6 +839,7 @@
                                     <th>Job</th>
                                     <th>Company</th>
                                     <th>Country</th>
+                                    <th>Address</th>
                                     <th>Apply Email</th>
                                     <th>Posted / Closing</th>
                                     <th>Score</th>
@@ -763,7 +848,7 @@
                             </thead>
                             <tbody id="activeJobsList">
                                 <tr>
-                                    <td colspan="8" class="text-center text-muted py-4">Select a candidate row to load jobs.</td>
+                                    <td colspan="9" class="text-center text-muted py-4">Select a candidate row to load jobs.</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -844,6 +929,47 @@
         </div>
     </div>
 
+    <div class="modal fade" id="setupCreateCandidateModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create Candidate Account</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">No existing candidate was selected. Review these CV details before creating the Wakanda Jobs candidate account.</p>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">First name</label>
+                            <input type="text" class="form-control" id="setupCandidateFirstName">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Last name</label>
+                            <input type="text" class="form-control" id="setupCandidateLastName">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" id="setupCandidateEmail">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Phone</label>
+                            <input type="text" class="form-control" id="setupCandidatePhone">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">WhatsApp</label>
+                            <input type="text" class="form-control" id="setupCandidateWhatsapp">
+                        </div>
+                    </div>
+                    <div class="form-text mt-3">The uploaded CV will be linked to this new account. The candidate will get WhatsApp onboarding messages and one email with login links.</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" id="setupConfirmCreateCandidateBtn">Create account &amp; continue</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     {{-- Send auto apply modal --}}
     <div class="modal fade" id="sendAutoApplyModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-sm">
@@ -881,11 +1007,58 @@
                         </span>
                     </div>
                     <h6 class="fw-semibold mb-1">Send all auto applies?</h6>
-                    <p class="text-muted small mb-4" id="sendAllAutoApplyLabel">This will generate and send applications for every unsent job on this page.</p>
+                    <p class="text-muted small mb-2" id="sendAllAutoApplyLabel">This will generate and send applications for every unsent matching job.</p>
+                    <div class="alert alert-light border small text-start py-2 px-3 mb-4">
+                        <div><strong>Candidate:</strong> <span id="sendAllAutoApplyCandidate">—</span></div>
+                        <div><strong>Ready now:</strong> <span id="sendAllAutoApplyReadyCount">0</span></div>
+                        <div><strong>Unsent across all pages:</strong> <span id="sendAllAutoApplyUnsentCount">0</span></div>
+                    </div>
                     <div class="d-flex gap-2 justify-content-center">
                         <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Cancel</button>
                         <button type="button" class="btn btn-success px-4" id="sendAllAutoApplyConfirmBtn">Send All</button>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="sendAllAutoApplyProgressModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content">
+                <div class="modal-header py-3">
+                    <h5 class="modal-title">Sending Matches</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" id="sendAllAutoApplyProgressClose"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="small text-muted mb-2" id="sendAllAutoApplyProgressCandidate">Candidate: —</div>
+                    <div class="small fw-medium mb-2" id="sendAllAutoApplyProgressStatus">Preparing...</div>
+                    <div class="progress mb-3" style="height:8px;">
+                        <div id="sendAllAutoApplyProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width:0%"></div>
+                    </div>
+                    <div class="row g-2 text-center mb-3">
+                        <div class="col-6">
+                            <div class="border rounded py-2">
+                                <div class="text-muted small">Queued</div>
+                                <div class="fw-semibold" id="sendAllAutoApplyQueuedCount">0</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="border rounded py-2">
+                                <div class="text-muted small">Unsent</div>
+                                <div class="fw-semibold" id="sendAllAutoApplyProgressUnsentCount">0</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="small border rounded p-2 bg-light">
+                        <div class="d-flex justify-content-between"><span class="text-muted">Already processed</span><span id="sendAllAutoApplyAlreadyProcessedCount">0</span></div>
+                        <div class="d-flex justify-content-between"><span class="text-muted">Below threshold</span><span id="sendAllAutoApplyBelowThresholdCount">0</span></div>
+                        <div class="d-flex justify-content-between"><span class="text-muted">Scoring failed</span><span id="sendAllAutoApplyScoringFailedCount">0</span></div>
+                        <div class="d-flex justify-content-between"><span class="text-muted">Missing email</span><span id="sendAllAutoApplyMissingEmailCount">0</span></div>
+                    </div>
+                    <div class="small text-muted mt-2" id="sendAllAutoApplyProgressHint">Using the same rules as the Active Jobs modal Send All action.</div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>
                 </div>
             </div>
         </div>
@@ -939,6 +1112,19 @@
         .job-ad-html-content h1, .job-ad-html-content h2, .job-ad-html-content h3,
         .job-ad-html-content h4, .job-ad-html-content h5, .job-ad-html-content h6 { font-size: 0.9rem; margin: 0.5rem 0 0.25rem; }
         .job-ad-html-content img { max-width: 100%; }
+        body.modal-stack-focus .modal.modal-stack-muted .modal-dialog {
+            transform: scale(0.985);
+            transition: transform 0.2s ease, opacity 0.2s ease, filter 0.2s ease;
+        }
+        body.modal-stack-focus .modal.modal-stack-muted .modal-content {
+            opacity: 0.24;
+            filter: blur(1.5px) saturate(0.75);
+            pointer-events: none;
+            transition: opacity 0.2s ease, filter 0.2s ease;
+        }
+        body.modal-stack-focus .modal.modal-stack-active .modal-content {
+            box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.38);
+        }
     </style>
 
     @push('footer')
@@ -949,6 +1135,7 @@
             var editCategoryPicker;
             var editBlacklistPicker;
             var setupSelectedAccount = null;
+            var setupPendingCandidate = null;
             var editSelectedAccount = null;
 
             function setupEscapeHtml(value) {
@@ -1044,6 +1231,59 @@
                 document.getElementById('deleteModalLabel').textContent = btn.dataset.label || 'This cannot be undone.';
             });
 
+            function updateModalStackFocus(activeModalId) {
+                var modalIds = ['activeJobsModal', 'activeJobPreviewModal', 'cvPreviewModal', 'sendAutoApplyModal'];
+                var hasStackFocus = false;
+
+                modalIds.forEach(function (id) {
+                    var el = document.getElementById(id);
+                    if (!el) return;
+
+                    el.classList.remove('modal-stack-active', 'modal-stack-muted');
+
+                    if (!el.classList.contains('show')) {
+                        return;
+                    }
+
+                    if (id === activeModalId) {
+                        el.classList.add('modal-stack-active');
+                        hasStackFocus = true;
+                    } else {
+                        el.classList.add('modal-stack-muted');
+                    }
+                });
+
+                document.body.classList.toggle('modal-stack-focus', hasStackFocus);
+            }
+
+            ['activeJobPreviewModal', 'cvPreviewModal', 'sendAutoApplyModal'].forEach(function (modalId) {
+                var modalEl = document.getElementById(modalId);
+
+                if (!modalEl) return;
+
+                modalEl.addEventListener('shown.bs.modal', function () {
+                    updateModalStackFocus(modalId);
+                });
+
+                modalEl.addEventListener('hidden.bs.modal', function () {
+                    var fallbackActiveId = null;
+
+                    if (document.getElementById('cvPreviewModal')?.classList.contains('show')) {
+                        fallbackActiveId = 'cvPreviewModal';
+                    } else if (document.getElementById('sendAutoApplyModal')?.classList.contains('show')) {
+                        fallbackActiveId = 'sendAutoApplyModal';
+                    } else if (document.getElementById('activeJobPreviewModal')?.classList.contains('show')) {
+                        fallbackActiveId = 'activeJobPreviewModal';
+                    }
+
+                    updateModalStackFocus(fallbackActiveId);
+                });
+            });
+
+            document.getElementById('activeJobsModal').addEventListener('hidden.bs.modal', function () {
+                updateModalStackFocus(null);
+            });
+
             function prepareKeywords(inputId, hiddenId) {
                 var input = document.getElementById(inputId);
                 var hidden = document.getElementById(hiddenId);
@@ -1062,14 +1302,116 @@
                 });
             }
 
-            // Keywords comma-to-array + candidate validation
-            document.querySelector('#setupModal form').addEventListener('submit', function(e) {
-                if (!document.getElementById('setupAccountId').value) {
-                    e.preventDefault();
-                    Botble.showError('Please search for and select a candidate first.');
+            function setupFillCandidateHiddenFields(candidate) {
+                candidate = candidate || {};
+                document.getElementById('setupCreateCandidateAccount').value = candidate.create_account ? '1' : '0';
+                document.getElementById('setupCandidateFirstNameHidden').value = candidate.first_name || '';
+                document.getElementById('setupCandidateLastNameHidden').value = candidate.last_name || '';
+                document.getElementById('setupCandidateEmailHidden').value = candidate.email || '';
+                document.getElementById('setupCandidatePhoneHidden').value = candidate.phone || '';
+                document.getElementById('setupCandidateWhatsappHidden').value = candidate.whatsapp_number || '';
+            }
+
+            function setupSplitCandidateName(fullName) {
+                fullName = String(fullName || '').trim().replace(/\s+/g, ' ');
+                if (!fullName) {
+                    return { first_name: '', last_name: '' };
+                }
+
+                var parts = fullName.split(' ');
+
+                return {
+                    first_name: parts.shift() || '',
+                    last_name: parts.join(' '),
+                };
+            }
+
+            function setupShowPendingCandidateNotice(candidate) {
+                var notice = document.getElementById('setupCreateCandidateNotice');
+                var text = document.getElementById('setupCreateCandidateNoticeText');
+
+                if (!candidate) {
+                    notice.classList.add('d-none');
+                    text.textContent = '';
                     return;
                 }
 
+                var bits = [];
+                if (candidate.first_name || candidate.last_name) bits.push([candidate.first_name, candidate.last_name].join(' ').trim());
+                if (candidate.email) bits.push(candidate.email);
+                if (candidate.whatsapp_number || candidate.phone) bits.push(candidate.whatsapp_number || candidate.phone);
+                text.textContent = bits.join(' · ');
+                notice.classList.remove('d-none');
+            }
+
+            function setupOpenCreateCandidateModal() {
+                if (!setupPendingCandidate) {
+                    Botble.showError('Analyse the uploaded CV first so we can prefill the new candidate details.');
+                    return;
+                }
+
+                document.getElementById('setupCandidateFirstName').value = setupPendingCandidate.first_name || '';
+                document.getElementById('setupCandidateLastName').value = setupPendingCandidate.last_name || '';
+                document.getElementById('setupCandidateEmail').value = setupPendingCandidate.email || '';
+                document.getElementById('setupCandidatePhone').value = setupPendingCandidate.phone || '';
+                document.getElementById('setupCandidateWhatsapp').value = setupPendingCandidate.whatsapp_number || '';
+                bootstrap.Modal.getOrCreateInstance(document.getElementById('setupCreateCandidateModal')).show();
+            }
+
+            function setupStorePendingCandidate() {
+                var firstName = document.getElementById('setupCandidateFirstName').value.trim();
+                var lastName = document.getElementById('setupCandidateLastName').value.trim();
+                var email = document.getElementById('setupCandidateEmail').value.trim();
+                var phone = document.getElementById('setupCandidatePhone').value.trim();
+                var whatsapp = document.getElementById('setupCandidateWhatsapp').value.trim();
+
+                if (!firstName || !lastName) {
+                    Botble.showError('Please confirm both first name and last name before creating the candidate account.');
+                    return false;
+                }
+
+                if (!email) {
+                    Botble.showError('Please confirm the candidate email before creating the account.');
+                    return false;
+                }
+
+                if (!phone && !whatsapp) {
+                    Botble.showError('Please confirm at least one phone or WhatsApp number before creating the account.');
+                    return false;
+                }
+
+                setupPendingCandidate = {
+                    create_account: true,
+                    first_name: firstName,
+                    last_name: lastName,
+                    email: email,
+                    phone: phone,
+                    whatsapp_number: whatsapp || phone,
+                };
+
+                setupFillCandidateHiddenFields(setupPendingCandidate);
+                setupShowPendingCandidateNotice(setupPendingCandidate);
+
+                return true;
+            }
+
+            // Keywords comma-to-array + candidate validation
+            document.querySelector('#setupModal form').addEventListener('submit', function(e) {
+                var hasSelectedAccount = !!document.getElementById('setupAccountId').value;
+
+                if (!hasSelectedAccount) {
+                    if (!setupPendingCandidate) {
+                        e.preventDefault();
+                        Botble.showError('Select a candidate or analyse an uploaded CV first so we can create the candidate account.');
+                        return;
+                    }
+
+                    e.preventDefault();
+                    setupOpenCreateCandidateModal();
+                    return;
+                }
+
+                document.getElementById('setupCreateCandidateAccount').value = '0';
                 prepareKeywords('keywordsInput', 'keywordsHidden');
             });
 
@@ -1153,6 +1495,9 @@
                     searchWrap.classList.add('d-none');
                     resultsBox.classList.add('d-none');
                     setupSelectedAccount = item;
+                    setupPendingCandidate = null;
+                    setupFillCandidateHiddenFields({});
+                    setupShowPendingCandidateNotice(null);
                     if (window.onSetupCandidateSelected) window.onSetupCandidateSelected(item);
                 }
 
@@ -1176,6 +1521,8 @@
                     searchInput.value = '';
                     resultsBox.classList.add('d-none');
                     setupSelectedAccount = null;
+                    setupFillCandidateHiddenFields(setupPendingCandidate || {});
+                    setupShowPendingCandidateNotice(setupPendingCandidate);
                     if (window.onSetupCandidateCleared) window.onSetupCandidateCleared();
                 });
 
@@ -1187,6 +1534,9 @@
                     resultsBox.classList.add('d-none');
                     resultsList.innerHTML = '';
                     setupSelectedAccount = null;
+                    setupPendingCandidate = null;
+                    setupFillCandidateHiddenFields({});
+                    setupShowPendingCandidateNotice(null);
                     if (window.onSetupCandidateCleared) window.onSetupCandidateCleared();
                 });
             })();
@@ -1349,6 +1699,8 @@
                 var analyzeCvBtn = document.getElementById('setupAnalyzeCvBtn');
                 var analyzeAccountCvBtn = document.getElementById('setupAnalyzeAccountCvBtn');
                 var previewCvBtn = document.getElementById('setupPreviewCvBtn');
+                var createCandidateEditBtn = document.getElementById('setupCreateCandidateEditBtn');
+                var confirmCreateCandidateBtn = document.getElementById('setupConfirmCreateCandidateBtn');
                 var prompt = document.getElementById('setupCvPrompt');
                 var analysisPanel = document.getElementById('setupAnalysisResult');
                 var previewJobsBtn = document.getElementById('setupPreviewJobsBtn');
@@ -1434,6 +1786,7 @@
 
                 function applySetupAnalysis(data) {
                     var keywords = Array.isArray(data.keywords) && data.keywords.length ? data.keywords : (data.keyword ? [data.keyword] : []);
+                    var splitName = setupSplitCandidateName(data.candidate_name);
                     document.getElementById('keywordsInput').value = keywords.join(', ');
 
                     if (data.location_keyword) {
@@ -1450,6 +1803,19 @@
 
                     if (setupCategoryPicker) {
                         setupCategoryPicker.setSelected(selectedObjects(data.category_ids || [], data.category_names || []));
+                    }
+
+                    if (!document.getElementById('setupAccountId').value && (splitName.first_name || splitName.last_name || data.candidate_email || data.candidate_phone)) {
+                        setupPendingCandidate = {
+                            create_account: true,
+                            first_name: splitName.first_name || '',
+                            last_name: splitName.last_name || '',
+                            email: data.candidate_email || '',
+                            phone: data.candidate_phone || '',
+                            whatsapp_number: data.candidate_phone || '',
+                        };
+                        setupFillCandidateHiddenFields(setupPendingCandidate);
+                        setupShowPendingCandidateNotice(setupPendingCandidate);
                     }
 
                     renderAnalysis(data);
@@ -1534,6 +1900,20 @@
                     if (!url) return;
                     document.getElementById('cvPreviewFrame').src = url;
                     bootstrap.Modal.getOrCreateInstance(document.getElementById('cvPreviewModal')).show();
+                });
+
+                createCandidateEditBtn.addEventListener('click', function () {
+                    setupOpenCreateCandidateModal();
+                });
+
+                confirmCreateCandidateBtn.addEventListener('click', function () {
+                    if (!setupStorePendingCandidate()) {
+                        return;
+                    }
+
+                    bootstrap.Modal.getInstance(document.getElementById('setupCreateCandidateModal')).hide();
+                    prepareKeywords('keywordsInput', 'keywordsHidden');
+                    document.querySelector('#setupModal form').submit();
                 });
 
                 previewJobsBtn.addEventListener('click', function () {
@@ -1870,13 +2250,18 @@
             // Active jobs preview/send
             (function () {
                 var activeJobsUrl = '';
+                var activeJobsSendAllUrl = '';
                 var activeJobsAccountId = '';
                 var activeJobsCandidateLabel = '';
+                var activeJobsThreshold = {{ \Botble\JobBoard\Models\AutoApplyOrder::globalMatchThreshold() }};
                 var activeJobsList = document.getElementById('activeJobsList');
                 var activeJobsSearch = document.getElementById('activeJobsSearch');
+                var activeJobsRefreshBtn = document.getElementById('activeJobsRefreshBtn');
                 var activeJobsLoading = document.getElementById('activeJobsLoading');
                 var activeJobsPagination = document.getElementById('activeJobsPagination');
                 var activeJobsPage = 1;
+                var activeJobsTotal = 0;
+                var previewedJobScore = null;
 
                 function escapeHtml(value) {
                     return String(value || '').replace(/[&<>"']/g, function (char) {
@@ -1896,8 +2281,56 @@
                     }
                     reasons = reasons || [];
                     var reasonsText = reasons.length ? reasons.join('\n') : 'AI match score based on the candidate\'s CV vs this job description.';
-                    var badgeClass = score >= 70 ? 'bg-success' : (score >= 40 ? 'bg-warning' : 'bg-secondary');
+                    var badgeClass = score >= activeJobsThreshold ? 'bg-success' : 'bg-danger';
                     return '<span class="badge ' + badgeClass + '" title="' + escapeHtml(reasonsText) + '" style="cursor:help;color:#fff">' + score + '%</span>';
+                }
+
+                function thresholdHelpText(score) {
+                    return 'Requires at least ' + activeJobsThreshold + '% match score'
+                        + (typeof score === 'number' ? ' (' + score + '%)' : '');
+                }
+
+                function canSendForScore(score) {
+                    return typeof score === 'number' && score >= activeJobsThreshold;
+                }
+
+                function updateSendAllState() {
+                    if (sendAllInProgress) {
+                        return;
+                    }
+
+                    sendAllBtn.disabled = activeJobsTotal < 1;
+                    sendAllBtn.title = activeJobsTotal < 1
+                        ? 'No matching active jobs were found'
+                        : 'Send all matching unsent jobs across every page';
+                }
+
+                function updatePreviewSendState() {
+                    var btn = document.getElementById('activeJobPreviewSendBtn');
+                    if (!btn) return;
+
+                    var disabled = !canSendForScore(previewedJobScore);
+                    btn.disabled = disabled;
+                    btn.title = disabled ? thresholdHelpText(previewedJobScore) : 'Send application';
+                }
+
+                function updateSendButtonState(jobId, score) {
+                    var row = activeJobsList.querySelector('tr[data-job-id="' + jobId + '"]');
+                    if (!row) return;
+
+                    var sendBtn = row.querySelector('.js-send-active-job');
+                    if (!sendBtn) return;
+
+                    var disabled = !canSendForScore(score);
+                    sendBtn.disabled = disabled;
+                    sendBtn.classList.toggle('btn-success', !disabled);
+                    sendBtn.classList.toggle('btn-outline-secondary', disabled);
+                    sendBtn.title = disabled ? thresholdHelpText(score) : 'Send application';
+                    sendBtn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+
+                    if (typeof score === 'number') {
+                        sendBtn.dataset.score = String(score);
+                    }
                 }
 
                 function setScoreCell(jobId, html) {
@@ -1948,6 +2381,8 @@
                             setScoreCell(job.id, result.score === null
                                 ? '<span class="text-muted small" title="AI scoring failed">—</span>'
                                 : renderScoreBadge(result.score, result.reasons));
+                            updateSendButtonState(job.id, result.score);
+                            updateSendAllState();
                             next();
                         });
                     }
@@ -1962,15 +2397,49 @@
                         return;
                     }
 
+                    var totalPages = meta.last_page || 1;
+                    var currentPage = meta.current_page || 1;
+                    var startPage = Math.max(1, currentPage - 2);
+                    var endPage = Math.min(totalPages, currentPage + 2);
+                    var pageButtons = [];
+
+                    if (startPage > 1) {
+                        pageButtons.push('<button type="button" class="btn btn-sm btn-outline-secondary js-active-jobs-page" data-page="1">1</button>');
+
+                        if (startPage > 2) {
+                            pageButtons.push('<span class="px-1 text-muted small">…</span>');
+                        }
+                    }
+
+                    for (var pageNumber = startPage; pageNumber <= endPage; pageNumber++) {
+                        pageButtons.push(
+                            '<button type="button" class="btn btn-sm '
+                            + (pageNumber === currentPage ? 'btn-primary' : 'btn-outline-secondary')
+                            + ' js-active-jobs-page" data-page="' + pageNumber + '">'
+                            + pageNumber
+                            + '</button>'
+                        );
+                    }
+
+                    if (endPage < totalPages) {
+                        if (endPage < totalPages - 1) {
+                            pageButtons.push('<span class="px-1 text-muted small">…</span>');
+                        }
+
+                        pageButtons.push('<button type="button" class="btn btn-sm btn-outline-secondary js-active-jobs-page" data-page="' + totalPages + '">' + totalPages + '</button>');
+                    }
+
                     activeJobsPagination.innerHTML = ''
                         + '<div class="text-muted small">Showing page ' + meta.current_page + ' of ' + meta.last_page + ' · ' + meta.total + ' jobs</div>'
-                        + '<div class="d-inline-flex gap-2">'
+                        + '<div class="d-inline-flex gap-2 flex-wrap justify-content-end">'
                         + '<button type="button" class="btn btn-sm btn-outline-secondary" id="activeJobsPrevBtn"' + (meta.current_page <= 1 ? ' disabled' : '') + '>Prev</button>'
+                        + pageButtons.join('')
                         + '<button type="button" class="btn btn-sm btn-outline-primary" id="activeJobsNextBtn"' + (!meta.has_more_pages ? ' disabled' : '') + '>Next</button>'
                         + '</div>';
 
                     var prevBtn = document.getElementById('activeJobsPrevBtn');
                     var nextBtn = document.getElementById('activeJobsNextBtn');
+                    var pageNumberButtons = activeJobsPagination.querySelectorAll('.js-active-jobs-page');
 
                     if (prevBtn) {
                         prevBtn.addEventListener('click', function () {
@@ -1989,12 +2458,35 @@
                             }
                         });
                     }
+
+                    pageNumberButtons.forEach(function (button) {
+                        button.addEventListener('click', function () {
+                            var targetPage = parseInt(button.dataset.page || '', 10);
+
+                            if (!targetPage || targetPage === activeJobsPage) {
+                                return;
+                            }
+
+                            activeJobsPage = targetPage;
+                            loadActiveJobs();
+                        });
+                    });
+                }
+
+                function setActiveJobsRefreshState(isLoading) {
+                    if (!activeJobsRefreshBtn) return;
+
+                    activeJobsRefreshBtn.disabled = isLoading;
+                    activeJobsRefreshBtn.innerHTML = isLoading
+                        ? '<span class="spinner-border spinner-border-sm me-1"></span> Refreshing...'
+                        : '<i class="ti ti-refresh me-1"></i> Refresh';
                 }
 
                 function loadActiveJobs() {
                     if (!activeJobsUrl) return;
 
                     activeJobsLoading.classList.remove('d-none');
+                    setActiveJobsRefreshState(true);
 
                     var url = activeJobsUrl + '?q=' + encodeURIComponent(activeJobsSearch.value.trim()) + '&page=' + activeJobsPage;
 
@@ -2005,10 +2497,15 @@
                             var jobs = data.items || [];
                             var meta = data.pagination || null;
                             activeJobsAccountId = data.account_id || activeJobsAccountId;
+                            activeJobsThreshold = typeof data.match_score_threshold === 'number'
+                                ? data.match_score_threshold
+                                : activeJobsThreshold;
+                            activeJobsTotal = meta && typeof meta.total === 'number' ? meta.total : jobs.length;
 
                             if (!jobs.length) {
-                                activeJobsList.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No jobs found.</td></tr>';
+                                activeJobsList.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No jobs found.</td></tr>';
                                 renderActiveJobsPagination(meta);
+                                updateSendAllState();
                                 return;
                             }
 
@@ -2031,6 +2528,10 @@
                                 if (job.country || job.country_flag) {
                                     countryCell = '<span class="small">' + escapeHtml([job.country_flag || '', job.country || ''].join(' ').trim()) + '</span>';
                                 }
+
+                                var addressCell = job.address
+                                    ? '<span class="small">' + escapeHtml(job.address) + '</span>'
+                                    : '<span class="text-muted small">—</span>';
 
                                 var datesCell = '<div class="small text-nowrap">'
                                     + '<div><span class="text-muted">Posted:</span> ' + escapeHtml(job.created_at || '—') + '</div>'
@@ -2068,9 +2569,10 @@
                                         + '<span class="badge ' + badgeClass + '" title="' + escapeHtml(badgeTitle) + '" style="cursor:help;color:#fff">' + escapeHtml(badgeLabel) + '</span>'
                                         + '</div>';
                                 } else {
+                                    var canSendNow = canSendForScore(job.score);
                                     actionsCell = '<div class="d-inline-flex gap-1">'
                                         + '<button type="button" class="btn btn-sm btn-outline-info js-preview-active-job" title="Preview application" data-job-id="' + job.id + '" data-job-name="' + escapeHtml(job.name) + '">Preview</button>'
-                                        + '<button type="button" class="btn btn-sm btn-success js-send-active-job" title="Send application" data-bs-toggle="modal" data-bs-target="#sendAutoApplyModal" data-job-id="' + job.id + '" data-job-name="' + escapeHtml(job.name) + '">Send</button>'
+                                        + '<button type="button" class="btn btn-sm ' + (canSendNow ? 'btn-success' : 'btn-outline-secondary') + ' js-send-active-job" title="' + escapeHtml(canSendNow ? 'Send application' : thresholdHelpText(job.score)) + '" data-bs-toggle="modal" data-bs-target="#sendAutoApplyModal" data-job-id="' + job.id + '" data-job-name="' + escapeHtml(job.name) + '" data-score="' + escapeHtml(job.score) + '"' + (canSendNow ? '' : ' disabled aria-disabled="true"') + '>Send</button>'
                                         + '</div>';
                                 }
 
@@ -2079,6 +2581,7 @@
                                     + '<td><div class="fw-medium">' + (job.url ? '<a href="' + escapeHtml(job.url) + '" target="_blank" rel="noopener" class="text-reset">' + escapeHtml(job.name) + '</a>' : escapeHtml(job.name)) + '</div><div class="text-muted small">#' + job.id + '</div></td>'
                                     + '<td>' + companyCell + '</td>'
                                     + '<td>' + countryCell + '</td>'
+                                    + '<td>' + addressCell + '</td>'
                                     + '<td class="text-muted small">' + escapeHtml(job.apply_email) + '</td>'
                                     + '<td>' + datesCell + '</td>'
                                     + '<td class="js-score-td">' + scoreCell + '</td>'
@@ -2087,29 +2590,37 @@
                             }).join('');
                             renderActiveJobsPagination(meta);
                             scoreUnscoredJobs(jobs.filter(function (j) { return j.needs_ai_score; }));
+                            updateSendAllState();
                         })
                         .catch(function () {
-                            activeJobsList.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-4">Failed to load active jobs.</td></tr>';
+                            activeJobsList.innerHTML = '<tr><td colspan="9" class="text-center text-danger py-4">Failed to load active jobs.</td></tr>';
                             activeJobsPagination.innerHTML = '';
+                            updateSendAllState();
                         })
                         .finally(function () {
                             activeJobsLoading.classList.add('d-none');
+                            setActiveJobsRefreshState(false);
                         });
                 }
 
                 document.getElementById('activeJobsModal').addEventListener('show.bs.modal', function (e) {
                     var btn = e.relatedTarget;
                     activeJobsUrl = btn.dataset.url || '';
+                    activeJobsSendAllUrl = btn.dataset.sendAllUrl || '';
                     activeJobsAccountId = btn.dataset.accountId || '';
                     activeJobsCandidateLabel = btn.dataset.label || 'candidate';
                     activeJobsSearch.value = '';
                     activeJobsPage = 1;
+                    activeJobsTotal = 0;
                     document.querySelector('#activeJobsModal .modal-title').textContent = 'Active Jobs for ' + activeJobsCandidateLabel;
                     loadActiveJobs();
                 });
 
                 document.getElementById('activeJobsSearchBtn').addEventListener('click', function () {
                     activeJobsPage = 1;
+                    loadActiveJobs();
+                });
+                activeJobsRefreshBtn.addEventListener('click', function () {
                     loadActiveJobs();
                 });
                 activeJobsSearch.addEventListener('keydown', function (e) {
@@ -2226,13 +2737,123 @@
                     document.getElementById('cvPreviewFrame').src = '';
                 });
 
-                // Send all unsent jobs on the current page, one at a time, with a live progress bar.
+                // Send all matching active jobs across the full filtered result set.
                 var sendAllBtn = document.getElementById('activeJobsSendAllBtn');
                 var sendAllProgressWrap = document.getElementById('activeJobsSendAllProgress');
                 var sendAllProgressBar = document.getElementById('activeJobsSendAllProgressBar');
                 var sendAllStatusText = document.getElementById('activeJobsSendAllStatusText');
                 var sendAllConfirmBtn = document.getElementById('sendAllAutoApplyConfirmBtn');
                 var sendAllInProgress = false;
+                var bulkSendContext = null;
+                var bulkSendProgressTimer = null;
+
+                var sendAllProgressModalEl = document.getElementById('sendAllAutoApplyProgressModal');
+                var sendAllProgressModal = bootstrap.Modal.getOrCreateInstance(sendAllProgressModalEl);
+                var sendAllProgressModalBar = document.getElementById('sendAllAutoApplyProgressBar');
+                var sendAllProgressModalStatus = document.getElementById('sendAllAutoApplyProgressStatus');
+                var sendAllProgressModalCandidate = document.getElementById('sendAllAutoApplyProgressCandidate');
+                var sendAllProgressModalHint = document.getElementById('sendAllAutoApplyProgressHint');
+                var sendAllProgressModalQueued = document.getElementById('sendAllAutoApplyQueuedCount');
+                var sendAllProgressModalUnsent = document.getElementById('sendAllAutoApplyProgressUnsentCount');
+                var sendAllProgressModalProcessed = document.getElementById('sendAllAutoApplyAlreadyProcessedCount');
+                var sendAllProgressModalBelowThreshold = document.getElementById('sendAllAutoApplyBelowThresholdCount');
+                var sendAllProgressModalScoringFailed = document.getElementById('sendAllAutoApplyScoringFailedCount');
+                var sendAllProgressModalMissingEmail = document.getElementById('sendAllAutoApplyMissingEmailCount');
+
+                function setOrderRowCounts(orderId, updates) {
+                    var row = document.querySelector('tr[data-order-id="' + orderId + '"]');
+                    if (!row) {
+                        return;
+                    }
+
+                    var rowSendAllBtn = row.querySelector('.js-row-send-all');
+
+                    if (typeof updates.ready === 'number') {
+                        var readyEl = row.querySelector('.js-order-ready-count');
+                        if (readyEl) {
+                            readyEl.textContent = updates.ready.toLocaleString();
+                        }
+                        if (rowSendAllBtn) {
+                            rowSendAllBtn.dataset.readyCount = String(updates.ready);
+                        }
+                    }
+
+                    if (typeof updates.unsentTotal === 'number') {
+                        var unsentEl = row.querySelector('.js-order-unsent-total');
+                        if (unsentEl) {
+                            unsentEl.textContent = updates.unsentTotal.toLocaleString() + ' unsent across all pages';
+                        }
+                        if (rowSendAllBtn) {
+                            rowSendAllBtn.dataset.unsentTotal = String(updates.unsentTotal);
+                        }
+                    }
+
+                    if (typeof updates.applied === 'number') {
+                        var appliedEl = row.querySelector('.js-order-applied-count');
+                        if (appliedEl) {
+                            appliedEl.textContent = updates.applied.toLocaleString();
+                        }
+                        if (rowSendAllBtn) {
+                            rowSendAllBtn.dataset.appliedCount = String(updates.applied);
+                        }
+                    }
+                }
+
+                function stopBulkSendProgressAnimation() {
+                    if (bulkSendProgressTimer) {
+                        clearInterval(bulkSendProgressTimer);
+                        bulkSendProgressTimer = null;
+                    }
+                }
+
+                function startBulkSendProgressAnimation() {
+                    stopBulkSendProgressAnimation();
+
+                    var width = 8;
+                    sendAllProgressModalBar.style.width = width + '%';
+
+                    bulkSendProgressTimer = setInterval(function () {
+                        if (width >= 86) {
+                            return;
+                        }
+
+                        width += Math.max(2, Math.round((86 - width) / 6));
+                        sendAllProgressModalBar.style.width = width + '%';
+                    }, 500);
+                }
+
+                function resetBulkSendProgressModal(context) {
+                    sendAllProgressModalCandidate.textContent = 'Candidate: ' + (context.label || '—');
+                    sendAllProgressModalStatus.textContent = 'Checking matches and queueing sendable jobs...';
+                    sendAllProgressModalHint.textContent = 'Using the same rules as the Active Jobs modal Send All action. Unsent total includes jobs still below threshold.';
+                    sendAllProgressModalBar.classList.add('progress-bar-animated');
+                    sendAllProgressModalBar.classList.remove('bg-danger');
+                    sendAllProgressModalBar.classList.add('bg-success');
+                    sendAllProgressModalBar.style.width = '0%';
+                    sendAllProgressModalQueued.textContent = '0';
+                    sendAllProgressModalUnsent.textContent = String(context.unsentTotal || 0);
+                    sendAllProgressModalProcessed.textContent = '0';
+                    sendAllProgressModalBelowThreshold.textContent = '0';
+                    sendAllProgressModalScoringFailed.textContent = '0';
+                    sendAllProgressModalMissingEmail.textContent = '0';
+                }
+
+                function populateBulkSendSummary(data, message, ok) {
+                    sendAllProgressModalQueued.textContent = String(data.queued || 0);
+                    sendAllProgressModalUnsent.textContent = String(
+                        typeof data.matched_total === 'number'
+                            ? Math.max((data.matched_total || 0) - (data.already_processed || 0), 0)
+                            : (bulkSendContext && bulkSendContext.unsentTotal ? bulkSendContext.unsentTotal : 0)
+                    );
+                    sendAllProgressModalProcessed.textContent = String(data.already_processed || 0);
+                    sendAllProgressModalBelowThreshold.textContent = String(data.below_threshold || 0);
+                    sendAllProgressModalScoringFailed.textContent = String(data.scoring_failed || 0);
+                    sendAllProgressModalMissingEmail.textContent = String(data.missing_apply_email || 0);
+                    sendAllProgressModalStatus.textContent = ok
+                        ? 'Completed for ' + (bulkSendContext && bulkSendContext.label ? bulkSendContext.label : 'candidate') + '.'
+                        : 'Bulk send failed.';
+                    sendAllProgressModalHint.textContent = message || (ok ? 'Finished.' : 'Failed to queue matching jobs.');
+                }
 
                 function setRowSending(jobId) {
                     var row = activeJobsList.querySelector('tr[data-job-id="' + jobId + '"]');
@@ -2263,12 +2884,11 @@
                     }, 1000);
                 }
 
-                function sendJobAjax(jobId) {
+                function sendAllJobsAjax(context) {
                     var formData = new FormData();
-                    formData.append('account_id', activeJobsAccountId);
-                    formData.append('job_id', jobId);
+                    formData.append('q', context.query || '');
 
-                    return fetch('{{ route('auto-apply-orders.send-job') }}', {
+                    return fetch(context.url, {
                         method: 'POST',
                         headers: {
                             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
@@ -2281,88 +2901,125 @@
                                 return { ok: r.ok, data: data };
                             });
                         })
-                        .then(function (result) {
-                            var data = result.data || {};
-                            return { success: result.ok && !data.error, message: data.message || '' };
-                        })
-                        .catch(function () {
-                            return { success: false, message: 'Network error' };
-                        });
+                        .catch(function () { return { ok: false, data: {} }; });
                 }
 
                 function runSendAll() {
                     if (sendAllInProgress) return;
-
-                    var buttons = Array.prototype.slice.call(activeJobsList.querySelectorAll('.js-send-active-job'));
-                    var jobs = buttons.map(function (btn) {
-                        return { id: btn.dataset.jobId, name: btn.dataset.jobName || ('#' + btn.dataset.jobId) };
-                    });
-
-                    if (!jobs.length) return;
+                    if (!bulkSendContext || !bulkSendContext.url) return;
 
                     sendAllInProgress = true;
-                    sendAllBtn.disabled = true;
-                    sendAllBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Sending…';
-                    sendAllProgressWrap.classList.remove('d-none');
-                    sendAllProgressBar.style.width = '0%';
+                    if (bulkSendContext.source === 'modal') {
+                        sendAllBtn.disabled = true;
+                        sendAllBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Sending…';
+                        sendAllProgressWrap.classList.remove('d-none');
+                        sendAllProgressBar.style.width = '0%';
+                        sendAllStatusText.textContent = 'Queueing all matching jobs across every page...';
+                    }
 
-                    var total = jobs.length;
-                    var done = 0;
-                    var okCount = 0;
-                    var failCount = 0;
+                    resetBulkSendProgressModal(bulkSendContext);
+                    sendAllProgressModal.show();
+                    startBulkSendProgressAnimation();
 
-                    function next() {
-                        if (done >= total) {
-                            sendAllInProgress = false;
-                            sendAllBtn.disabled = false;
-                            sendAllBtn.innerHTML = '<i class="ti ti-send me-1"></i> Send All';
-                            sendAllStatusText.textContent = 'Done — ' + okCount + ' queued, ' + failCount + ' failed.';
+                    sendAllJobsAjax(bulkSendContext).then(function (result) {
+                        var payload = result.data || {};
+                        var data = payload.data || {};
+                        var queuedIds = data.queued_job_ids || [];
+                        var belowThresholdIds = data.below_threshold_job_ids || [];
+                        var scoringFailedIds = data.scoring_failed_job_ids || [];
+                        var ok = result.ok && !payload.error;
 
-                            if (okCount > 0) {
-                                Botble.showSuccess(okCount + ' application(s) queued for sending.');
-                            }
-                            if (failCount > 0) {
-                                Botble.showError(failCount + ' application(s) failed to queue.');
-                            }
+                        queuedIds.forEach(function (jobId) {
+                            setRowResult(jobId, true, payload.message || 'Queued for sending.');
+                        });
+                        belowThresholdIds.forEach(function (jobId) {
+                            setRowResult(jobId, false, 'This job is below the current match threshold.');
+                        });
+                        scoringFailedIds.forEach(function (jobId) {
+                            setRowResult(jobId, false, 'Could not confirm the AI match score for this job.');
+                        });
 
-                            setTimeout(function () {
-                                sendAllProgressWrap.classList.add('d-none');
-                            }, 2500);
+                        stopBulkSendProgressAnimation();
+                        sendAllProgressModalBar.style.width = '100%';
+                        sendAllProgressModalBar.classList.remove('progress-bar-animated');
+                        if (!ok) {
+                            sendAllProgressModalBar.classList.remove('bg-success');
+                            sendAllProgressModalBar.classList.add('bg-danger');
+                        }
+
+                        populateBulkSendSummary(data, payload.message, ok);
+
+                        sendAllProgressBar.style.width = '100%';
+
+                        if (!ok) {
+                            sendAllStatusText.textContent = payload.message || 'Failed to queue matching jobs.';
+                            Botble.showError(payload.message || 'Failed to queue matching jobs.');
                             return;
                         }
 
-                        var job = jobs[done];
-                        setRowSending(job.id);
-                        sendAllStatusText.textContent = 'Sending ' + (done + 1) + ' / ' + total + ' — ' + job.name;
+                        sendAllStatusText.textContent = 'Done — '
+                            + (data.queued || 0) + ' queued, '
+                            + (data.already_processed || 0) + ' already processed, '
+                            + (data.below_threshold || 0) + ' below threshold.';
 
-                        sendJobAjax(job.id).then(function (result) {
-                            done++;
-                            if (result.success) {
-                                okCount++;
-                            } else {
-                                failCount++;
+                        if (bulkSendContext.source === 'row' && bulkSendContext.orderId) {
+                            setOrderRowCounts(bulkSendContext.orderId, {
+                                ready: Math.max((bulkSendContext.readyCount || 0) - (data.queued || 0), 0),
+                                unsentTotal: Math.max((bulkSendContext.unsentTotal || 0) - (data.queued || 0) - (data.already_processed || 0), 0),
+                                applied: (bulkSendContext.appliedCount || 0) + (data.queued || 0),
+                            });
+                        }
+
+                        Botble.showSuccess(payload.message || 'Matching jobs queued successfully.');
+                        if (bulkSendContext.source === 'modal') {
+                            loadActiveJobs();
+                        }
+                    }).finally(function () {
+                        sendAllInProgress = false;
+                        stopBulkSendProgressAnimation();
+
+                        if (bulkSendContext && bulkSendContext.source === 'modal') {
+                            sendAllBtn.disabled = false;
+                            sendAllBtn.innerHTML = '<i class="ti ti-send me-1"></i> Send All';
+                        }
+
+                        setTimeout(function () {
+                            if (!sendAllInProgress && bulkSendContext && bulkSendContext.source === 'modal') {
+                                sendAllProgressWrap.classList.add('d-none');
                             }
-                            setRowResult(job.id, result.success, result.message);
+                        }, 2500);
+                    });
+                }
 
-                            var pct = Math.round((done / total) * 100);
-                            sendAllProgressBar.style.width = pct + '%';
-
-                            setTimeout(next, 600);
-                        });
-                    }
-
-                    next();
+                function openBulkSendConfirm(context) {
+                    bulkSendContext = context;
+                    document.getElementById('sendAllAutoApplyCandidate').textContent = context.label || '—';
+                    document.getElementById('sendAllAutoApplyReadyCount').textContent = String(context.readyCount || 0);
+                    document.getElementById('sendAllAutoApplyUnsentCount').textContent = String(context.unsentTotal || 0);
+                    document.getElementById('sendAllAutoApplyLabel').textContent = context.description;
+                    sendAllConfirmBtn.disabled = (context.readyCount || 0) < 1;
+                    sendAllConfirmBtn.title = sendAllConfirmBtn.disabled
+                        ? 'No sendable jobs are available right now for this candidate'
+                        : 'Send all';
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('sendAllAutoApplyModal')).show();
                 }
 
                 sendAllBtn.addEventListener('click', function () {
-                    var pendingCount = activeJobsList.querySelectorAll('.js-send-active-job').length;
-                    if (!pendingCount) {
-                        Botble.showError('No unsent jobs on this page.');
+                    if (!activeJobsTotal) {
+                        Botble.showError('No matching active jobs were found.');
                         return;
                     }
-                    document.getElementById('sendAllAutoApplyLabel').textContent =
-                        'Send applications for ' + activeJobsCandidateLabel + ' to ' + pendingCount + ' job(s) on this page?';
-                    bootstrap.Modal.getOrCreateInstance(document.getElementById('sendAllAutoApplyModal')).show();
+                    openBulkSendConfirm({
+                        source: 'modal',
+                        url: activeJobsSendAllUrl,
+                        query: activeJobsSearch.value.trim(),
+                        label: activeJobsCandidateLabel,
+                        readyCount: 0,
+                        unsentTotal: activeJobsTotal,
+                        appliedCount: 0,
+                        orderId: null,
+                        description: 'Send applications for ' + activeJobsCandidateLabel + ' across all matching pages? Only unsent jobs that meet the current threshold will be queued.'
+                    });
                 });
 
                 sendAllConfirmBtn.addEventListener('click', function () {
@@ -2370,6 +3027,26 @@
                     var modalInstance = bootstrap.Modal.getInstance(modalEl);
                     if (modalInstance) modalInstance.hide();
                     runSendAll();
+                });
+
+                document.addEventListener('click', function (e) {
+                    var rowSendAllBtn = e.target.closest('.js-row-send-all');
+
+                    if (!rowSendAllBtn) {
+                        return;
+                    }
+
+                    openBulkSendConfirm({
+                        source: 'row',
+                        url: rowSendAllBtn.dataset.sendAllUrl || '',
+                        query: '',
+                        label: rowSendAllBtn.dataset.label || 'this candidate',
+                        readyCount: parseInt(rowSendAllBtn.dataset.readyCount || '0', 10) || 0,
+                        unsentTotal: parseInt(rowSendAllBtn.dataset.unsentTotal || '0', 10) || 0,
+                        appliedCount: parseInt(rowSendAllBtn.dataset.appliedCount || '0', 10) || 0,
+                        orderId: rowSendAllBtn.dataset.orderId || '',
+                        description: 'Send all matching applications for ' + (rowSendAllBtn.dataset.label || 'this candidate') + ' in one click? The unsent total is every remaining match across all pages; only jobs that pass the current threshold will actually be queued.'
+                    });
                 });
             })();
 

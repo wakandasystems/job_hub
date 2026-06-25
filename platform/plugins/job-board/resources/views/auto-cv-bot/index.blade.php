@@ -160,6 +160,7 @@
                         look good before they sign up.
                     </p>
                     <div id="sendSampleCvError" class="alert alert-danger d-none py-2 px-3 small"></div>
+                    <div id="sendSampleCvStatus" class="alert alert-info d-none py-2 px-3 small mb-3"></div>
                     <div class="mb-3">
                         <label class="form-label">WhatsApp Number</label>
                         <input type="text" id="sendSampleCvWhatsapp" class="form-control" placeholder="e.g. +260970766123">
@@ -168,7 +169,9 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-dark" id="btnSendSampleCv">
-                        <i class="ti ti-brand-whatsapp me-1"></i> Send Sample
+                        <span class="spinner-border spinner-border-sm me-1 d-none" id="btnSendSampleCvSpinner" role="status" aria-hidden="true"></span>
+                        <i class="ti ti-brand-whatsapp me-1" id="btnSendSampleCvIcon"></i>
+                        <span id="btnSendSampleCvLabel">Send Sample</span>
                     </button>
                 </div>
             </div>
@@ -191,6 +194,19 @@
                     <div class="mb-3">
                         <label class="form-label">WhatsApp Number</label>
                         <input type="text" id="startCvBotWhatsapp" class="form-control" placeholder="e.g. +260970766123">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Referred By Agent</label>
+                        <input type="text" id="startCvBotSalesAgentSearch" class="form-control" placeholder="Optional — search by name, code, or phone" autocomplete="off">
+                        <input type="hidden" id="startCvBotSalesAgentCode">
+                        <div class="form-text">Leave blank to auto-detect from a previous referral on this number.</div>
+                        <div id="startCvBotSalesAgentSelected" class="small text-success mt-2 d-none"></div>
+                        <div id="startCvBotSalesAgentResults" class="list-group mt-2 d-none"></div>
+                        <div id="startCvBotSalesAgentPagination" class="d-flex justify-content-between align-items-center mt-2 d-none">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="startCvBotSalesAgentPrev">Previous</button>
+                            <div id="startCvBotSalesAgentPage" class="small text-muted"></div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="startCvBotSalesAgentNext">Next</button>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -502,7 +518,11 @@
 
             document.getElementById('btnSendSampleCv')?.addEventListener('click', function () {
                 var $error = $('#sendSampleCvError').addClass('d-none').text('');
+                var $status = $('#sendSampleCvStatus').removeClass('d-none alert-success alert-danger').addClass('alert-info').text('Preparing sample CV files and sending them on WhatsApp. This can take a few seconds...');
                 var $btn = $(this).prop('disabled', true);
+                $('#btnSendSampleCvSpinner').removeClass('d-none');
+                $('#btnSendSampleCvIcon').addClass('d-none');
+                $('#btnSendSampleCvLabel').text('Sending...');
 
                 fetch('{{ route('job-board.auto-cv-bot.send-sample') }}', {
                     method: 'POST',
@@ -522,21 +542,183 @@
                     })
                     .then(function (result) {
                         $btn.prop('disabled', false);
+                        $('#btnSendSampleCvSpinner').addClass('d-none');
+                        $('#btnSendSampleCvIcon').removeClass('d-none');
+                        $('#btnSendSampleCvLabel').text('Send Sample');
 
                         if (!result.ok) {
+                            $status.removeClass('alert-info alert-success').addClass('alert-danger').text('Sample CV send failed.');
                             $error.removeClass('d-none').text(result.data.error || 'Failed to send sample CV.');
                             return;
                         }
 
+                        $status.removeClass('alert-info alert-danger').addClass('alert-success').text('Sample CV sent successfully.');
                         bootstrap.Modal.getOrCreateInstance(document.getElementById('sendSampleCvModal')).hide();
                         document.getElementById('sendSampleCvWhatsapp').value = '';
                         Botble.showSuccess(result.data.message || 'Sample CV sent.');
                     })
                     .catch(function () {
                         $btn.prop('disabled', false);
+                        $('#btnSendSampleCvSpinner').addClass('d-none');
+                        $('#btnSendSampleCvIcon').removeClass('d-none');
+                        $('#btnSendSampleCvLabel').text('Send Sample');
+                        $status.removeClass('alert-info alert-success').addClass('alert-danger').text('Network error while sending sample CV.');
                         $error.removeClass('d-none').text('Network error — please try again.');
                     });
             });
+
+            (function () {
+                var searchInput = document.getElementById('startCvBotSalesAgentSearch');
+                var codeInput = document.getElementById('startCvBotSalesAgentCode');
+                var results = document.getElementById('startCvBotSalesAgentResults');
+                var selected = document.getElementById('startCvBotSalesAgentSelected');
+                var pagination = document.getElementById('startCvBotSalesAgentPagination');
+                var pageLabel = document.getElementById('startCvBotSalesAgentPage');
+                var prevButton = document.getElementById('startCvBotSalesAgentPrev');
+                var nextButton = document.getElementById('startCvBotSalesAgentNext');
+                var modal = document.getElementById('startCvBotModal');
+                var debounceTimer = null;
+                var currentQuery = '';
+                var currentPage = 1;
+                var lastPage = 1;
+
+                if (!searchInput || !codeInput || !results || !selected || !pagination || !pageLabel || !prevButton || !nextButton || !modal) {
+                    return;
+                }
+
+                function escapeHtml(value) {
+                    return String(value || '')
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#039;');
+                }
+
+                function renderSelected(agent) {
+                    if (!agent) {
+                        selected.classList.add('d-none');
+                        selected.textContent = '';
+                        return;
+                    }
+
+                    selected.textContent = 'Selected: ' + agent.name + ' (' + agent.code + ')';
+                    selected.classList.remove('d-none');
+                }
+
+                function renderResults(items, meta) {
+                    results.innerHTML = '';
+
+                    if (!items.length) {
+                        results.innerHTML = '<div class="list-group-item small text-muted">No agents found.</div>';
+                        results.classList.remove('d-none');
+                    } else {
+                        items.forEach(function (agent) {
+                            var button = document.createElement('button');
+                            button.type = 'button';
+                            button.className = 'list-group-item list-group-item-action';
+                            button.innerHTML =
+                                '<div class="fw-semibold">' + escapeHtml(agent.name) + '</div>' +
+                                '<div class="small text-muted">' + escapeHtml(agent.code) + ' · ' + escapeHtml(agent.phone || 'No phone') + '</div>';
+                            button.addEventListener('click', function () {
+                                codeInput.value = agent.code || '';
+                                searchInput.value = agent.name + ' (' + agent.code + ')';
+                                results.classList.add('d-none');
+                                pagination.classList.add('d-none');
+                                renderSelected(agent);
+                            });
+                            results.appendChild(button);
+                        });
+
+                        results.classList.remove('d-none');
+                    }
+
+                    currentPage = meta.current_page || 1;
+                    lastPage = meta.last_page || 1;
+                    pageLabel.textContent = 'Page ' + currentPage + ' of ' + lastPage;
+                    prevButton.disabled = currentPage <= 1;
+                    nextButton.disabled = currentPage >= lastPage;
+                    pagination.classList.toggle('d-none', !items.length || lastPage <= 1);
+                }
+
+                function searchAgents(page) {
+                    var query = searchInput.value.trim();
+
+                    currentQuery = query;
+                    currentPage = page || 1;
+
+                    if (query === '') {
+                        results.classList.add('d-none');
+                        pagination.classList.add('d-none');
+                        results.innerHTML = '';
+                        pageLabel.textContent = '';
+                        return;
+                    }
+
+                    fetch('{{ route('job-board.auto-cv-bot.search-agents') }}?q=' + encodeURIComponent(query) + '&page=' + currentPage, {
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                    })
+                        .then(function (response) {
+                            return response.json().then(function (data) {
+                                return { ok: response.ok, data: data };
+                            });
+                        })
+                        .then(function (result) {
+                            if (!result.ok) {
+                                results.classList.add('d-none');
+                                pagination.classList.add('d-none');
+                                return;
+                            }
+
+                            if (searchInput.value.trim() !== currentQuery) {
+                                return;
+                            }
+
+                            renderResults(result.data.data || [], result.data.meta || {});
+                        })
+                        .catch(function () {
+                            results.classList.add('d-none');
+                            pagination.classList.add('d-none');
+                        });
+                }
+
+                searchInput.addEventListener('input', function () {
+                    codeInput.value = '';
+                    renderSelected(null);
+                    clearTimeout(debounceTimer);
+                    debounceTimer = setTimeout(function () {
+                        searchAgents(1);
+                    }, 250);
+                });
+
+                searchInput.addEventListener('focus', function () {
+                    if (searchInput.value.trim() !== '') {
+                        searchAgents(1);
+                    }
+                });
+
+                prevButton.addEventListener('click', function () {
+                    if (currentPage > 1) {
+                        searchAgents(currentPage - 1);
+                    }
+                });
+
+                nextButton.addEventListener('click', function () {
+                    if (currentPage < lastPage) {
+                        searchAgents(currentPage + 1);
+                    }
+                });
+
+                modal.addEventListener('hidden.bs.modal', function () {
+                    results.classList.add('d-none');
+                    pagination.classList.add('d-none');
+                    results.innerHTML = '';
+                    pageLabel.textContent = '';
+                });
+            })();
 
             document.getElementById('btnStartCvBot')?.addEventListener('click', function () {
                 var $error = $('#startCvBotError').addClass('d-none').text('');
@@ -552,6 +734,7 @@
                     body: JSON.stringify({
                         candidate_name: document.getElementById('startCvBotName').value,
                         whatsapp_number: document.getElementById('startCvBotWhatsapp').value,
+                        sales_agent_code: document.getElementById('startCvBotSalesAgentCode').value,
                     }),
                 })
                     .then(function (response) {

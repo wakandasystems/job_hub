@@ -62,10 +62,22 @@ class Handler extends ExceptionHandler
                     ], 419);
                 }
 
-                return $this->baseHttpResponse
+                $response = $this->baseHttpResponse
                     ->setError()
                     ->setCode($e->getCode())
                     ->setMessage(is_in_admin(true) ? $e->getMessage() : trans('core/base::errors.token_mismatch'));
+
+                // URL::previous() is unreliable here (it can be poisoned by unrelated
+                // AJAX GETs or simply unset once the session expires), which previously
+                // sent expired-session form submits to the site homepage instead of back
+                // to the page the user was on. Prefer the Referer header when it's same-origin.
+                $referer = $request->headers->get('referer');
+
+                if ($referer && parse_url($referer, PHP_URL_HOST) === $request->getHost()) {
+                    $response->setNextUrl($referer);
+                }
+
+                return $response;
             case $e instanceof PostTooLargeException:
                 if (! empty($request->allFiles())) {
                     return RvMedia::responseError(

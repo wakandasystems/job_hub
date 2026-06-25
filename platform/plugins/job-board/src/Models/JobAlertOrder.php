@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Models;
 
 use Botble\Base\Models\BaseModel;
+use Botble\JobBoard\Services\SalesAgentService;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
 
@@ -12,6 +13,10 @@ class JobAlertOrder extends BaseModel
 
     protected $fillable = [
         'account_id',
+        'sales_agent_id',
+        'sales_agent_original_amount',
+        'sales_agent_discount_amount',
+        'sales_agent_code',
         'package_id',
         'amount',
         'currency',
@@ -24,12 +29,19 @@ class JobAlertOrder extends BaseModel
 
     protected $casts = [
         'amount' => 'float',
+        'sales_agent_original_amount' => 'float',
+        'sales_agent_discount_amount' => 'float',
         'approved_at' => 'datetime',
     ];
 
     public function account(): BelongsTo
     {
         return $this->belongsTo(Account::class, 'account_id');
+    }
+
+    public function salesAgent(): BelongsTo
+    {
+        return $this->belongsTo(SalesAgent::class, 'sales_agent_id');
     }
 
     public function package(): BelongsTo
@@ -40,6 +52,16 @@ class JobAlertOrder extends BaseModel
     public function approve(): void
     {
         $this->update(['status' => 'approved', 'approved_at' => now()]);
+
+        if ($this->sales_agent_id) {
+            $agent = SalesAgent::query()->find($this->sales_agent_id);
+
+            if ($agent) {
+                $service = app(SalesAgentService::class);
+                $service->recordReferral($agent, $this->account?->phone, $this->sales_agent_code, 'job_alert', $this->account_id);
+                $service->creditCommission($agent, 'job_alert_order', $this->getKey(), (float) $this->amount, $this->currency);
+            }
+        }
 
         $package = $this->package;
         if (! $package) {

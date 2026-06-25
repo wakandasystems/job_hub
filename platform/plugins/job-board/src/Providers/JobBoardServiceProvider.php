@@ -845,6 +845,51 @@ class JobBoardServiceProvider extends ServiceProvider
                     'icon' => 'ti ti-robot',
                     'url' => route('job-board.auto-cv-bot.index'),
                     'permissions' => ['auto-cv-bot.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-sales-agents',
+                    'priority' => 6,
+                    'parent_id' => null,
+                    'name' => 'Sales Agents',
+                    'icon' => 'ti ti-users-group',
+                    'url' => route('sales-agents.index'),
+                    'permissions' => ['sales-agents.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-sales-agents-list',
+                    'priority' => 1,
+                    'parent_id' => 'cms-plugins-job-board-sales-agents',
+                    'name' => 'Agents',
+                    'icon' => 'ti ti-id-badge-2',
+                    'url' => route('sales-agents.index'),
+                    'permissions' => ['sales-agents.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-sales-agent-campaigns',
+                    'priority' => 2,
+                    'parent_id' => 'cms-plugins-job-board-sales-agents',
+                    'name' => 'Marketing Campaigns',
+                    'icon' => 'ti ti-photo-ai',
+                    'url' => route('sales-agent-campaigns.index'),
+                    'permissions' => ['sales-agent-campaigns.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-sales-agent-commissions',
+                    'priority' => 4,
+                    'parent_id' => 'cms-plugins-job-board-sales-agents',
+                    'name' => 'Commissions',
+                    'icon' => 'ti ti-cash',
+                    'url' => route('sales-agent-commissions.index'),
+                    'permissions' => ['sales-agent-commissions.index'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-sales-agent-generated-images',
+                    'priority' => 3,
+                    'parent_id' => 'cms-plugins-job-board-sales-agents',
+                    'name' => 'Generated Images',
+                    'icon' => 'ti ti-photo',
+                    'url' => route('sales-agent-campaigns.generated-images'),
+                    'permissions' => ['sales-agent-campaigns.generated-images'],
                 ]);
         });
 
