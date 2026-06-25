@@ -6,7 +6,10 @@ use Botble\JobBoard\Models\Account;
 use Botble\JobBoard\Models\AutoApplyLog;
 use Botble\JobBoard\Models\AutoApplyOrder;
 use Botble\JobBoard\Models\AutoApplyPreference;
+use Botble\JobBoard\Models\AutoApplyPreview;
 use Botble\JobBoard\Models\AutoApplyQuota;
+use Botble\JobBoard\Models\AutoCvSession;
+use Botble\JobBoard\Models\CandidateAlert;
 use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\JobApplication;
 use Botble\JobBoard\Jobs\NotifyCandidateAutoApplySentJob;
@@ -212,6 +215,8 @@ Rules for the email:
 - The subject line should mention the job title and be compelling.
 - End with the candidate's actual name.
 - Do NOT include a date, address block, or "Dear Hiring Manager" style headers — start with a greeting.
+- Do NOT use bullet points, numbered lists, or lines that begin with a hyphen.
+- Keep the body in plain natural paragraphs so it reads like a human wrote it.
 
 Respond in this exact JSON format:
 {
@@ -317,6 +322,8 @@ PROMPT;
     {
         $resumePath = trim((string) $account->resume);
         $attachmentPath = $resumePath !== '' ? RvMedia::getRealPath($resumePath) : null;
+        $attachmentFilename = null;
+        $messageId = trim($messageId, " \t\n\r\0\x0B<>");
 
         // For URL-based files, download to temp
         $tempFile = null;
@@ -331,8 +338,25 @@ PROMPT;
             }
         }
 
+        if ($resumePath !== '') {
+            $ext = pathinfo($resumePath, PATHINFO_EXTENSION) ?: 'pdf';
+            $attachmentFilename = "{$account->first_name}_{$account->last_name}_CV.{$ext}";
+        }
+
+        Log::info('AutoApply: Sending application email', [
+            'account_id' => $account->id,
+            'job_id' => $job->id,
+            'to' => $toEmail,
+            'reply_to' => $account->email,
+            'message_id' => $messageId,
+            'resume_path' => $resumePath !== '' ? $resumePath : null,
+            'attachment_path' => $attachmentPath,
+            'attachment_filename' => $attachmentFilename,
+            'attachment_exists' => $attachmentPath ? file_exists($attachmentPath) : false,
+        ]);
+
         try {
-            Mail::raw($body, function ($message) use ($account, $subject, $toEmail, $attachmentPath, $resumePath, $messageId) {
+            Mail::raw($body, function ($message) use ($account, $subject, $toEmail, $attachmentPath, $resumePath, $messageId, $attachmentFilename) {
                 $message->to($toEmail)
                     ->subject($subject)
                     ->replyTo($account->email, "{$account->first_name} {$account->last_name}");
@@ -343,11 +367,18 @@ PROMPT;
                 $message->getSymfonyMessage()->getHeaders()->addIdHeader('Message-ID', $messageId);
 
                 if ($attachmentPath && file_exists($attachmentPath)) {
-                    $ext = pathinfo($resumePath, PATHINFO_EXTENSION) ?: 'pdf';
-                    $filename = "{$account->first_name}_{$account->last_name}_CV.{$ext}";
-                    $message->attach($attachmentPath, ['as' => $filename]);
+                    $message->attach($attachmentPath, ['as' => $attachmentFilename]);
                 }
             });
+
+            Log::info('AutoApply: Application email sent', [
+                'account_id' => $account->id,
+                'job_id' => $job->id,
+                'to' => $toEmail,
+                'message_id' => $messageId,
+                'attachment_filename' => $attachmentFilename,
+                'attachment_exists' => $attachmentPath ? file_exists($attachmentPath) : false,
+            ]);
 
             return true;
         } catch (Throwable $e) {
@@ -355,8 +386,13 @@ PROMPT;
                 'account_id' => $account->id,
                 'job_id'     => $job->id,
                 'to'         => $toEmail,
+                'message_id' => $messageId,
+                'attachment_filename' => $attachmentFilename,
+                'attachment_exists' => $attachmentPath ? file_exists($attachmentPath) : false,
                 'error'      => $e->getMessage(),
             ]);
+
+            $this->notifySendFailureByWhatsApp($account, $job, $toEmail, $attachmentFilename, $attachmentPath ? file_exists($attachmentPath) : false, $e->getMessage());
 
             return false;
         } finally {
@@ -513,7 +549,7 @@ PROMPT;
 
         // Send the email
         $messageId = sprintf('auto-apply-%s@%s', (string) Str::uuid(), parse_url(config('app.url'), PHP_URL_HOST) ?: 'wakandajobs.com');
-        $sent = $this->sendApplicationEmail($account, $job, $result['subject'], $result['body'], $toEmail, "<{$messageId}>");
+        $sent = $this->sendApplicationEmail($account, $job, $result['subject'], $result['body'], $toEmail, $messageId);
 
         if ($sent) {
             // Create a JobApplication record
@@ -562,5 +598,160 @@ PROMPT;
             'error_message'     => $sent ? null : 'SMTP delivery failed',
             'sent_at'           => now(),
         ]);
+    }
+
+    private function notifySendFailureByWhatsApp(Account $account, Job $job, string $toEmail, ?string $attachmentFilename, bool $attachmentExists, string $error): void
+    {
+        $adminNumber = '+260970766123';
+        $sender = app(WhapiSenderService::class);
+
+        $message = "Auto Apply email failed.\n\n"
+            . "Candidate: {$account->first_name} {$account->last_name} (ID {$account->id})\n"
+            . "Job: {$job->name} (ID {$job->id})\n"
+            . "To: {$toEmail}\n"
+            . 'Attachment: ' . ($attachmentFilename ?: 'None')
+            . ' | Exists: ' . ($attachmentExists ? 'Yes' : 'No') . "\n"
+            . 'Error: ' . Str::limit($error, 500, '');
+
+        $errorMessage = null;
+
+        if (! $sender->sendText($adminNumber, $message, $errorMessage)) {
+            Log::error('AutoApply: Failed to send WhatsApp failure alert', [
+                'account_id' => $account->id,
+                'job_id' => $job->id,
+                'admin_phone' => $adminNumber,
+                'error' => $errorMessage ?: 'Unknown WhatsApp send failure',
+            ]);
+        }
+    }
+
+    /**
+     * Resolve the effective application email for a job.
+     * Checks apply_email first, then mailto: in apply_url.
+     */
+    public function resolveJobApplyEmail(Job $job): string
+    {
+        $email = trim((string) $job->apply_email);
+        if ($email !== '') {
+            return $email;
+        }
+
+        $url = trim((string) $job->apply_url);
+        if (preg_match('/^mailto:([^?]+)/i', $url, $m)) {
+            return trim(rawurldecode($m[1]));
+        }
+
+        return '';
+    }
+
+    /**
+     * Resolve the best WhatsApp / phone number for a candidate.
+     * Checks account fields, then AutoCvSession, then CandidateAlert history.
+     */
+    public function resolveCandidateWhatsAppNumber(Account $account): string
+    {
+        $direct = trim((string) ($account->whatsapp_number ?: $account->phone));
+        if ($direct !== '') {
+            return $direct;
+        }
+
+        $fullName = trim((string) $account->name);
+        if ($fullName === '') {
+            return '';
+        }
+
+        $sessionNumber = trim((string) AutoCvSession::query()
+            ->where('candidate_name', $fullName)
+            ->whereNotNull('whatsapp_number')
+            ->latest('id')
+            ->value('whatsapp_number'));
+
+        if ($sessionNumber !== '') {
+            return $sessionNumber;
+        }
+
+        return trim((string) CandidateAlert::query()
+            ->where(function ($q) use ($account, $fullName): void {
+                $q->where('account_id', $account->id)
+                    ->orWhere('candidate_name', $fullName);
+            })
+            ->whereNotNull('candidate_phone')
+            ->latest('id')
+            ->value('candidate_phone'));
+    }
+
+    /**
+     * Send a WhatsApp manual-apply notice for a job that has no application email,
+     * then write an AutoApplyLog entry. Returns true if the WhatsApp was sent.
+     */
+    public function sendManualApplyNotice(Account $account, Job $job, int $score): bool
+    {
+        $phone = $this->resolveCandidateWhatsAppNumber($account);
+        if ($phone === '') {
+            Log::warning('AutoApply: Manual-apply notice skipped — no WhatsApp number', [
+                'account_id' => $account->id,
+                'job_id'     => $job->id,
+            ]);
+
+            return false;
+        }
+
+        $jobUrl = url('/jobs/' . ($job->slugable?->key ?? $job->id));
+        $company = trim((string) $job->company?->name);
+        $candidateName = trim((string) ($account->first_name ?: $account->name ?: 'there'));
+        $message = "Hi {$candidateName},\n\n"
+            . "I found a matching job for you: *{$job->name}*" . ($company !== '' ? " at {$company}" : '') . ".\n\n"
+            . "This job does not include an application email, so I could not auto-apply on your behalf.\n"
+            . "Please apply manually using this Wakanda Jobs link:\n{$jobUrl}\n\n"
+            . "_Nakia_";
+
+        $errorMessage = null;
+        $sent = app(WhapiSenderService::class)->sendText($phone, $message, $errorMessage);
+
+        if (! $sent) {
+            Log::error('AutoApply: Manual-apply WhatsApp notice failed', [
+                'account_id' => $account->id,
+                'job_id'     => $job->id,
+                'phone'      => $phone,
+                'error'      => $errorMessage ?: 'Unknown WhatsApp send failure',
+            ]);
+        }
+
+        $preview = AutoApplyPreview::query()
+            ->where('account_id', $account->id)
+            ->where('job_id', $job->id)
+            ->where('ai_model', AutoApplyOrder::globalAiModel())
+            ->latest('id')
+            ->first();
+
+        try {
+            AutoApplyLog::create([
+                'account_id'       => $account->id,
+                'job_id'           => $job->id,
+                'email_sent_to'    => 'manual-apply-notice',
+                'ai_email_subject' => 'Manual apply notice sent to candidate',
+                'ai_email_body'    => $message,
+                'ai_model_used'    => AutoApplyOrder::globalAiModel(),
+                'prompt_tokens'    => $preview?->prompt_tokens,
+                'completion_tokens'=> $preview?->completion_tokens,
+                'total_tokens'     => $preview?->total_tokens,
+                'ai_cost_usd'      => $preview?->cost_usd,
+                'match_score'      => $score,
+                'match_reasons'    => $preview?->reasons ?? [],
+                'status'           => $sent ? 'sent' : 'failed',
+                'error_message'    => $sent
+                    ? 'Candidate notified to apply manually because the job has no application email.'
+                    : ($errorMessage ?: 'WhatsApp send failed'),
+                'sent_at'          => now(),
+            ]);
+        } catch (Throwable $e) {
+            Log::error('AutoApply: Failed to write manual-apply-notice log', [
+                'account_id' => $account->id,
+                'job_id'     => $job->id,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+
+        return $sent;
     }
 }

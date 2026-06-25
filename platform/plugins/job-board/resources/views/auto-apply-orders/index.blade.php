@@ -72,8 +72,8 @@
                             <th>Candidate</th>
                             <th>Plan</th>
                             <th>Limit</th>
-                            <th>Ready</th>
-                            <th>Applied</th>
+                            <th>Matched</th>
+                            <th>Sent</th>
                             <th>Amount</th>
                             <th>Payment</th>
                             <th>Status</th>
@@ -85,6 +85,7 @@
                         @forelse($orders as $order)
                             @php
                                 $hasCv = trim((string) $order->account?->resume) !== '';
+                                $resumeUrl = $hasCv ? RvMedia::getImageUrl($order->account->resume) : '';
                                 $jobCounts = $jobCountsByOrderId[$order->id] ?? [
                                     'ready' => null,
                                     'applied' => null,
@@ -128,17 +129,21 @@
                                         {{ $order->applicationsLabel() }}
                                 </td>
                                 <td>
-                                    @if($jobCounts['ready'] === null)
+                                    @if($jobCounts['total_matching'] === null)
                                         <span class="text-muted">—</span>
+                                    @elseif($jobCounts['total_matching'] === 0)
+                                        <span class="badge bg-secondary text-white js-order-ready-count">0</span>
                                     @else
-                                        <span class="badge bg-success text-white js-order-ready-count">{{ number_format($jobCounts['ready']) }}</span>
+                                        <span class="badge bg-primary text-white js-order-ready-count" title="{{ $jobCounts['unsent_total'] }} unsent">{{ number_format($jobCounts['total_matching']) }}</span>
                                     @endif
                                 </td>
                                 <td>
                                     @if($jobCounts['applied'] === null)
                                         <span class="text-muted">—</span>
+                                    @elseif($jobCounts['applied'] === 0)
+                                        <span class="badge bg-secondary text-white js-order-applied-count">0</span>
                                     @else
-                                        <span class="badge bg-secondary text-white js-order-applied-count">{{ number_format($jobCounts['applied']) }}</span>
+                                        <span class="badge bg-success text-white js-order-applied-count">{{ number_format($jobCounts['applied']) }}</span>
                                     @endif
                                 </td>
                                 <td>{{ $order->currency }} {{ number_format($order->amount, 2) }}</td>
@@ -167,12 +172,13 @@
                                             aria-label="Send all matching jobs"
                                             data-order-id="{{ $order->id }}"
                                             data-send-all-url="{{ route('auto-apply-orders.send-all-active-jobs', $order) }}"
+                                            data-unsent-ids-url="{{ route('auto-apply-orders.unsent-job-ids', $order) }}"
                                             data-account-id="{{ $order->account_id }}"
                                             data-label="{{ $order->account?->name ?? 'this candidate' }}"
-                                            data-ready-count="{{ $jobCounts['ready'] ?? 0 }}"
+                                            data-ready-count="{{ $jobCounts['unsent_total'] ?? 0 }}"
                                             data-unsent-total="{{ $jobCounts['unsent_total'] ?? 0 }}"
                                             data-applied-count="{{ $jobCounts['applied'] ?? 0 }}"
-                                            @disabled(! $hasCv || (($jobCounts['ready'] ?? 0) < 1))>
+                                            @disabled(! $hasCv || (($jobCounts['unsent_total'] ?? 0) < 1))>
                                             <x-core::icon name="ti ti-send-2" />
                                         </button>
                                         @if($order->admin_status === 'pending')
@@ -225,10 +231,15 @@
                                             title="{{ $hasCv ? 'Preview active jobs' : 'Candidate CV missing' }}"
                                             aria-label="Preview active jobs"
                                             data-bs-toggle="modal" data-bs-target="#activeJobsModal"
+                                            data-order-id="{{ $order->id }}"
                                             data-url="{{ route('auto-apply-orders.active-jobs', $order) }}"
+                                            data-job-counts-url="{{ route('auto-apply-orders.job-counts', $order) }}"
+                                            data-unsent-ids-url="{{ route('auto-apply-orders.unsent-job-ids', $order) }}"
+                                            data-remove-keyword-url="{{ route('auto-apply-orders.remove-keyword', $order) }}"
                                             data-send-all-url="{{ route('auto-apply-orders.send-all-active-jobs', $order) }}"
                                             data-account-id="{{ $order->account_id }}"
                                             data-label="{{ $order->account?->name ?? 'this candidate' }}"
+                                            data-resume-url="{{ $resumeUrl }}"
                                             @disabled(! $hasCv)>
                                             <x-core::icon name="ti ti-briefcase" />
                                         </button>
@@ -290,7 +301,10 @@
                     @csrf
                     @method('PUT')
                     <div class="modal-header">
-                        <h5 class="modal-title">Edit Auto Apply Order</h5>
+                        <div>
+                            <h5 class="modal-title mb-1">Edit Auto Apply Order</h5>
+                            <div class="text-muted small" id="editModalHeaderContext">Loading candidate details…</div>
+                        </div>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
@@ -319,16 +333,29 @@
                                         <input type="file" class="form-control" id="editCvFile" name="cv_file" accept=".pdf,.doc,.docx,.txt" data-analyze-url="{{ route('auto-apply-orders.analyze-cv') }}">
                                         <div class="form-text">Use this to update the candidate's CV and regenerate keyword/filter suggestions.</div>
                                     </div>
-                                    <div class="col-md-5 d-flex align-items-end gap-2 flex-wrap">
-                                        <button type="button" class="btn btn-primary" id="editAnalyzeCvBtn" disabled>
-                                            <i class="ti ti-sparkles me-1"></i> Analyse Uploaded CV
-                                        </button>
-                                        <button type="button" class="btn btn-outline-primary" id="editAnalyzeAccountCvBtn" disabled data-url="{{ route('auto-apply-orders.analyze-account-cv') }}">
-                                            <i class="ti ti-file-spark me-1"></i> Analyse Account CV
-                                        </button>
-                                        <button type="button" class="btn btn-outline-secondary" id="editPreviewCvBtn" disabled>
-                                            <i class="ti ti-file-text me-1"></i> Preview CV
-                                        </button>
+                                    <div class="col-md-5">
+                                        <div class="setup-cv-actions card border-0 shadow-sm h-100">
+                                            <div class="card-body p-3">
+                                                <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                                                    <div>
+                                                        <div class="fw-semibold small text-dark">CV Actions</div>
+                                                        <div class="text-muted small">Refresh filters from the saved CV or a replacement upload.</div>
+                                                    </div>
+                                                    <span class="badge bg-light text-secondary border">AI Setup</span>
+                                                </div>
+                                                <button type="button" class="btn btn-primary w-100 setup-cv-action-main" id="editAnalyzeCvBtn" disabled>
+                                                    <i class="ti ti-sparkles me-1"></i> Analyse Uploaded CV
+                                                </button>
+                                                <div class="d-grid gap-2 setup-cv-action-grid mt-2">
+                                                    <button type="button" class="btn btn-outline-primary btn-sm" id="editAnalyzeAccountCvBtn" disabled data-url="{{ route('auto-apply-orders.analyze-account-cv') }}">
+                                                        <i class="ti ti-file-spark me-1"></i> Use Account CV
+                                                    </button>
+                                                    <button type="button" class="btn btn-outline-secondary btn-sm" id="editPreviewCvBtn" disabled>
+                                                        <i class="ti ti-file-text me-1"></i> Preview CV
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                     <div class="col-12">
                                         <div id="editCvPrompt" class="alert alert-info py-2 px-3 mb-0 small">Loading candidate CV status…</div>
@@ -358,11 +385,17 @@
                                         </div>
                                     </div>
                                     <div class="col-md-6">
-                                        <label class="form-label">Location Keyword</label>
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <label class="form-label mb-0">Location Keyword</label>
+                                            <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="editLocationClearBtn">Clear</button>
+                                        </div>
                                         <input type="text" name="location_keyword" id="editLocationKeyword" class="form-control" placeholder="e.g. Johannesburg">
                                     </div>
                                     <div class="col-12">
-                                        <label class="form-label">Keywords (comma-separated)</label>
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <label class="form-label mb-0">Keywords (comma-separated)</label>
+                                            <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="editKeywordsClearBtn">Clear</button>
+                                        </div>
                                         <input type="text" class="form-control" id="editKeywordsInput" placeholder="e.g. developer, engineer, marketing">
                                         <input type="hidden" name="keywords[]" id="editKeywordsHidden">
                                     </div>
@@ -406,6 +439,24 @@
                                         </select>
                                     </div>
                                     <div class="col-12">
+                                        <label class="form-label">Whitelisted Companies <span class="text-muted small">(only target these exact companies)</span></label>
+                                        <input type="text" class="form-control" id="editWhitelistCompanyInput" placeholder="Search companies to prioritise…" autocomplete="off">
+                                        <div class="border rounded mt-2 d-none" id="editWhitelistResultsBox">
+                                            <div id="editWhitelistResultsList" class="list-group list-group-flush"></div>
+                                        </div>
+                                        <div id="editWhitelistChips" class="d-flex flex-wrap gap-2 mt-2"></div>
+                                        <div id="editWhitelistHidden"></div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <label class="form-label mb-0">Whitelist Company Keywords</label>
+                                            <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="editWhitelistKeywordsClearBtn">Clear</button>
+                                        </div>
+                                        <input type="text" class="form-control" id="editWhitelistKeywordsInput" placeholder="e.g. bank, unicef, standard chartered">
+                                        <input type="hidden" name="whitelisted_company_keywords[]" id="editWhitelistKeywordsHidden">
+                                        <div class="form-text">Use company-name fragments when the company record may vary or already exists under different spellings.</div>
+                                    </div>
+                                    <div class="col-12">
                                         <label class="form-label">Blacklisted Companies <span class="text-muted small">(never auto-apply to these)</span></label>
                                         <input type="text" class="form-control" id="editBlacklistCompanyInput" placeholder="Search companies to exclude…" autocomplete="off">
                                         <div class="border rounded mt-2 d-none" id="editBlacklistResultsBox">
@@ -413,6 +464,15 @@
                                         </div>
                                         <div id="editBlacklistChips" class="d-flex flex-wrap gap-2 mt-2"></div>
                                         <div id="editBlacklistHidden"></div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <label class="form-label mb-0">Blacklist Company Keywords</label>
+                                            <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="editBlacklistKeywordsClearBtn">Clear</button>
+                                        </div>
+                                        <input type="text" class="form-control" id="editBlacklistKeywordsInput" placeholder="e.g. betting, agency, company name">
+                                        <input type="hidden" name="blacklisted_company_keywords[]" id="editBlacklistKeywordsHidden">
+                                        <div class="form-text">Blocks company-name matches even if the exact company record differs.</div>
                                     </div>
                                 </div>
                             </div>
@@ -598,7 +658,10 @@
                     <input type="hidden" name="candidate_phone" id="setupCandidatePhoneHidden">
                     <input type="hidden" name="candidate_whatsapp_number" id="setupCandidateWhatsappHidden">
                     <div class="modal-header">
-                        <h5 class="modal-title">Setup Auto Apply for Candidate</h5>
+                        <div>
+                            <h5 class="modal-title mb-1">Setup Auto Apply for Candidate</h5>
+                            <div class="text-muted small" id="setupModalHeaderContext">No candidate selected yet.</div>
+                        </div>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
@@ -626,16 +689,29 @@
                                         <input type="file" class="form-control" id="setupCvFile" name="cv_file" accept=".pdf,.doc,.docx,.txt" data-analyze-url="{{ route('auto-apply-orders.analyze-cv') }}">
                                         <div class="form-text">Saved as the candidate's CV on file, and used to generate keywords, country/category suggestions, location, and experience filters.</div>
                                     </div>
-                                    <div class="col-md-5 d-flex align-items-end gap-2 flex-wrap">
-                                        <button type="button" class="btn btn-primary" id="setupAnalyzeCvBtn" disabled>
-                                            <i class="ti ti-sparkles me-1"></i> Analyse Uploaded CV
-                                        </button>
-                                        <button type="button" class="btn btn-outline-primary" id="setupAnalyzeAccountCvBtn" disabled data-url="{{ route('auto-apply-orders.analyze-account-cv') }}">
-                                            <i class="ti ti-file-spark me-1"></i> Analyse Account CV
-                                        </button>
-                                        <button type="button" class="btn btn-outline-secondary" id="setupPreviewCvBtn" disabled>
-                                            <i class="ti ti-file-text me-1"></i> Preview CV
-                                        </button>
+                                    <div class="col-md-5">
+                                        <div class="setup-cv-actions card border-0 shadow-sm h-100">
+                                            <div class="card-body p-3">
+                                                <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                                                    <div>
+                                                        <div class="fw-semibold small text-dark">CV Actions</div>
+                                                        <div class="text-muted small">Analyse first, then review the source CV if needed.</div>
+                                                    </div>
+                                                    <span class="badge bg-light text-secondary border">AI Setup</span>
+                                                </div>
+                                                <button type="button" class="btn btn-primary w-100 setup-cv-action-main" id="setupAnalyzeCvBtn" disabled>
+                                                    <i class="ti ti-sparkles me-1"></i> Analyse Uploaded CV
+                                                </button>
+                                                <div class="d-grid gap-2 setup-cv-action-grid mt-2">
+                                                    <button type="button" class="btn btn-outline-primary btn-sm" id="setupAnalyzeAccountCvBtn" disabled data-url="{{ route('auto-apply-orders.analyze-account-cv') }}">
+                                                        <i class="ti ti-file-spark me-1"></i> Use Account CV
+                                                    </button>
+                                                    <button type="button" class="btn btn-outline-secondary btn-sm" id="setupPreviewCvBtn" disabled>
+                                                        <i class="ti ti-file-text me-1"></i> Preview CV
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                     <div class="col-12">
                                         <div id="setupCvPrompt" class="alert alert-info py-2 px-3 mb-0 small">
@@ -700,11 +776,17 @@
                                         </div>
                                     </div>
                                     <div class="col-md-6">
-                                        <label class="form-label">Location Keyword</label>
-                                        <input type="text" name="location_keyword" class="form-control" placeholder="e.g. Johannesburg">
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <label class="form-label mb-0">Location Keyword</label>
+                                            <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="setupLocationClearBtn">Clear</button>
+                                        </div>
+                                        <input type="text" name="location_keyword" id="setupLocationKeyword" class="form-control" placeholder="e.g. Johannesburg">
                                     </div>
                                     <div class="col-12">
-                                        <label class="form-label">Keywords (comma-separated)</label>
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <label class="form-label mb-0">Keywords (comma-separated)</label>
+                                            <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="setupKeywordsClearBtn">Clear</button>
+                                        </div>
                                         <input type="text" class="form-control" id="keywordsInput" placeholder="e.g. developer, engineer, marketing">
                                         <input type="hidden" name="keywords[]" id="keywordsHidden">
                                     </div>
@@ -742,6 +824,25 @@
                                         </select>
                                     </div>
                                     <div class="col-12">
+                                        <label class="form-label">Whitelisted Companies <span class="text-muted small">(only target these exact companies)</span></label>
+                                        <input type="text" class="form-control" id="setupWhitelistCompanyInput"
+                                               placeholder="Search companies to prioritise…" autocomplete="off">
+                                        <div class="border rounded mt-2 d-none" id="setupWhitelistResultsBox">
+                                            <div id="setupWhitelistResultsList" class="list-group list-group-flush"></div>
+                                        </div>
+                                        <div id="setupWhitelistChips" class="d-flex flex-wrap gap-2 mt-2"></div>
+                                        <div id="setupWhitelistHidden"></div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <label class="form-label mb-0">Whitelist Company Keywords</label>
+                                            <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="setupWhitelistKeywordsClearBtn">Clear</button>
+                                        </div>
+                                        <input type="text" class="form-control" id="setupWhitelistKeywordsInput" placeholder="e.g. bank, unicef, standard chartered">
+                                        <input type="hidden" name="whitelisted_company_keywords[]" id="setupWhitelistKeywordsHidden">
+                                        <div class="form-text">Use company-name fragments when the company record may vary or already exists under different spellings.</div>
+                                    </div>
+                                    <div class="col-12">
                                         <label class="form-label">Blacklisted Companies <span class="text-muted small">(never auto-apply to these)</span></label>
                                         <input type="text" class="form-control" id="setupBlacklistCompanyInput"
                                                placeholder="Search companies to exclude…" autocomplete="off">
@@ -751,16 +852,47 @@
                                         <div id="setupBlacklistChips" class="d-flex flex-wrap gap-2 mt-2"></div>
                                         <div id="setupBlacklistHidden"></div>
                                     </div>
+                                    <div class="col-md-6">
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <label class="form-label mb-0">Blacklist Company Keywords</label>
+                                            <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="setupBlacklistKeywordsClearBtn">Clear</button>
+                                        </div>
+                                        <input type="text" class="form-control" id="setupBlacklistKeywordsInput" placeholder="e.g. betting, agency, company name">
+                                        <input type="hidden" name="blacklisted_company_keywords[]" id="setupBlacklistKeywordsHidden">
+                                        <div class="form-text">Blocks company-name matches even if the exact company record differs.</div>
+                                    </div>
                                 </div>
                             </div>
                             <div class="tab-pane fade" id="setup-pane-quota" role="tabpanel" aria-labelledby="setup-tab-quota">
                                 <div class="row g-3">
                                     <div class="col-12">
                                         <label class="form-label">Plan</label>
-                                        <select name="plan" id="setupPlan" class="form-select" required>
+                                        <div class="auto-apply-plan-grid" id="setupPlanGrid" role="radiogroup" aria-label="Select plan">
                                             @foreach($plans as $planKey => $plan)
                                                 @if($plan['enabled'])
-                                                    <option value="{{ $planKey }}">{{ $plan['label'] }}</option>
+                                                    <label class="auto-apply-plan-card" data-plan-key="{{ $planKey }}" tabindex="0">
+                                                        <input type="radio" class="auto-apply-plan-radio" name="setup_plan_card" value="{{ $planKey }}" @checked($loop->first)>
+                                                        <span class="auto-apply-plan-check">
+                                                            <i class="ti ti-check"></i>
+                                                        </span>
+                                                        <span class="auto-apply-plan-title">{{ $plan['label'] }}</span>
+                                                        <span class="auto-apply-plan-meta">{{ $plan['duration_days'] }} days</span>
+                                                        <span class="auto-apply-plan-meta">
+                                                            @if(($plan['applications_allowed'] ?? null) === -1)
+                                                                Unlimited apps/mo
+                                                            @else
+                                                                {{ $plan['applications_allowed'] ?? 0 }} apps/mo
+                                                            @endif
+                                                        </span>
+                                                        <span class="auto-apply-plan-price">{{ $plan['currency'] }} {{ number_format((float) $plan['price'], 2) }}</span>
+                                                    </label>
+                                                @endif
+                                            @endforeach
+                                        </div>
+                                        <select name="plan" id="setupPlan" class="form-select d-none" required>
+                                            @foreach($plans as $planKey => $plan)
+                                                @if($plan['enabled'])
+                                                    <option value="{{ $planKey }}" @selected($loop->first)>{{ $plan['label'] }}</option>
                                                 @endif
                                             @endforeach
                                         </select>
@@ -803,10 +935,13 @@
 
     {{-- Active jobs modal --}}
     <div class="modal fade" id="activeJobsModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered modal-xl">
+        <div class="modal-dialog modal-dialog-centered modal-xl" style="max-width:1540px;width:98vw;">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">Active Jobs for Auto Apply</h5>
+                    <button type="button" class="btn btn-sm btn-outline-secondary me-2" id="activeJobsPreviewCvBtn" disabled>
+                        <i class="ti ti-file-text me-1"></i> Preview CV
+                    </button>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
@@ -835,25 +970,48 @@
                         <table class="table table-vcenter table-striped">
                             <thead>
                                 <tr>
-                                    <th width="40">#</th>
+                                    <th width="32">#</th>
                                     <th>Job</th>
                                     <th>Company</th>
-                                    <th>Country</th>
-                                    <th>Address</th>
-                                    <th>Apply Email</th>
-                                    <th>Posted / Closing</th>
-                                    <th>Score</th>
-                                    <th width="180" class="text-end">Actions</th>
+                                    <th>Keyword / Score</th>
+                                    <th>Location</th>
+                                    <th>Apply</th>
+                                    <th>Dates</th>
+                                    <th width="155" class="text-end">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="activeJobsList">
                                 <tr>
-                                    <td colspan="9" class="text-center text-muted py-4">Select a candidate row to load jobs.</td>
+                                    <td colspan="8" class="text-center text-muted py-4">Select a candidate row to load jobs.</td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
                     <div id="activeJobsPagination" class="d-flex align-items-center justify-content-between gap-2 mt-3"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="removeAutoApplyKeywordModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content">
+                <div class="modal-body text-center py-4 px-4">
+                    <div class="mb-3">
+                        <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-warning bg-opacity-10" style="width:52px;height:52px;">
+                            <x-core::icon name="ti ti-filter-off" class="text-warning" style="width:28px;height:28px;" />
+                        </span>
+                    </div>
+                    <h6 class="fw-semibold mb-1">Remove this keyword?</h6>
+                    <p class="text-muted small mb-2" id="removeAutoApplyKeywordLabel">This keyword will be removed from the candidate's auto apply filters.</p>
+                    <div class="alert alert-light border small text-start py-2 px-3 mb-4">
+                        <div><strong>Candidate:</strong> <span id="removeAutoApplyKeywordCandidate">—</span></div>
+                        <div><strong>Keyword:</strong> <span id="removeAutoApplyKeywordValue">—</span></div>
+                    </div>
+                    <div class="d-flex gap-2 justify-content-center">
+                        <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-warning px-4" id="removeAutoApplyKeywordConfirmBtn">Remove</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1053,7 +1211,7 @@
                         <div class="d-flex justify-content-between"><span class="text-muted">Already processed</span><span id="sendAllAutoApplyAlreadyProcessedCount">0</span></div>
                         <div class="d-flex justify-content-between"><span class="text-muted">Below threshold</span><span id="sendAllAutoApplyBelowThresholdCount">0</span></div>
                         <div class="d-flex justify-content-between"><span class="text-muted">Scoring failed</span><span id="sendAllAutoApplyScoringFailedCount">0</span></div>
-                        <div class="d-flex justify-content-between"><span class="text-muted">Missing email</span><span id="sendAllAutoApplyMissingEmailCount">0</span></div>
+                        <div class="d-flex justify-content-between"><span class="text-muted">Manual apply notices</span><span id="sendAllAutoApplyManualNoticeCount">0</span></div>
                     </div>
                     <div class="small text-muted mt-2" id="sendAllAutoApplyProgressHint">Using the same rules as the Active Jobs modal Send All action.</div>
                 </div>
@@ -1112,6 +1270,80 @@
         .job-ad-html-content h1, .job-ad-html-content h2, .job-ad-html-content h3,
         .job-ad-html-content h4, .job-ad-html-content h5, .job-ad-html-content h6 { font-size: 0.9rem; margin: 0.5rem 0 0.25rem; }
         .job-ad-html-content img { max-width: 100%; }
+        .auto-apply-plan-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 0.85rem;
+        }
+        .auto-apply-plan-card {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            min-height: 148px;
+            padding: 1rem;
+            border: 1px solid #d8dee8;
+            border-radius: 14px;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            cursor: pointer;
+            transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+        }
+        .auto-apply-plan-card:hover {
+            border-color: #3c65f5;
+            box-shadow: 0 10px 22px rgba(60, 101, 245, 0.08);
+            transform: translateY(-1px);
+        }
+        .auto-apply-plan-card.is-selected {
+            border-color: #3c65f5;
+            box-shadow: 0 12px 28px rgba(60, 101, 245, 0.14);
+            background: linear-gradient(180deg, #eff4ff 0%, #ffffff 100%);
+        }
+        .auto-apply-plan-card:focus-visible {
+            outline: 2px solid #3c65f5;
+            outline-offset: 2px;
+        }
+        .auto-apply-plan-radio {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .auto-apply-plan-check {
+            position: absolute;
+            top: 0.9rem;
+            right: 0.9rem;
+            width: 24px;
+            height: 24px;
+            border-radius: 999px;
+            border: 1px solid #cbd5e1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: transparent;
+            background: #fff;
+        }
+        .auto-apply-plan-card.is-selected .auto-apply-plan-check {
+            border-color: #3c65f5;
+            background: #3c65f5;
+            color: #fff;
+        }
+        .auto-apply-plan-title {
+            display: block;
+            padding-right: 1.8rem;
+            font-weight: 700;
+            color: #182433;
+        }
+        .auto-apply-plan-meta {
+            display: block;
+            font-size: 0.82rem;
+            color: #667085;
+        }
+        .auto-apply-plan-price {
+            display: block;
+            margin-top: auto;
+            font-size: 1rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
         body.modal-stack-focus .modal.modal-stack-muted .modal-dialog {
             transform: scale(0.985);
             transition: transform 0.2s ease, opacity 0.2s ease, filter 0.2s ease;
@@ -1125,6 +1357,26 @@
         body.modal-stack-focus .modal.modal-stack-active .modal-content {
             box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.38);
         }
+        .setup-cv-actions {
+            background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+            border: 1px solid #d9e7ff !important;
+            border-radius: 0.9rem;
+        }
+        .setup-cv-action-main {
+            min-height: 2.9rem;
+            font-weight: 600;
+        }
+        .setup-cv-action-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .setup-cv-action-grid .btn {
+            min-height: 2.5rem;
+        }
+        @media (max-width: 767.98px) {
+            .setup-cv-action-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 
     @push('footer')
@@ -1133,6 +1385,7 @@
             var autoApplyEditOrders = @json($editOrdersData);
             var editCountryPicker;
             var editCategoryPicker;
+            var editWhitelistPicker;
             var editBlacklistPicker;
             var setupSelectedAccount = null;
             var setupPendingCandidate = null;
@@ -1175,6 +1428,55 @@
 
             fillAutoApplyPlanFields(document.getElementById('setupPlan').value, 'setupPlan');
 
+            (function () {
+                var setupPlanGrid = document.getElementById('setupPlanGrid');
+                var setupPlanSelect = document.getElementById('setupPlan');
+
+                if (!setupPlanGrid || !setupPlanSelect) {
+                    return;
+                }
+
+                function syncSetupPlanCards(planKey) {
+                    setupPlanGrid.querySelectorAll('.auto-apply-plan-card').forEach(function (card) {
+                        var radio = card.querySelector('.auto-apply-plan-radio');
+                        var active = card.dataset.planKey === planKey;
+                        card.classList.toggle('is-selected', active);
+                        card.setAttribute('aria-checked', active ? 'true' : 'false');
+
+                        if (radio) {
+                            radio.checked = active;
+                        }
+                    });
+                }
+
+                setupPlanGrid.querySelectorAll('.auto-apply-plan-card').forEach(function (card) {
+                    function selectCard() {
+                        var planKey = card.dataset.planKey || '';
+                        if (!planKey) {
+                            return;
+                        }
+
+                        setupPlanSelect.value = planKey;
+                        fillAutoApplyPlanFields(planKey, 'setupPlan');
+                        syncSetupPlanCards(planKey);
+                    }
+
+                    card.addEventListener('click', selectCard);
+                    card.addEventListener('keydown', function (event) {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            selectCard();
+                        }
+                    });
+                });
+
+                setupPlanSelect.addEventListener('change', function () {
+                    syncSetupPlanCards(this.value);
+                });
+
+                syncSetupPlanCards(setupPlanSelect.value);
+            })();
+
             document.getElementById('editOrderModal').addEventListener('show.bs.modal', function (e) {
                 var btn = e.relatedTarget;
                 var order = autoApplyEditOrders[btn.dataset.orderId] || {};
@@ -1187,10 +1489,13 @@
                 document.getElementById('editMatchScoreThreshold').value = order.match_score_threshold || {{ \Botble\JobBoard\Models\AutoApplyOrder::globalMatchThreshold() }};
                 document.getElementById('editLocationKeyword').value = order.location_keyword || '';
                 document.getElementById('editKeywordsInput').value = (order.keywords || []).join(', ');
+                document.getElementById('editWhitelistKeywordsInput').value = (order.whitelisted_company_keywords || []).join(', ');
+                document.getElementById('editBlacklistKeywordsInput').value = (order.blacklisted_company_keywords || []).join(', ');
                 document.getElementById('editJobExperienceId').value = order.job_experience_id || '';
                 document.getElementById('editIsActive').checked = !!order.is_active;
                 editCountryPicker && editCountryPicker.setSelected(order.country_labels || order.country_ids || []);
                 editCategoryPicker && editCategoryPicker.setSelected(order.category_labels || order.category_ids || []);
+                editWhitelistPicker && editWhitelistPicker.setSelected(order.whitelisted_company_labels || order.whitelisted_company_ids || []);
                 editBlacklistPicker && editBlacklistPicker.setSelected(order.blacklisted_company_labels || order.blacklisted_company_ids || []);
                 document.getElementById('editOrderPaymentMethod').value = btn.dataset.paymentMethod || '';
                 document.getElementById('editOrderStatus').value = btn.dataset.status || 'pending';
@@ -1198,6 +1503,7 @@
                 document.getElementById('editOrderNotes').value = btn.dataset.notes || '';
                 editSelectedAccount = {
                     id: order.account_id || null,
+                    name: order.candidate_label || btn.dataset.label || '',
                     has_cv: !!order.has_cv,
                     resume_url: order.resume_url || '',
                     resume_name: order.resume_name || ''
@@ -1208,6 +1514,7 @@
                 document.getElementById('editCvFile').value = '';
                 document.getElementById('editAnalysisResult').classList.add('d-none');
                 document.getElementById('editAnalysisResult').innerHTML = '';
+                editSelectedAccount = null;
                 if (window.onEditAccountReady) window.onEditAccountReady();
             });
             document.getElementById('approveModal').addEventListener('show.bs.modal', function (e) {
@@ -1284,9 +1591,10 @@
                 updateModalStackFocus(null);
             });
 
-            function prepareKeywords(inputId, hiddenId) {
+            function prepareKeywords(inputId, hiddenId, fieldName) {
                 var input = document.getElementById(inputId);
                 var hidden = document.getElementById(hiddenId);
+                fieldName = fieldName || 'keywords[]';
                 hidden.name = '';
                 input.parentNode.querySelectorAll('input[data-generated-keyword="1"]').forEach(function (item) {
                     item.remove();
@@ -1295,7 +1603,7 @@
                 input.value.split(',').map(function(k) { return k.trim(); }).filter(Boolean).forEach(function(kw) {
                     var h = document.createElement('input');
                     h.type = 'hidden';
-                    h.name = 'keywords[]';
+                    h.name = fieldName;
                     h.value = kw;
                     h.dataset.generatedKeyword = '1';
                     input.parentNode.appendChild(h);
@@ -1324,6 +1632,58 @@
                     first_name: parts.shift() || '',
                     last_name: parts.join(' '),
                 };
+            }
+
+            function updateSetupModalHeaderContext() {
+                var header = document.getElementById('setupModalHeaderContext');
+                if (!header) return;
+
+                var fileInput = document.getElementById('setupCvFile');
+                var uploadedName = fileInput && fileInput.files && fileInput.files.length ? fileInput.files[0].name : '';
+
+                if (setupSelectedAccount && setupSelectedAccount.name) {
+                    var bits = [setupSelectedAccount.name];
+                    if (setupSelectedAccount.resume_name) {
+                        bits.push('CV: ' + setupSelectedAccount.resume_name);
+                    } else if (uploadedName) {
+                        bits.push('Upload: ' + uploadedName);
+                    }
+                    header.textContent = bits.join(' · ');
+                    return;
+                }
+
+                if (uploadedName) {
+                    header.textContent = 'Upload: ' + uploadedName;
+                    return;
+                }
+
+                header.textContent = 'No candidate selected yet.';
+            }
+
+            function updateEditModalHeaderContext() {
+                var header = document.getElementById('editModalHeaderContext');
+                if (!header) return;
+
+                var fileInput = document.getElementById('editCvFile');
+                var uploadedName = fileInput && fileInput.files && fileInput.files.length ? fileInput.files[0].name : '';
+
+                if (editSelectedAccount && editSelectedAccount.name) {
+                    var bits = [editSelectedAccount.name];
+                    if (editSelectedAccount.resume_name) {
+                        bits.push('CV: ' + editSelectedAccount.resume_name);
+                    } else if (uploadedName) {
+                        bits.push('Upload: ' + uploadedName);
+                    }
+                    header.textContent = bits.join(' · ');
+                    return;
+                }
+
+                if (uploadedName) {
+                    header.textContent = 'Upload: ' + uploadedName;
+                    return;
+                }
+
+                header.textContent = 'Loading candidate details…';
             }
 
             function setupShowPendingCandidateNotice(candidate) {
@@ -1413,6 +1773,8 @@
 
                 document.getElementById('setupCreateCandidateAccount').value = '0';
                 prepareKeywords('keywordsInput', 'keywordsHidden');
+                prepareKeywords('setupWhitelistKeywordsInput', 'setupWhitelistKeywordsHidden', 'whitelisted_company_keywords[]');
+                prepareKeywords('setupBlacklistKeywordsInput', 'setupBlacklistKeywordsHidden', 'blacklisted_company_keywords[]');
             });
 
             document.querySelector('#editOrderForm').addEventListener('submit', function(e) {
@@ -1423,6 +1785,8 @@
                 }
 
                 prepareKeywords('editKeywordsInput', 'editKeywordsHidden');
+                prepareKeywords('editWhitelistKeywordsInput', 'editWhitelistKeywordsHidden', 'whitelisted_company_keywords[]');
+                prepareKeywords('editBlacklistKeywordsInput', 'editBlacklistKeywordsHidden', 'blacklisted_company_keywords[]');
             });
 
             // Candidate search (paginated, 3 per page)
@@ -1679,8 +2043,38 @@
                 setupCategoryPicker.clear();
             });
 
+            document.getElementById('setupKeywordsClearBtn').addEventListener('click', function () {
+                document.getElementById('keywordsInput').value = '';
+                prepareKeywords('keywordsInput', 'keywordsHidden');
+            });
+
+            document.getElementById('setupLocationClearBtn').addEventListener('click', function () {
+                document.getElementById('setupLocationKeyword').value = '';
+            });
+
+            document.getElementById('setupWhitelistKeywordsClearBtn').addEventListener('click', function () {
+                document.getElementById('setupWhitelistKeywordsInput').value = '';
+                prepareKeywords('setupWhitelistKeywordsInput', 'setupWhitelistKeywordsHidden', 'whitelisted_company_keywords[]');
+            });
+
+            document.getElementById('setupBlacklistKeywordsClearBtn').addEventListener('click', function () {
+                document.getElementById('setupBlacklistKeywordsInput').value = '';
+                prepareKeywords('setupBlacklistKeywordsInput', 'setupBlacklistKeywordsHidden', 'blacklisted_company_keywords[]');
+            });
+
             document.getElementById('setupExperienceClearBtn').addEventListener('click', function () {
                 document.getElementById('setupJobExperienceId').value = '';
+            });
+
+            var setupWhitelistPicker = setupAutoApplyChipPicker({
+                inputId: 'setupWhitelistCompanyInput',
+                resultsBoxId: 'setupWhitelistResultsBox',
+                resultsListId: 'setupWhitelistResultsList',
+                chipsId: 'setupWhitelistChips',
+                hiddenId: 'setupWhitelistHidden',
+                hiddenName: 'whitelisted_company_ids[]',
+                url: '{{ route('companies.list') }}',
+                parseResponse: function (resp) { return resp.data && resp.data.data ? resp.data.data : (resp.data || []); },
             });
 
             var setupBlacklistPicker = setupAutoApplyChipPicker({
@@ -1733,6 +2127,7 @@
                     analyzeCvBtn.disabled = !hasUpload;
                     analyzeAccountCvBtn.disabled = !hasAccountCv;
                     previewCvBtn.disabled = !currentCvPreviewUrl();
+                    updateSetupModalHeaderContext();
 
                     if (hasAccountCv) {
                         prompt.className = 'alert alert-success py-2 px-3 mb-0 small';
@@ -1936,7 +2331,10 @@
                             keywords: keywords,
                             country_ids: selectedValues('setupCountryHidden'),
                             category_ids: selectedValues('setupCategoryHidden'),
+                            whitelisted_company_ids: selectedValues('setupWhitelistHidden'),
+                            whitelisted_company_keywords: document.getElementById('setupWhitelistKeywordsInput').value.split(',').map(function (item) { return item.trim(); }).filter(Boolean),
                             blacklisted_company_ids: selectedValues('setupBlacklistHidden'),
+                            blacklisted_company_keywords: document.getElementById('setupBlacklistKeywordsInput').value.split(',').map(function (item) { return item.trim(); }).filter(Boolean),
                             location_keyword: document.querySelector('#setup-pane-filters input[name="location_keyword"]').value,
                             job_experience_id: document.querySelector('#setup-pane-filters select[name="job_experience_id"]').value
                         })
@@ -1956,7 +2354,7 @@
 
                             var html = '<div class="d-flex justify-content-between align-items-center mb-2">'
                                 + '<strong>' + jobs.length + ' matching job(s)</strong>'
-                                + '<span class="text-muted small">Showing up to 100 latest jobs with application email</span>'
+                                + '<span class="text-muted small">Showing up to 100 latest matching jobs</span>'
                                 + '</div>'
                                 + '<div class="table-responsive" style="max-height:360px;overflow:auto;">'
                                 + '<table class="table table-sm table-vcenter mb-0">'
@@ -2044,8 +2442,38 @@
                 editCategoryPicker.clear();
             });
 
+            document.getElementById('editKeywordsClearBtn').addEventListener('click', function () {
+                document.getElementById('editKeywordsInput').value = '';
+                prepareKeywords('editKeywordsInput', 'editKeywordsHidden');
+            });
+
+            document.getElementById('editLocationClearBtn').addEventListener('click', function () {
+                document.getElementById('editLocationKeyword').value = '';
+            });
+
+            document.getElementById('editWhitelistKeywordsClearBtn').addEventListener('click', function () {
+                document.getElementById('editWhitelistKeywordsInput').value = '';
+                prepareKeywords('editWhitelistKeywordsInput', 'editWhitelistKeywordsHidden', 'whitelisted_company_keywords[]');
+            });
+
+            document.getElementById('editBlacklistKeywordsClearBtn').addEventListener('click', function () {
+                document.getElementById('editBlacklistKeywordsInput').value = '';
+                prepareKeywords('editBlacklistKeywordsInput', 'editBlacklistKeywordsHidden', 'blacklisted_company_keywords[]');
+            });
+
             document.getElementById('editExperienceClearBtn').addEventListener('click', function () {
                 document.getElementById('editJobExperienceId').value = '';
+            });
+
+            editWhitelistPicker = setupAutoApplyChipPicker({
+                inputId: 'editWhitelistCompanyInput',
+                resultsBoxId: 'editWhitelistResultsBox',
+                resultsListId: 'editWhitelistResultsList',
+                chipsId: 'editWhitelistChips',
+                hiddenId: 'editWhitelistHidden',
+                hiddenName: 'whitelisted_company_ids[]',
+                url: '{{ route('companies.list') }}',
+                parseResponse: function (resp) { return resp.data && resp.data.data ? resp.data.data : (resp.data || []); },
             });
 
             editBlacklistPicker = setupAutoApplyChipPicker({
@@ -2080,6 +2508,7 @@
                     analyzeCvBtn.disabled = !hasUpload;
                     analyzeAccountCvBtn.disabled = !hasAccountCv;
                     previewCvBtn.disabled = !currentCvPreviewUrl();
+                    updateEditModalHeaderContext();
 
                     if (hasAccountCv) {
                         prompt.className = 'alert alert-success py-2 px-3 mb-0 small';
@@ -2251,8 +2680,11 @@
             (function () {
                 var activeJobsUrl = '';
                 var activeJobsSendAllUrl = '';
+                var activeJobsRemoveKeywordUrl = '';
+                var activeJobsOrderId = '';
                 var activeJobsAccountId = '';
                 var activeJobsCandidateLabel = '';
+                var activeJobsResumeUrl = '';
                 var activeJobsThreshold = {{ \Botble\JobBoard\Models\AutoApplyOrder::globalMatchThreshold() }};
                 var activeJobsList = document.getElementById('activeJobsList');
                 var activeJobsSearch = document.getElementById('activeJobsSearch');
@@ -2261,7 +2693,12 @@
                 var activeJobsPagination = document.getElementById('activeJobsPagination');
                 var activeJobsPage = 1;
                 var activeJobsTotal = 0;
+                var activeJobsUnsentTotal = 0;
                 var previewedJobScore = null;
+                var removeKeywordContext = null;
+                var removeKeywordModalEl = document.getElementById('removeAutoApplyKeywordModal');
+                var removeKeywordModal = bootstrap.Modal.getOrCreateInstance(removeKeywordModalEl);
+                var removeKeywordConfirmBtn = document.getElementById('removeAutoApplyKeywordConfirmBtn');
 
                 function escapeHtml(value) {
                     return String(value || '').replace(/[&<>"']/g, function (char) {
@@ -2299,10 +2736,10 @@
                         return;
                     }
 
-                    sendAllBtn.disabled = activeJobsTotal < 1;
+                    sendAllBtn.disabled = activeJobsUnsentTotal < 1;
                     sendAllBtn.title = activeJobsTotal < 1
                         ? 'No matching active jobs were found'
-                        : 'Send all matching unsent jobs across every page';
+                        : (activeJobsUnsentTotal < 1 ? 'All matching jobs have already been sent' : 'Send all matching unsent jobs across every page');
                 }
 
                 function updatePreviewSendState() {
@@ -2336,7 +2773,7 @@
                 function setScoreCell(jobId, html) {
                     var row = activeJobsList.querySelector('tr[data-job-id="' + jobId + '"]');
                     if (!row) return;
-                    var cell = row.querySelector('.js-score-td');
+                    var cell = row.querySelector('.js-score-inner');
                     if (cell) cell.innerHTML = html;
                 }
 
@@ -2368,6 +2805,25 @@
                 // a couple at a time so the table fills in progressively without firing every
                 // call at once. Results are cached server-side (AutoApplyPreview), so reopening
                 // the modal for the same candidate/job won't re-trigger a paid OpenAI call.
+                function refreshTableRowCounts() {
+                    if (!activeJobsOrderId || !activeJobsJobCountsUrl) return;
+                    fetch(activeJobsJobCountsUrl, {
+                        headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }
+                    })
+                        .then(function (r) { return r.json(); })
+                        .then(function (resp) {
+                            var d = resp.data || {};
+                            if (typeof d.ready === 'number') {
+                                setOrderRowCounts(activeJobsOrderId, {
+                                    ready: d.ready,
+                                    unsentTotal: d.unsent_total ?? d.ready,
+                                    applied: d.applied ?? 0,
+                                });
+                            }
+                        })
+                        .catch(function () {});
+                }
+
                 function scoreUnscoredJobs(jobsToScore) {
                     if (!jobsToScore.length) return;
 
@@ -2500,10 +2956,12 @@
                             activeJobsThreshold = typeof data.match_score_threshold === 'number'
                                 ? data.match_score_threshold
                                 : activeJobsThreshold;
+                            activeJobsOrderId = data.order_id || activeJobsOrderId;
                             activeJobsTotal = meta && typeof meta.total === 'number' ? meta.total : jobs.length;
+                            activeJobsUnsentTotal = meta && typeof meta.unsent_total === 'number' ? meta.unsent_total : activeJobsTotal;
 
                             if (!jobs.length) {
-                                activeJobsList.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No jobs found.</td></tr>';
+                                activeJobsList.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No jobs found.</td></tr>';
                                 renderActiveJobsPagination(meta);
                                 updateSendAllState();
                                 return;
@@ -2524,21 +2982,34 @@
                                         + '</div>';
                                 }
 
-                                var countryCell = '<span class="text-muted small">—</span>';
+                                // Combined: country flag + country name, address below
+                                var locationParts = [];
                                 if (job.country || job.country_flag) {
-                                    countryCell = '<span class="small">' + escapeHtml([job.country_flag || '', job.country || ''].join(' ').trim()) + '</span>';
+                                    locationParts.push('<div class="small">' + escapeHtml([job.country_flag || '', job.country || ''].join(' ').trim()) + '</div>');
                                 }
+                                if (job.address) {
+                                    locationParts.push('<div class="text-muted small">' + escapeHtml(job.address) + '</div>');
+                                }
+                                var locationCell = locationParts.length ? locationParts.join('') : '<span class="text-muted small">—</span>';
 
-                                var addressCell = job.address
-                                    ? '<span class="small">' + escapeHtml(job.address) + '</span>'
-                                    : '<span class="text-muted small">—</span>';
+                                // Keyword badges (clickable to remove)
+                                var keywordsHtml = '<span class="text-muted small">—</span>';
+                                if (Array.isArray(job.matched_keywords) && job.matched_keywords.length) {
+                                    keywordsHtml = job.matched_keywords.map(function (matchedKeyword) {
+                                        return '<button type="button" class="btn btn-link btn-sm p-0 text-decoration-none js-remove-active-keyword"'
+                                            + ' data-keyword="' + escapeHtml(matchedKeyword) + '"'
+                                            + ' title="Remove this keyword from candidate filters and refresh">'
+                                            + '<span class="badge bg-light text-dark border">' + escapeHtml(matchedKeyword) + '</span>'
+                                            + '</button>';
+                                    }).join(' ');
+                                }
 
                                 var datesCell = '<div class="small text-nowrap">'
                                     + '<div><span class="text-muted">Posted:</span> ' + escapeHtml(job.created_at || '—') + '</div>'
                                     + '<div><span class="text-muted">Closing:</span> ' + escapeHtml(job.closing_date || '—') + '</div>'
                                     + '</div>';
 
-                                var scoreCell = job.needs_ai_score
+                                var scoreHtml = job.needs_ai_score
                                     ? '<span class="text-muted small d-inline-flex align-items-center gap-1">'
                                         + '<span class="spinner-border spinner-border-sm" style="width:.85rem;height:.85rem;"></span> Scoring…</span>'
                                     : renderScoreBadge(job.score, job.match_reasons);
@@ -2576,15 +3047,18 @@
                                         + '</div>';
                                 }
 
+                                var applyCell = job.apply_email
+                                    ? '<span class="small">' + escapeHtml(job.apply_email) + '</span>'
+                                    : '<span class="badge bg-warning-lt text-warning small">Manual</span>';
+
                                 return '<tr data-job-id="' + job.id + '">'
-                                    + '<td class="text-muted">' + rowNumber + '</td>'
-                                    + '<td><div class="fw-medium">' + (job.url ? '<a href="' + escapeHtml(job.url) + '" target="_blank" rel="noopener" class="text-reset">' + escapeHtml(job.name) + '</a>' : escapeHtml(job.name)) + '</div><div class="text-muted small">#' + job.id + '</div></td>'
+                                    + '<td class="text-muted small">' + rowNumber + '</td>'
+                                    + '<td style="max-width:200px"><div class="fw-medium small">' + (job.url ? '<a href="' + escapeHtml(job.url) + '" target="_blank" rel="noopener" class="text-reset">' + escapeHtml(job.name) + '</a>' : escapeHtml(job.name)) + '</div><div class="text-muted small">#' + job.id + '</div></td>'
                                     + '<td>' + companyCell + '</td>'
-                                    + '<td>' + countryCell + '</td>'
-                                    + '<td>' + addressCell + '</td>'
-                                    + '<td class="text-muted small">' + escapeHtml(job.apply_email) + '</td>'
+                                    + '<td><div class="d-flex flex-wrap gap-1">' + keywordsHtml + '</div><div class="js-score-inner mt-1">' + scoreHtml + '</div></td>'
+                                    + '<td>' + locationCell + '</td>'
+                                    + '<td>' + applyCell + '</td>'
                                     + '<td>' + datesCell + '</td>'
-                                    + '<td class="js-score-td">' + scoreCell + '</td>'
                                     + '<td class="text-end">' + actionsCell + '</td>'
                                     + '</tr>';
                             }).join('');
@@ -2593,7 +3067,7 @@
                             updateSendAllState();
                         })
                         .catch(function () {
-                            activeJobsList.innerHTML = '<tr><td colspan="9" class="text-center text-danger py-4">Failed to load active jobs.</td></tr>';
+                            activeJobsList.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-4">Failed to load active jobs.</td></tr>';
                             activeJobsPagination.innerHTML = '';
                             updateSendAllState();
                         })
@@ -2603,17 +3077,34 @@
                         });
                 }
 
+                var activeJobsJobCountsUrl = '';
+                var activeJobsUnsentIdsUrl = '';
+                var sendJobUrl = '{{ route("auto-apply-orders.send-job") }}';
+
                 document.getElementById('activeJobsModal').addEventListener('show.bs.modal', function (e) {
                     var btn = e.relatedTarget;
                     activeJobsUrl = btn.dataset.url || '';
                     activeJobsSendAllUrl = btn.dataset.sendAllUrl || '';
+                    activeJobsRemoveKeywordUrl = btn.dataset.removeKeywordUrl || '';
                     activeJobsAccountId = btn.dataset.accountId || '';
                     activeJobsCandidateLabel = btn.dataset.label || 'candidate';
+                    activeJobsResumeUrl = btn.dataset.resumeUrl || '';
+                    activeJobsOrderId = btn.dataset.orderId || '';
+                    activeJobsJobCountsUrl = btn.dataset.jobCountsUrl || '';
+                    activeJobsUnsentIdsUrl = btn.dataset.unsentIdsUrl || '';
                     activeJobsSearch.value = '';
                     activeJobsPage = 1;
                     activeJobsTotal = 0;
+                    activeJobsUnsentTotal = 0;
                     document.querySelector('#activeJobsModal .modal-title').textContent = 'Active Jobs for ' + activeJobsCandidateLabel;
+                    document.getElementById('activeJobsPreviewCvBtn').disabled = !activeJobsResumeUrl;
                     loadActiveJobs();
+                });
+
+                document.getElementById('activeJobsPreviewCvBtn').addEventListener('click', function () {
+                    if (!activeJobsResumeUrl) return;
+                    document.getElementById('cvPreviewFrame').src = activeJobsResumeUrl;
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('cvPreviewModal')).show();
                 });
 
                 document.getElementById('activeJobsSearchBtn').addEventListener('click', function () {
@@ -2632,8 +3123,22 @@
                 });
 
                 activeJobsList.addEventListener('click', function (e) {
+                    var removeKeywordBtn = e.target.closest('.js-remove-active-keyword');
                     var previewBtn = e.target.closest('.js-preview-active-job');
                     var sendBtn = e.target.closest('.js-send-active-job');
+
+                    if (removeKeywordBtn) {
+                        removeKeywordContext = {
+                            keyword: removeKeywordBtn.dataset.keyword || '',
+                            label: activeJobsCandidateLabel || 'candidate',
+                            url: activeJobsRemoveKeywordUrl
+                        };
+                        document.getElementById('removeAutoApplyKeywordCandidate').textContent = removeKeywordContext.label;
+                        document.getElementById('removeAutoApplyKeywordValue').textContent = removeKeywordContext.keyword || '—';
+                        document.getElementById('removeAutoApplyKeywordLabel').textContent = 'This will remove "' + (removeKeywordContext.keyword || 'that keyword') + '" from the candidate\'s auto apply filters and refresh the matching jobs list.';
+                        removeKeywordModal.show();
+                        return;
+                    }
 
                     if (previewBtn) {
                         activeJobsLoading.classList.remove('d-none');
@@ -2683,6 +3188,55 @@
                     }
                 });
 
+                removeKeywordConfirmBtn.addEventListener('click', function () {
+                    if (!removeKeywordContext || !removeKeywordContext.url || !removeKeywordContext.keyword) {
+                        return;
+                    }
+
+                    removeKeywordConfirmBtn.disabled = true;
+                    removeKeywordConfirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Removing...';
+
+                    fetch(removeKeywordContext.url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({ keyword: removeKeywordContext.keyword })
+                    })
+                        .then(function (r) { return r.json(); })
+                        .then(function (resp) {
+                            if (resp.error) {
+                                Botble.showError(resp.message || 'Failed to remove keyword.');
+                                return;
+                            }
+
+                            var order = autoApplyEditOrders[activeJobsOrderId] || null;
+                            if (order && Array.isArray(order.keywords)) {
+                                order.keywords = order.keywords.filter(function (value) {
+                                    return String(value).toLowerCase() !== String(removeKeywordContext.keyword).toLowerCase();
+                                });
+                            }
+
+                            if (document.getElementById('editAccountId').value === String(activeJobsAccountId)) {
+                                document.getElementById('editKeywordsInput').value = (order && order.keywords ? order.keywords : []).join(', ');
+                            }
+
+                            Botble.showSuccess(resp.message || 'Keyword removed.');
+                            removeKeywordModal.hide();
+                            activeJobsPage = 1;
+                            loadActiveJobs();
+                        })
+                        .catch(function () {
+                            Botble.showError('Failed to remove keyword.');
+                        })
+                        .finally(function () {
+                            removeKeywordConfirmBtn.disabled = false;
+                            removeKeywordConfirmBtn.innerHTML = 'Remove';
+                        });
+                });
+
                 var previewedJobId = null;
                 var previewedJobName = '';
                 var currentPreviewResumeUrl = '';
@@ -2711,7 +3265,8 @@
                     document.getElementById('activeJobPreviewJobSalary').innerHTML = job.salary_text
                         ? '<strong>Salary:</strong> ' + escapeHtml(job.salary_text) : '';
                     document.getElementById('activeJobPreviewJobEmail').innerHTML = job.apply_email
-                        ? '<strong>Apply Email:</strong> ' + escapeHtml(job.apply_email) : '';
+                        ? '<strong>Apply Email:</strong> ' + escapeHtml(job.apply_email)
+                        : (job.wakanda_job_url ? '<strong>Manual Apply:</strong> No application email. Use <a href="' + escapeHtml(job.wakanda_job_url) + '" target="_blank" rel="noopener">this Wakanda Jobs link</a>.' : '<strong>Manual Apply:</strong> No application email available.');
 
                     var dates = [];
                     if (job.created_at) dates.push('Posted: ' + job.created_at);
@@ -2758,7 +3313,7 @@
                 var sendAllProgressModalProcessed = document.getElementById('sendAllAutoApplyAlreadyProcessedCount');
                 var sendAllProgressModalBelowThreshold = document.getElementById('sendAllAutoApplyBelowThresholdCount');
                 var sendAllProgressModalScoringFailed = document.getElementById('sendAllAutoApplyScoringFailedCount');
-                var sendAllProgressModalMissingEmail = document.getElementById('sendAllAutoApplyMissingEmailCount');
+                var sendAllProgressModalManualNotice = document.getElementById('sendAllAutoApplyManualNoticeCount');
 
                 function setOrderRowCounts(orderId, updates) {
                     var row = document.querySelector('tr[data-order-id="' + orderId + '"]');
@@ -2835,7 +3390,7 @@
                     sendAllProgressModalProcessed.textContent = '0';
                     sendAllProgressModalBelowThreshold.textContent = '0';
                     sendAllProgressModalScoringFailed.textContent = '0';
-                    sendAllProgressModalMissingEmail.textContent = '0';
+                    sendAllProgressModalManualNotice.textContent = '0';
                 }
 
                 function populateBulkSendSummary(data, message, ok) {
@@ -2848,7 +3403,7 @@
                     sendAllProgressModalProcessed.textContent = String(data.already_processed || 0);
                     sendAllProgressModalBelowThreshold.textContent = String(data.below_threshold || 0);
                     sendAllProgressModalScoringFailed.textContent = String(data.scoring_failed || 0);
-                    sendAllProgressModalMissingEmail.textContent = String(data.missing_apply_email || 0);
+                    sendAllProgressModalManualNotice.textContent = String(data.manual_notified || 0);
                     sendAllProgressModalStatus.textContent = ok
                         ? 'Completed for ' + (bulkSendContext && bulkSendContext.label ? bulkSendContext.label : 'candidate') + '.'
                         : 'Bulk send failed.';
@@ -2867,13 +3422,13 @@
                     row.style.backgroundColor = '#fff8e6';
                 }
 
-                function setRowResult(jobId, ok, message) {
+                function setRowResult(jobId, ok, message, label) {
                     var row = activeJobsList.querySelector('tr[data-job-id="' + jobId + '"]');
                     if (!row) return;
                     var cell = row.querySelector('td:last-child');
                     if (cell) {
-                        var badgeClass = ok ? 'bg-info' : 'bg-danger';
-                        var badgeLabel = ok ? 'Queued' : 'Failed';
+                        var badgeLabel = label || (ok ? 'Queued' : 'Failed');
+                        var badgeClass = ok ? (label ? 'bg-success' : 'bg-info') : 'bg-danger';
                         cell.innerHTML = '<div class="d-inline-flex gap-1 align-items-center">'
                             + '<span class="badge ' + badgeClass + '" title="' + escapeHtml(message || '') + '" style="cursor:help;color:#fff">' + badgeLabel + '</span>'
                             + '</div>';
@@ -2904,90 +3459,199 @@
                         .catch(function () { return { ok: false, data: {} }; });
                 }
 
+                function processJobsLoop(context, jobIds, accountId, onDone) {
+                    var total = jobIds.length;
+                    var processed = 0;
+                    var queue = jobIds.slice();
+                    var inFlight = 0;
+                    var CONCURRENCY = 2;
+                    var counters = { queued: 0, manual_notified: 0, already_processed: 0, below_threshold: 0, scoring_failed: 0, matched_total: total };
+
+                    function updateProgress() {
+                        var pct = total > 0 ? Math.round((processed / total) * 100) : 100;
+                        var remaining = Math.max(total - processed, 0);
+                        sendAllProgressModalBar.style.width = pct + '%';
+                        sendAllProgressModalStatus.textContent = 'Processed ' + processed + ' of ' + total + '…';
+                        sendAllProgressModalUnsent.textContent = String(remaining);
+                        sendAllProgressModalQueued.textContent = String(counters.queued);
+                        sendAllProgressModalManualNotice.textContent = String(counters.manual_notified);
+                        sendAllProgressModalProcessed.textContent = String(counters.already_processed);
+                        sendAllProgressModalBelowThreshold.textContent = String(counters.below_threshold);
+                        sendAllProgressModalScoringFailed.textContent = String(counters.scoring_failed);
+                    }
+
+                    function next() {
+                        if (queue.length === 0) {
+                            if (inFlight === 0) onDone(counters);
+                            return;
+                        }
+
+                        var jobId = queue.shift();
+                        inFlight++;
+
+                        var formData = new FormData();
+                        formData.append('account_id', String(accountId));
+                        formData.append('job_id', String(jobId));
+
+                        fetch(sendJobUrl, {
+                            method: 'POST',
+                            headers: {
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                                'Accept': 'application/json'
+                            },
+                            body: formData
+                        })
+                        .then(function (r) {
+                            return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, data: d }; });
+                        })
+                        .then(function (result) {
+                            var payload = result.data || {};
+                            var ok = result.ok && !payload.error;
+
+                            if (ok) {
+                                var isManual = payload.data && payload.data.type === 'manual_notified';
+                                if (isManual) {
+                                    counters.manual_notified++;
+                                    if (context.source === 'modal') setRowResult(jobId, true, payload.message || 'WhatsApp notice sent.', 'Notified');
+                                } else {
+                                    counters.queued++;
+                                    if (context.source === 'modal') setRowResult(jobId, true, payload.message || 'Queued for sending.');
+                                }
+                            } else {
+                                var msg = (payload.message || '').toLowerCase();
+                                if (msg.includes('already')) {
+                                    counters.already_processed++;
+                                    if (context.source === 'modal') setRowResult(jobId, true, payload.message || 'Already sent.', 'Sent');
+                                } else if (msg.includes('threshold') || msg.includes('below')) {
+                                    counters.below_threshold++;
+                                    if (context.source === 'modal') setRowResult(jobId, false, payload.message || 'Below threshold.');
+                                } else {
+                                    counters.scoring_failed++;
+                                    if (context.source === 'modal') setRowResult(jobId, false, payload.message || 'Failed to send.');
+                                }
+                            }
+                        })
+                        .catch(function () {
+                            counters.scoring_failed++;
+                        })
+                        .finally(function () {
+                            processed++;
+                            inFlight--;
+                            updateProgress();
+                            next();
+                        });
+                    }
+
+                    for (var i = 0; i < Math.min(CONCURRENCY, queue.length); i++) {
+                        next();
+                    }
+                }
+
                 function runSendAll() {
                     if (sendAllInProgress) return;
-                    if (!bulkSendContext || !bulkSendContext.url) return;
+                    if (!bulkSendContext || !bulkSendContext.unsentIdsUrl) return;
 
                     sendAllInProgress = true;
+
                     if (bulkSendContext.source === 'modal') {
                         sendAllBtn.disabled = true;
                         sendAllBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Sending…';
                         sendAllProgressWrap.classList.remove('d-none');
                         sendAllProgressBar.style.width = '0%';
-                        sendAllStatusText.textContent = 'Queueing all matching jobs across every page...';
+                        sendAllStatusText.textContent = 'Loading jobs…';
                     }
 
                     resetBulkSendProgressModal(bulkSendContext);
                     sendAllProgressModal.show();
-                    startBulkSendProgressAnimation();
 
-                    sendAllJobsAjax(bulkSendContext).then(function (result) {
-                        var payload = result.data || {};
-                        var data = payload.data || {};
-                        var queuedIds = data.queued_job_ids || [];
-                        var belowThresholdIds = data.below_threshold_job_ids || [];
-                        var scoringFailedIds = data.scoring_failed_job_ids || [];
-                        var ok = result.ok && !payload.error;
+                    var idsUrl = bulkSendContext.unsentIdsUrl;
+                    if (bulkSendContext.query) {
+                        idsUrl += '?q=' + encodeURIComponent(bulkSendContext.query);
+                    }
 
-                        queuedIds.forEach(function (jobId) {
-                            setRowResult(jobId, true, payload.message || 'Queued for sending.');
-                        });
-                        belowThresholdIds.forEach(function (jobId) {
-                            setRowResult(jobId, false, 'This job is below the current match threshold.');
-                        });
-                        scoringFailedIds.forEach(function (jobId) {
-                            setRowResult(jobId, false, 'Could not confirm the AI match score for this job.');
-                        });
-
-                        stopBulkSendProgressAnimation();
-                        sendAllProgressModalBar.style.width = '100%';
-                        sendAllProgressModalBar.classList.remove('progress-bar-animated');
-                        if (!ok) {
+                    fetch(idsUrl, {
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                        }
+                    })
+                    .then(function (r) { return r.json(); })
+                    .then(function (resp) {
+                        if (resp.error) {
+                            sendAllProgressModalStatus.textContent = resp.message || 'Failed to load jobs.';
                             sendAllProgressModalBar.classList.remove('bg-success');
                             sendAllProgressModalBar.classList.add('bg-danger');
-                        }
-
-                        populateBulkSendSummary(data, payload.message, ok);
-
-                        sendAllProgressBar.style.width = '100%';
-
-                        if (!ok) {
-                            sendAllStatusText.textContent = payload.message || 'Failed to queue matching jobs.';
-                            Botble.showError(payload.message || 'Failed to queue matching jobs.');
+                            sendAllProgressModalBar.style.width = '100%';
+                            Botble.showError(resp.message || 'Failed to load jobs.');
+                            sendAllInProgress = false;
+                            if (bulkSendContext.source === 'modal') {
+                                sendAllBtn.disabled = false;
+                                sendAllBtn.innerHTML = '<i class="ti ti-send me-1"></i> Send All';
+                            }
                             return;
                         }
 
-                        sendAllStatusText.textContent = 'Done — '
-                            + (data.queued || 0) + ' queued, '
-                            + (data.already_processed || 0) + ' already processed, '
-                            + (data.below_threshold || 0) + ' below threshold.';
+                        var jobIds    = (resp.data && resp.data.job_ids) || [];
+                        var accountId = (resp.data && resp.data.account_id) || bulkSendContext.accountId;
 
-                        if (bulkSendContext.source === 'row' && bulkSendContext.orderId) {
-                            setOrderRowCounts(bulkSendContext.orderId, {
-                                ready: Math.max((bulkSendContext.readyCount || 0) - (data.queued || 0), 0),
-                                unsentTotal: Math.max((bulkSendContext.unsentTotal || 0) - (data.queued || 0) - (data.already_processed || 0), 0),
-                                applied: (bulkSendContext.appliedCount || 0) + (data.queued || 0),
-                            });
+                        if (jobIds.length === 0) {
+                            sendAllProgressModalStatus.textContent = 'No unsent jobs found.';
+                            sendAllProgressModalBar.style.width = '100%';
+                            sendAllProgressModalBar.classList.remove('progress-bar-animated');
+                            Botble.showSuccess('No unsent jobs remaining for this candidate.');
+                            sendAllInProgress = false;
+                            if (bulkSendContext.source === 'modal') {
+                                sendAllBtn.disabled = false;
+                                sendAllBtn.innerHTML = '<i class="ti ti-send me-1"></i> Send All';
+                            }
+                            return;
                         }
 
-                        Botble.showSuccess(payload.message || 'Matching jobs queued successfully.');
-                        if (bulkSendContext.source === 'modal') {
-                            loadActiveJobs();
-                        }
-                    }).finally(function () {
+                        sendAllProgressModalUnsent.textContent = String(jobIds.length);
+                        sendAllProgressModalStatus.textContent = 'Starting…';
+
+                        processJobsLoop(bulkSendContext, jobIds, accountId, function (counters) {
+                            var totalActioned = counters.queued + counters.manual_notified;
+                            var summaryMsg = 'Queued ' + counters.queued + ' email(s) and sent '
+                                + counters.manual_notified + ' WhatsApp notice(s). '
+                                + counters.below_threshold + ' below threshold, '
+                                + counters.already_processed + ' already processed.';
+
+                            sendAllProgressModalBar.style.width = '100%';
+                            sendAllProgressModalBar.classList.remove('progress-bar-animated');
+                            sendAllProgressModalStatus.textContent = 'Done — ' + summaryMsg;
+
+                            if (bulkSendContext.source === 'modal') {
+                                sendAllBtn.disabled = false;
+                                sendAllBtn.innerHTML = '<i class="ti ti-send me-1"></i> Send All';
+                                setTimeout(function () { sendAllProgressWrap.classList.add('d-none'); }, 3000);
+                                loadActiveJobs();
+                            }
+
+                            if (bulkSendContext.orderId) {
+                                var newUnsent = Math.max((bulkSendContext.unsentTotal || 0) - totalActioned - counters.already_processed, 0);
+                                var newApplied = (bulkSendContext.appliedCount || 0) + totalActioned;
+                                setOrderRowCounts(bulkSendContext.orderId, { unsentTotal: newUnsent, applied: newApplied });
+                                var rowBtn = document.querySelector('tr[data-order-id="' + bulkSendContext.orderId + '"] .js-row-send-all');
+                                if (rowBtn) {
+                                    rowBtn.disabled = newUnsent < 1;
+                                    rowBtn.dataset.readyCount = String(newUnsent);
+                                    rowBtn.dataset.unsentTotal = String(newUnsent);
+                                }
+                            }
+
+                            Botble.showSuccess('Done! ' + totalActioned + ' job(s) actioned.');
+                            sendAllInProgress = false;
+                        });
+                    })
+                    .catch(function () {
+                        sendAllProgressModalStatus.textContent = 'Network error. Please try again.';
+                        Botble.showError('Network error. Please try again.');
                         sendAllInProgress = false;
-                        stopBulkSendProgressAnimation();
-
-                        if (bulkSendContext && bulkSendContext.source === 'modal') {
+                        if (bulkSendContext.source === 'modal') {
                             sendAllBtn.disabled = false;
                             sendAllBtn.innerHTML = '<i class="ti ti-send me-1"></i> Send All';
                         }
-
-                        setTimeout(function () {
-                            if (!sendAllInProgress && bulkSendContext && bulkSendContext.source === 'modal') {
-                                sendAllProgressWrap.classList.add('d-none');
-                            }
-                        }, 2500);
                     });
                 }
 
@@ -2997,10 +3661,12 @@
                     document.getElementById('sendAllAutoApplyReadyCount').textContent = String(context.readyCount || 0);
                     document.getElementById('sendAllAutoApplyUnsentCount').textContent = String(context.unsentTotal || 0);
                     document.getElementById('sendAllAutoApplyLabel').textContent = context.description;
-                    sendAllConfirmBtn.disabled = (context.readyCount || 0) < 1;
+                    sendAllConfirmBtn.disabled = (context.unsentTotal || 0) < 1;
                     sendAllConfirmBtn.title = sendAllConfirmBtn.disabled
-                        ? 'No sendable jobs are available right now for this candidate'
-                        : 'Send all';
+                        ? 'No unsent jobs are available for this candidate'
+                        : ((context.readyCount || 0) < 1
+                            ? 'Unsent jobs will be checked and any that meet the threshold will be queued'
+                            : 'Send all');
                     bootstrap.Modal.getOrCreateInstance(document.getElementById('sendAllAutoApplyModal')).show();
                 }
 
@@ -3009,15 +3675,18 @@
                         Botble.showError('No matching active jobs were found.');
                         return;
                     }
+                    var readyNow = activeJobsList.querySelectorAll('.js-send-active-job:not([disabled])').length;
                     openBulkSendConfirm({
                         source: 'modal',
                         url: activeJobsSendAllUrl,
+                        unsentIdsUrl: activeJobsUnsentIdsUrl,
+                        accountId: activeJobsAccountId,
                         query: activeJobsSearch.value.trim(),
                         label: activeJobsCandidateLabel,
-                        readyCount: 0,
-                        unsentTotal: activeJobsTotal,
+                        readyCount: readyNow,
+                        unsentTotal: activeJobsUnsentTotal,
                         appliedCount: 0,
-                        orderId: null,
+                        orderId: activeJobsOrderId,
                         description: 'Send applications for ' + activeJobsCandidateLabel + ' across all matching pages? Only unsent jobs that meet the current threshold will be queued.'
                     });
                 });
@@ -3027,6 +3696,57 @@
                     var modalInstance = bootstrap.Modal.getInstance(modalEl);
                     if (modalInstance) modalInstance.hide();
                     runSendAll();
+                });
+
+                // Submit single-job send as AJAX so the row updates in-place.
+                document.getElementById('sendAutoApplyForm').addEventListener('submit', function (e) {
+                    e.preventDefault();
+
+                    var form      = this;
+                    var jobId     = document.getElementById('sendAutoApplyJobId').value;
+                    var submitBtn = form.querySelector('[type="submit"]');
+
+                    // Close the confirm modal, return focus to activeJobsModal
+                    var confirmModalInst = bootstrap.Modal.getInstance(document.getElementById('sendAutoApplyModal'));
+                    if (confirmModalInst) confirmModalInst.hide();
+
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Sending…';
+                    setRowSending(jobId);
+
+                    fetch(form.action, {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                            'Accept': 'application/json'
+                        },
+                        body: new FormData(form)
+                    })
+                        .then(function (r) {
+                            return r.json().catch(function () { return {}; }).then(function (data) {
+                                return { ok: r.ok, data: data };
+                            });
+                        })
+                        .then(function (result) {
+                            var payload = result.data || {};
+                            var ok      = result.ok && !payload.error;
+                            var message = payload.message || (ok ? 'Sent.' : 'Failed to send.');
+                            var isManualNotice = ok && (payload.data && payload.data.type === 'manual_notified');
+                            setRowResult(jobId, ok, message, isManualNotice ? 'Notified' : null);
+                            if (ok) {
+                                Botble.showSuccess(message);
+                            } else {
+                                Botble.showError(message);
+                            }
+                        })
+                        .catch(function () {
+                            setRowResult(jobId, false, 'Network error — please try again.');
+                            Botble.showError('Network error — please try again.');
+                        })
+                        .finally(function () {
+                            submitBtn.disabled = false;
+                            submitBtn.innerHTML = 'Send';
+                        });
                 });
 
                 document.addEventListener('click', function (e) {
@@ -3039,6 +3759,8 @@
                     openBulkSendConfirm({
                         source: 'row',
                         url: rowSendAllBtn.dataset.sendAllUrl || '',
+                        unsentIdsUrl: rowSendAllBtn.dataset.unsentIdsUrl || '',
+                        accountId: rowSendAllBtn.dataset.accountId || '',
                         query: '',
                         label: rowSendAllBtn.dataset.label || 'this candidate',
                         readyCount: parseInt(rowSendAllBtn.dataset.readyCount || '0', 10) || 0,

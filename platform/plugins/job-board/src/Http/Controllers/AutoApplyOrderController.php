@@ -29,6 +29,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -70,7 +71,12 @@ class AutoApplyOrderController extends BaseController
 
         $countryIds = $preferences->pluck('country_ids')->flatten()->filter()->unique()->values();
         $categoryIds = $preferences->pluck('category_ids')->flatten()->filter()->unique()->values();
-        $companyIds = $preferences->pluck('blacklisted_company_ids')->flatten()->filter()->unique()->values();
+        $companyIds = $preferences->pluck('whitelisted_company_ids')
+            ->flatten()
+            ->merge($preferences->pluck('blacklisted_company_ids')->flatten())
+            ->filter()
+            ->unique()
+            ->values();
 
         $countriesById = $countryIds->isNotEmpty()
             ? DB::table('countries')->whereIn('id', $countryIds)->pluck('name', 'id')
@@ -86,7 +92,8 @@ class AutoApplyOrderController extends BaseController
             $preference = $preferences->get($order->account_id);
             $countryIds = collect($preference?->country_ids ?? [])->filter()->values();
             $categoryIds = collect($preference?->category_ids ?? [])->filter()->values();
-            $companyIds = collect($preference?->blacklisted_company_ids ?? [])->filter()->values();
+            $whitelistedCompanyIds = collect($preference?->whitelisted_company_ids ?? [])->filter()->values();
+            $blacklistedCompanyIds = collect($preference?->blacklisted_company_ids ?? [])->filter()->values();
 
             return [$order->id => [
                 'account_id' => $order->account_id,
@@ -98,8 +105,12 @@ class AutoApplyOrderController extends BaseController
                 'country_labels' => $countryIds->mapWithKeys(fn ($id) => [$id => $countriesById->get($id, '#' . $id)])->all(),
                 'location_keyword' => $preference?->location_keyword,
                 'job_experience_id' => $preference?->job_experience_id,
-                'blacklisted_company_ids' => $companyIds->all(),
-                'blacklisted_company_labels' => $companyIds->mapWithKeys(fn ($id) => [$id => $companiesById->get($id, '#' . $id)])->all(),
+                'whitelisted_company_ids' => $whitelistedCompanyIds->all(),
+                'whitelisted_company_labels' => $whitelistedCompanyIds->mapWithKeys(fn ($id) => [$id => $companiesById->get($id, '#' . $id)])->all(),
+                'whitelisted_company_keywords' => $preference?->whitelisted_company_keywords ?? [],
+                'blacklisted_company_ids' => $blacklistedCompanyIds->all(),
+                'blacklisted_company_labels' => $blacklistedCompanyIds->mapWithKeys(fn ($id) => [$id => $companiesById->get($id, '#' . $id)])->all(),
+                'blacklisted_company_keywords' => $preference?->blacklisted_company_keywords ?? [],
                 'match_score_threshold' => $preference?->match_score_threshold ?? AutoApplyOrder::globalMatchThreshold(),
                 'is_active' => (bool) ($preference?->is_active ?? false),
                 'has_cv' => (bool) $order->account?->resume,
@@ -251,7 +262,10 @@ class AutoApplyOrderController extends BaseController
             'country_ids'             => ['nullable', 'array'],
             'location_keyword'        => ['nullable', 'string', 'max:200'],
             'job_experience_id'       => ['nullable', 'integer'],
+            'whitelisted_company_ids' => ['nullable', 'array'],
+            'whitelisted_company_keywords' => ['nullable', 'array'],
             'blacklisted_company_ids' => ['nullable', 'array'],
+            'blacklisted_company_keywords' => ['nullable', 'array'],
             'match_score_threshold'   => ['nullable', 'integer', 'min:0', 'max:100'],
             'is_active'               => ['nullable', 'boolean'],
             'payment_method'       => ['nullable', 'string', 'max:100'],
@@ -295,7 +309,10 @@ class AutoApplyOrderController extends BaseController
                 'country_ids'             => $data['country_ids'] ?? [],
                 'location_keyword'        => $data['location_keyword'] ?? null,
                 'job_experience_id'       => $data['job_experience_id'] ?? null,
+                'whitelisted_company_ids' => $data['whitelisted_company_ids'] ?? [],
+                'whitelisted_company_keywords' => $this->sanitizeKeywordList($data['whitelisted_company_keywords'] ?? []),
                 'blacklisted_company_ids' => $data['blacklisted_company_ids'] ?? [],
+                'blacklisted_company_keywords' => $this->sanitizeKeywordList($data['blacklisted_company_keywords'] ?? []),
                 'match_score_threshold'   => $data['match_score_threshold'] ?? AutoApplyOrder::globalMatchThreshold(),
                 'is_active'               => (bool) ($data['is_active'] ?? false),
             ]
@@ -466,7 +483,7 @@ class AutoApplyOrderController extends BaseController
         $preference = AutoApplyPreference::query()->where('account_id', $autoApplyOrder->account_id)->first();
         $query = $this->buildActiveJobsQuery($autoApplyOrder, $keyword, true);
 
-        $selectColumns = ['id', 'name', 'description', 'address', 'apply_email', 'created_at', 'application_closing_date', 'company_id', 'country_id'];
+        $selectColumns = ['id', 'name', 'description', 'address', 'apply_email', 'apply_url', 'created_at', 'application_closing_date', 'company_id', 'country_id'];
 
         $paginator = $query
             ->with([
@@ -476,24 +493,66 @@ class AutoApplyOrderController extends BaseController
             ])
             ->paginate($perPage, $selectColumns, 'page', $page);
 
+        $preferenceKeywords = array_values(array_filter(array_map('trim', (array) ($preference?->keywords ?? []))));
         $items = $paginator->getCollection()
-            ->map(fn (Job $job) => $this->formatActiveJobItem($job))
+            ->map(fn (Job $job) => $this->formatActiveJobItem($job, $preferenceKeywords))
             ->values();
+
+        $totalMatching = $paginator->total();
+        $loggedCount = AutoApplyLog::query()
+            ->where('account_id', $autoApplyOrder->account_id)
+            ->whereIn('job_id', $this->buildActiveJobsQuery($autoApplyOrder, $keyword)->reorder()->select('jb_jobs.id'))
+            ->distinct()
+            ->count('job_id');
+        $unsentTotal = max($totalMatching - $loggedCount, 0);
 
         $pagination = [
             'current_page' => $paginator->currentPage(),
             'last_page' => $paginator->lastPage(),
             'per_page' => $paginator->perPage(),
-            'total' => $paginator->total(),
+            'total' => $totalMatching,
+            'unsent_total' => $unsentTotal,
             'has_more_pages' => $paginator->hasMorePages(),
         ];
 
         return $response->setData([
             'account_id' => $autoApplyOrder->account_id,
+            'order_id' => $autoApplyOrder->id,
             'match_score_threshold' => (int) (($preference?->match_score_threshold) ?? AutoApplyOrder::globalMatchThreshold()),
             'items' => $items,
             'pagination' => $pagination,
         ]);
+    }
+
+    public function removeKeyword(AutoApplyOrder $autoApplyOrder, Request $request, BaseHttpResponse $response)
+    {
+        $keyword = trim((string) $request->input('keyword'));
+
+        if ($keyword === '') {
+            return $response->setError()->setMessage('No keyword was provided.');
+        }
+
+        $preference = AutoApplyPreference::query()->where('account_id', $autoApplyOrder->account_id)->first();
+
+        if (! $preference) {
+            return $response->setError()->setMessage('This candidate has no auto apply preference to update.');
+        }
+
+        $keywords = array_values(array_filter(array_map('trim', (array) ($preference->keywords ?? []))));
+        $updatedKeywords = array_values(array_filter($keywords, fn (string $value) => strcasecmp($value, $keyword) !== 0));
+
+        if (count($updatedKeywords) === count($keywords)) {
+            return $response->setError()->setMessage('That keyword is no longer in this candidate\'s filters.');
+        }
+
+        $preference->keywords = $updatedKeywords;
+        $preference->save();
+
+        return $response
+            ->setData([
+                'keywords' => $updatedKeywords,
+            ])
+            ->setMessage('Keyword removed. Matching jobs refreshed.');
     }
 
     public function sendAllActiveJobs(AutoApplyOrder $autoApplyOrder, Request $request, BaseHttpResponse $response)
@@ -514,7 +573,7 @@ class AutoApplyOrderController extends BaseController
             ->value('match_score_threshold') ?? AutoApplyOrder::globalMatchThreshold());
 
         $jobs = $this->buildActiveJobsQuery($autoApplyOrder, $keyword)
-            ->get(['id', 'name', 'description', 'address', 'apply_email', 'created_at', 'application_closing_date', 'company_id', 'country_id']);
+            ->get(['id', 'name', 'description', 'address', 'apply_email', 'apply_url', 'created_at', 'application_closing_date', 'company_id', 'country_id']);
 
         if ($jobs->isEmpty()) {
             return $response->setError()->setMessage('No matching active jobs were found.');
@@ -531,11 +590,12 @@ class AutoApplyOrderController extends BaseController
         $summary = [
             'matched_total' => $jobs->count(),
             'queued' => 0,
+            'manual_notified' => 0,
             'already_processed' => 0,
             'below_threshold' => 0,
             'scoring_failed' => 0,
-            'missing_apply_email' => 0,
             'queued_job_ids' => [],
+            'manual_notified_job_ids' => [],
             'below_threshold_job_ids' => [],
             'scoring_failed_job_ids' => [],
             'already_processed_job_ids' => [],
@@ -562,7 +622,7 @@ class AutoApplyOrderController extends BaseController
         return $response
             ->setData($summary)
             ->setMessage(
-                "Queued {$summary['queued']} job(s) across all matching pages. "
+                "Queued {$summary['queued']} auto-apply job(s) and sent {$summary['manual_notified']} manual-apply notice(s) across all matching pages. "
                 . "{$summary['already_processed']} already processed, "
                 . "{$summary['below_threshold']} below threshold, "
                 . "{$summary['scoring_failed']} could not be scored."
@@ -580,21 +640,29 @@ class AutoApplyOrderController extends BaseController
             'country_ids.*'           => ['nullable', 'integer'],
             'location_keyword'        => ['nullable', 'string', 'max:200'],
             'job_experience_id'       => ['nullable', 'integer'],
+            'whitelisted_company_ids' => ['nullable', 'array'],
+            'whitelisted_company_ids.*' => ['nullable', 'integer'],
+            'whitelisted_company_keywords' => ['nullable', 'array'],
+            'whitelisted_company_keywords.*' => ['nullable', 'string', 'max:120'],
             'blacklisted_company_ids' => ['nullable', 'array'],
             'blacklisted_company_ids.*' => ['nullable', 'integer'],
+            'blacklisted_company_keywords' => ['nullable', 'array'],
+            'blacklisted_company_keywords.*' => ['nullable', 'string', 'max:120'],
         ]);
 
         $keywords = array_values(array_filter(array_map('trim', (array) ($data['keywords'] ?? []))));
         $countryIds = array_values(array_filter(array_map('intval', (array) ($data['country_ids'] ?? []))));
         $categoryIds = array_values(array_filter(array_map('intval', (array) ($data['category_ids'] ?? []))));
+        $whitelistedCompanyIds = array_values(array_filter(array_map('intval', (array) ($data['whitelisted_company_ids'] ?? []))));
+        $whitelistedCompanyKeywords = $this->sanitizeKeywordList($data['whitelisted_company_keywords'] ?? []);
         $blacklistedCompanyIds = array_values(array_filter(array_map('intval', (array) ($data['blacklisted_company_ids'] ?? []))));
+        $blacklistedCompanyKeywords = $this->sanitizeKeywordList($data['blacklisted_company_keywords'] ?? []);
         $locationKeyword = trim((string) ($data['location_keyword'] ?? ''));
         $jobExperienceId = (int) ($data['job_experience_id'] ?? 0);
 
         $query = Job::query()
-            ->where('status', JobStatusEnum::PUBLISHED)
-            ->whereNotNull('apply_email')
-            ->where('apply_email', '!=', '')
+            ->active()
+            ->notClosed()
             ->with([
                 'company' => fn ($q) => $q->select(['id', 'name', 'logo'])->with('slugable'),
                 'country:id,name,code',
@@ -629,14 +697,18 @@ class AutoApplyOrderController extends BaseController
             $query->where('job_experience_id', $jobExperienceId);
         }
 
-        if ($blacklistedCompanyIds) {
-            $query->whereNotIn('company_id', $blacklistedCompanyIds);
-        }
+        $this->applyCompanyFiltersToQuery(
+            $query,
+            $whitelistedCompanyIds,
+            $whitelistedCompanyKeywords,
+            $blacklistedCompanyIds,
+            $blacklistedCompanyKeywords
+        );
 
-        $jobs = $query->limit(100)->get(['id', 'name', 'description', 'address', 'apply_email', 'created_at', 'application_closing_date', 'company_id', 'country_id']);
+        $jobs = $query->limit(100)->get(['id', 'name', 'description', 'address', 'apply_email', 'apply_url', 'created_at', 'application_closing_date', 'company_id', 'country_id']);
 
         return $response->setData([
-            'items' => $jobs->map(fn (Job $job) => $this->formatActiveJobItem($job))->values(),
+            'items' => $jobs->map(fn (Job $job) => $this->formatActiveJobItem($job, $keywords))->values(),
             'total' => $jobs->count(),
         ]);
     }
@@ -647,21 +719,28 @@ class AutoApplyOrderController extends BaseController
      * AutoApplyLog from the actual send; unprocessed jobs are scored on-demand client-side
      * via the AI preview endpoint (which caches its result in AutoApplyPreview).
      */
-    private function formatActiveJobItem(Job $job): array
+    private function formatActiveJobItem(Job $job, array $preferenceKeywords = []): array
     {
         $log = $job->autoApplyLogs->first();
+        $effectiveApplyEmail = $this->resolveJobApplyEmail($job);
+        $isManualApplyOnly = $effectiveApplyEmail === '';
+        $matchedKeywords = $this->resolveMatchingKeywords($job, $preferenceKeywords);
 
         return [
             'id' => $job->id,
             'name' => $job->name,
             'url' => $job->url,
+            'wakanda_job_url' => url('/jobs/' . ($job->slugable?->key ?? $job->id)),
             'company' => $job->company?->name ?? '',
             'company_logo' => $job->company?->logo ? \Botble\Media\Facades\RvMedia::getImageUrl($job->company->logo) : null,
             'company_url' => $job->company?->url,
             'country' => $job->country?->name ?? '',
             'country_flag' => $this->countryFlagEmoji((string) ($job->country?->code ?? '')),
             'address' => trim((string) $job->address),
-            'apply_email' => $job->apply_email,
+            'apply_email' => $effectiveApplyEmail,
+            'apply_url' => $job->apply_url,
+            'is_manual_apply_only' => $isManualApplyOnly,
+            'matched_keywords' => $matchedKeywords,
             'created_at' => $job->created_at?->toDateString(),
             'closing_date' => $job->application_closing_date?->toDateString(),
             'score' => $log?->match_score,
@@ -740,13 +819,6 @@ class AutoApplyOrderController extends BaseController
             ];
         }
 
-        if (trim((string) $job->apply_email) === '') {
-            return [
-                'status' => 'missing_apply_email',
-                'job_id' => $job->id,
-            ];
-        }
-
         $score = $this->resolveAutoApplyScore($account, $job);
 
         if ($score === null) {
@@ -763,6 +835,10 @@ class AutoApplyOrderController extends BaseController
             ];
         }
 
+        if ($this->resolveJobApplyEmail($job) === '') {
+            return $this->sendManualApplyNotice($account, $job, $score);
+        }
+
         \Botble\JobBoard\Jobs\ProcessAutoApplySendJob::dispatch($account->id, $job->id)->onQueue('emails');
 
         return [
@@ -774,9 +850,8 @@ class AutoApplyOrderController extends BaseController
     private function buildActiveJobsQuery(AutoApplyOrder $autoApplyOrder, string $keyword = '', bool $includeLogs = false): Builder
     {
         $query = Job::query()
-            ->where('status', JobStatusEnum::PUBLISHED)
-            ->whereNotNull('apply_email')
-            ->where('apply_email', '!=', '')
+            ->active()
+            ->notClosed()
             ->orderByRaw(
                 '(select count(*) from jb_auto_apply_logs where jb_auto_apply_logs.job_id = jb_jobs.id and jb_auto_apply_logs.account_id = ?) asc',
                 [$autoApplyOrder->account_id]
@@ -811,7 +886,141 @@ class AutoApplyOrderController extends BaseController
             $query->where('name', 'LIKE', "%{$keyword}%");
         }
 
+        $this->applyCompanyFiltersToQuery(
+            $query,
+            array_values(array_filter(array_map('intval', (array) ($preference?->whitelisted_company_ids ?? [])))),
+            $this->sanitizeKeywordList($preference?->whitelisted_company_keywords ?? []),
+            array_values(array_filter(array_map('intval', (array) ($preference?->blacklisted_company_ids ?? [])))),
+            $this->sanitizeKeywordList($preference?->blacklisted_company_keywords ?? [])
+        );
+
+        // Category IDs — OR match: job must belong to at least one preferred category
+        $categoryIds = array_values(array_filter(array_map('intval', (array) ($preference?->category_ids ?? []))));
+        if ($categoryIds) {
+            $query->whereHas('categories', fn ($q) => $q->whereIn('jb_categories.id', $categoryIds));
+        }
+
+        // Location keyword — substring match on address
+        $locationKeyword = trim((string) ($preference?->location_keyword ?? ''));
+        if ($locationKeyword !== '') {
+            $query->where('address', 'LIKE', '%' . $locationKeyword . '%');
+        }
+
+        // Experience level — exact match
+        if (! empty($preference?->job_experience_id)) {
+            $query->where('job_experience_id', (int) $preference->job_experience_id);
+        }
+
         return $query;
+    }
+
+    private function applyCompanyFiltersToQuery(
+        Builder $query,
+        array $whitelistedCompanyIds = [],
+        array $whitelistedCompanyKeywords = [],
+        array $blacklistedCompanyIds = [],
+        array $blacklistedCompanyKeywords = []
+    ): void {
+        $whitelistedCompanyIds = array_values(array_filter(array_map('intval', $whitelistedCompanyIds)));
+        $whitelistedCompanyKeywords = $this->sanitizeKeywordList($whitelistedCompanyKeywords);
+        $blacklistedCompanyIds = array_values(array_filter(array_map('intval', $blacklistedCompanyIds)));
+        $blacklistedCompanyKeywords = $this->sanitizeKeywordList($blacklistedCompanyKeywords);
+
+        if ($whitelistedCompanyIds || $whitelistedCompanyKeywords) {
+            $query->where(function (Builder $companyQuery) use ($whitelistedCompanyIds, $whitelistedCompanyKeywords): void {
+                if ($whitelistedCompanyIds) {
+                    $companyQuery->whereIn('company_id', $whitelistedCompanyIds);
+                }
+
+                if ($whitelistedCompanyKeywords) {
+                    $companyQuery->orWhereHas('company', function (Builder $companyRelation) use ($whitelistedCompanyKeywords): void {
+                        $companyRelation->where(function (Builder $keywordQuery) use ($whitelistedCompanyKeywords): void {
+                            foreach ($whitelistedCompanyKeywords as $keyword) {
+                                $keywordQuery->orWhere('name', 'LIKE', '%' . $keyword . '%');
+                            }
+                        });
+                    });
+                }
+            });
+        }
+
+        if ($blacklistedCompanyIds) {
+            $query->where(function (Builder $companyQuery) use ($blacklistedCompanyIds): void {
+                $companyQuery->whereNull('company_id')
+                    ->orWhereNotIn('company_id', $blacklistedCompanyIds);
+            });
+        }
+
+        if ($blacklistedCompanyKeywords) {
+            $query->where(function (Builder $companyQuery) use ($blacklistedCompanyKeywords): void {
+                $companyQuery->whereDoesntHave('company', function (Builder $companyRelation) use ($blacklistedCompanyKeywords): void {
+                    $companyRelation->where(function (Builder $keywordQuery) use ($blacklistedCompanyKeywords): void {
+                        foreach ($blacklistedCompanyKeywords as $keyword) {
+                            $keywordQuery->orWhere('name', 'LIKE', '%' . $keyword . '%');
+                        }
+                    });
+                })->orWhereNull('company_id');
+            });
+        }
+    }
+
+    private function sanitizeKeywordList(array $keywords): array
+    {
+        return array_values(array_unique(array_filter(array_map(
+            static fn ($keyword) => trim((string) $keyword),
+            $keywords
+        ))));
+    }
+
+    private function resolveJobApplyEmail(Job $job): string
+    {
+        $applyEmail = trim((string) $job->apply_email);
+
+        if ($applyEmail !== '') {
+            return $applyEmail;
+        }
+
+        $applyUrl = trim((string) $job->apply_url);
+
+        if (preg_match('/^mailto:([^?]+)/i', $applyUrl, $matches)) {
+            return trim(rawurldecode($matches[1]));
+        }
+
+        return '';
+    }
+
+    private function resolveMatchingKeywords(Job $job, array $keywords): array
+    {
+        if ($keywords === []) {
+            return [];
+        }
+
+        $haystacks = [
+            mb_strtolower((string) $job->name),
+            mb_strtolower((string) $job->description),
+            mb_strtolower((string) $job->address),
+        ];
+
+        $matched = [];
+
+        foreach ($keywords as $keyword) {
+            $keyword = trim((string) $keyword);
+
+            if ($keyword === '') {
+                continue;
+            }
+
+            $pattern = '/' . $this->keywordRegexPattern($keyword) . '/iu';
+
+            foreach ($haystacks as $haystack) {
+                if ($haystack !== '' && preg_match($pattern, $haystack)) {
+                    $matched[] = $keyword;
+                    break;
+                }
+            }
+        }
+
+        return array_values(array_unique($matched));
     }
 
     private function summarizeOrderJobCounts(AutoApplyOrder $order): array
@@ -828,66 +1037,61 @@ class AutoApplyOrderController extends BaseController
         $matchingJobsQuery = $this->buildActiveJobsQuery($order)->reorder();
         $totalMatching = (clone $matchingJobsQuery)->count('jb_jobs.id');
 
-        if ($totalMatching < 1) {
-            return [
-                'ready' => 0,
-                'applied' => 0,
-                'total_matching' => 0,
-                'unsent_total' => 0,
-            ];
-        }
-
-        $matchingJobIds = (clone $matchingJobsQuery)->select('jb_jobs.id');
-        $appliedJobIds = AutoApplyLog::query()
+        $sent = (int) AutoApplyLog::query()
             ->where('account_id', $order->account_id)
-            ->whereIn('job_id', $matchingJobIds)
-            ->distinct()
-            ->pluck('job_id')
-            ->map(fn ($id) => (int) $id)
-            ->all();
-
-        $applied = count($appliedJobIds);
-        $unsentTotal = max($totalMatching - $applied, 0);
-
-        if ($unsentTotal < 1) {
-            return [
-                'ready' => 0,
-                'applied' => $applied,
-                'total_matching' => $totalMatching,
-                'unsent_total' => 0,
-            ];
-        }
-
-        $unsentJobsQuery = $this->buildActiveJobsQuery($order)->reorder();
-
-        if ($appliedJobIds !== []) {
-            $unsentJobsQuery->whereNotIn('jb_jobs.id', $appliedJobIds);
-        }
-
-        $preference = AutoApplyPreference::query()->where('account_id', $order->account_id)->first();
-        $threshold = (int) (($preference?->match_score_threshold) ?? AutoApplyOrder::globalMatchThreshold());
-        $profileSyncedAt = $order->account?->profile_updated_at ?? $order->account?->updated_at;
-        $aiModel = AutoApplyOrder::globalAiModel();
-
-        $ready = AutoApplyPreview::query()
-            ->where('account_id', $order->account_id)
-            ->where('ai_model', $aiModel)
-            ->where('score', '>=', $threshold)
-            ->when(
-                $profileSyncedAt,
-                fn ($query) => $query->whereNotNull('account_profile_synced_at')
-                    ->where('account_profile_synced_at', '>=', $profileSyncedAt)
-            )
-            ->whereIn('job_id', (clone $unsentJobsQuery)->select('jb_jobs.id'))
+            ->whereIn('job_id', (clone $matchingJobsQuery)->select('jb_jobs.id'))
             ->distinct()
             ->count('job_id');
 
+        $unsentTotal = max($totalMatching - $sent, 0);
+
         return [
-            'ready' => $ready,
-            'applied' => $applied,
+            'ready' => $totalMatching,   // "Matched" — total jobs matching keywords
+            'applied' => $sent,          // "Sent" — already processed via logs
             'total_matching' => $totalMatching,
             'unsent_total' => $unsentTotal,
         ];
+    }
+
+    public function jobCounts(AutoApplyOrder $autoApplyOrder, BaseHttpResponse $response): BaseHttpResponse
+    {
+        return $response->setData($this->summarizeOrderJobCounts($autoApplyOrder));
+    }
+
+    public function unsentJobIds(AutoApplyOrder $autoApplyOrder, Request $request, BaseHttpResponse $response): BaseHttpResponse
+    {
+        $account = $autoApplyOrder->account;
+
+        if (! $account || trim((string) $account->resume) === '') {
+            return $response->setError()->setMessage('Candidate has no CV uploaded.');
+        }
+
+        $keyword = trim((string) $request->input('q', ''));
+
+        $allIds = $this->buildActiveJobsQuery($autoApplyOrder, $keyword)
+            ->reorder()
+            ->pluck('jb_jobs.id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $processedIds = array_fill_keys(
+            AutoApplyLog::query()
+                ->where('account_id', $account->id)
+                ->whereIn('job_id', $allIds)
+                ->distinct()
+                ->pluck('job_id')
+                ->map(fn ($id) => (int) $id)
+                ->all(),
+            true
+        );
+
+        $unsentIds = array_values(array_filter($allIds, fn ($id) => ! isset($processedIds[$id])));
+
+        return $response->setData([
+            'job_ids'    => $unsentIds,
+            'account_id' => (int) $account->id,
+            'total'      => count($unsentIds),
+        ]);
     }
 
     public function sendJob(Request $request, BaseHttpResponse $response)
@@ -921,10 +1125,6 @@ class AutoApplyOrderController extends BaseController
             return $response->setError()->setNextUrl(route('auto-apply-orders.index'))->setMessage('This job has already been processed for this candidate.');
         }
 
-        if ($result['status'] === 'missing_apply_email') {
-            return $response->setError()->setNextUrl(route('auto-apply-orders.index'))->setMessage('This job cannot be auto-applied because it has no application email.');
-        }
-
         if ($result['status'] === 'scoring_failed') {
             return $response->setError()->setMessage('Could not confirm the AI match score for this job. Preview it first, then try again.');
         }
@@ -935,9 +1135,136 @@ class AutoApplyOrderController extends BaseController
             return $response->setError()->setMessage("This job scores {$score}% for this candidate, below the {$threshold}% threshold, so it cannot be sent.");
         }
 
+        if ($result['status'] === 'manual_notified') {
+            return $response
+                ->setData(['type' => 'manual_notified'])
+                ->setNextUrl(route('auto-apply-logs.index', ['account_id' => $account->id]))
+                ->setMessage('Candidate was notified to apply manually because this job has no application email. The job has been flagged as sent.');
+        }
+
+        if ($result['status'] === 'manual_notify_failed') {
+            return $response->setError()->setMessage($result['message'] ?? 'The job has no application email and the manual-apply notice could not be sent to the candidate.');
+        }
+
         return $response
             ->setNextUrl(route('auto-apply-logs.index', ['account_id' => $account->id]))
             ->setMessage('Auto Apply queued for sending — check the logs in a few seconds for the result.');
+    }
+
+    private function sendManualApplyNotice(Account $account, Job $job, int $score): array
+    {
+        $phone = $this->resolveCandidateWhatsAppNumber($account);
+
+        if ($phone === '') {
+            return [
+                'status' => 'manual_notify_failed',
+                'job_id' => $job->id,
+                'message' => 'This job has no application email and the candidate has no WhatsApp number available for a manual-apply notification.',
+            ];
+        }
+
+        $jobUrl = url('/jobs/' . ($job->slugable?->key ?? $job->id));
+        $company = trim((string) $job->company?->name);
+        $candidateName = trim((string) ($account->first_name ?: $account->name ?: 'there'));
+        $message = "Hi {$candidateName},\n\n"
+            . "I found a matching job for you: *{$job->name}*" . ($company !== '' ? " at {$company}" : '') . ".\n\n"
+            . "This job does not include an application email, so I could not auto-apply on your behalf.\n"
+            . "Please apply manually using this Wakanda Jobs link:\n{$jobUrl}\n\n"
+            . "_Nakia_";
+
+        $errorMessage = null;
+        $sent = app(WhapiSenderService::class)->sendText($phone, $message, $errorMessage);
+
+        if (! $sent) {
+            Log::error('AutoApply: Manual apply WhatsApp notice failed', [
+                'account_id' => $account->id,
+                'job_id' => $job->id,
+                'phone' => $phone,
+                'error' => $errorMessage ?: 'Unknown WhatsApp send failure',
+            ]);
+
+            return [
+                'status' => 'manual_notify_failed',
+                'job_id' => $job->id,
+                'message' => $errorMessage ?: 'Manual-apply notice failed to send.',
+            ];
+        }
+
+        $preview = AutoApplyPreview::query()
+            ->where('account_id', $account->id)
+            ->where('job_id', $job->id)
+            ->where('ai_model', AutoApplyOrder::globalAiModel())
+            ->latest('id')
+            ->first();
+
+        try {
+            AutoApplyLog::create([
+                'account_id' => $account->id,
+                'job_id' => $job->id,
+                'email_sent_to' => 'manual-apply-notice',
+                'ai_email_subject' => 'Manual apply notice sent to candidate',
+                'ai_email_body' => $message,
+                'ai_model_used' => AutoApplyOrder::globalAiModel(),
+                'prompt_tokens' => $preview?->prompt_tokens,
+                'completion_tokens' => $preview?->completion_tokens,
+                'total_tokens' => $preview?->total_tokens,
+                'ai_cost_usd' => $preview?->cost_usd,
+                'match_score' => $score,
+                'match_reasons' => $preview?->reasons ?? [],
+                'status' => 'sent',
+                'error_message' => 'Candidate notified to apply manually because the job has no application email.',
+                'sent_at' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('AutoApply: Failed to write manual-apply-notice log', [
+                'account_id' => $account->id,
+                'job_id' => $job->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return [
+            'status' => 'manual_notified',
+            'job_id' => $job->id,
+        ];
+    }
+
+    private function resolveCandidateWhatsAppNumber(Account $account): string
+    {
+        $direct = trim((string) ($account->whatsapp_number ?: $account->phone));
+
+        if ($direct !== '') {
+            return $direct;
+        }
+
+        $fullName = trim((string) $account->name);
+
+        if ($fullName !== '') {
+            $sessionNumber = trim((string) AutoCvSession::query()
+                ->where('candidate_name', $fullName)
+                ->whereNotNull('whatsapp_number')
+                ->latest('id')
+                ->value('whatsapp_number'));
+
+            if ($sessionNumber !== '') {
+                return $sessionNumber;
+            }
+
+            $alertNumber = trim((string) CandidateAlert::query()
+                ->where(function ($query) use ($account, $fullName): void {
+                    $query->where('account_id', $account->id)
+                        ->orWhere('candidate_name', $fullName);
+                })
+                ->whereNotNull('candidate_phone')
+                ->latest('id')
+                ->value('candidate_phone'));
+
+            if ($alertNumber !== '') {
+                return $alertNumber;
+            }
+        }
+
+        return '';
     }
 
     /**
@@ -961,7 +1288,10 @@ class AutoApplyOrderController extends BaseController
             'country_ids'             => ['nullable', 'array'],
             'location_keyword'        => ['nullable', 'string', 'max:200'],
             'job_experience_id'       => ['nullable', 'integer'],
+            'whitelisted_company_ids' => ['nullable', 'array'],
+            'whitelisted_company_keywords' => ['nullable', 'array'],
             'blacklisted_company_ids' => ['nullable', 'array'],
+            'blacklisted_company_keywords' => ['nullable', 'array'],
             'match_score_threshold'   => ['nullable', 'integer', 'min:0', 'max:100'],
             'is_active'               => ['nullable', 'boolean'],
         ]);
@@ -1000,7 +1330,10 @@ class AutoApplyOrderController extends BaseController
                 'country_ids'             => $data['country_ids'] ?? [],
                 'location_keyword'        => $data['location_keyword'] ?? null,
                 'job_experience_id'       => $data['job_experience_id'] ?? null,
+                'whitelisted_company_ids' => $data['whitelisted_company_ids'] ?? [],
+                'whitelisted_company_keywords' => $this->sanitizeKeywordList($data['whitelisted_company_keywords'] ?? []),
                 'blacklisted_company_ids' => $data['blacklisted_company_ids'] ?? [],
+                'blacklisted_company_keywords' => $this->sanitizeKeywordList($data['blacklisted_company_keywords'] ?? []),
                 'match_score_threshold'   => $data['match_score_threshold'] ?? AutoApplyOrder::globalMatchThreshold(),
                 'is_active'               => $data['is_active'] ?? true,
             ]

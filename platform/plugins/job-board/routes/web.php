@@ -164,6 +164,9 @@ AdminHelper::registerRoutes(function (): void {
         Route::post('{autoApplyOrder}/resend-invite', [AutoApplyOrderController::class, 'resendInvite'])->name('resend-invite');
         Route::post('{autoApplyOrder}/disable', [AutoApplyOrderController::class, 'disable'])->name('disable');
         Route::get('{autoApplyOrder}/active-jobs', [AutoApplyOrderController::class, 'activeJobs'])->name('active-jobs');
+        Route::get('{autoApplyOrder}/job-counts', [AutoApplyOrderController::class, 'jobCounts'])->name('job-counts');
+        Route::get('{autoApplyOrder}/unsent-job-ids', [AutoApplyOrderController::class, 'unsentJobIds'])->name('unsent-job-ids');
+        Route::post('{autoApplyOrder}/remove-keyword', [AutoApplyOrderController::class, 'removeKeyword'])->name('remove-keyword');
         Route::post('{autoApplyOrder}/send-all-active-jobs', [AutoApplyOrderController::class, 'sendAllActiveJobs'])->name('send-all-active-jobs');
         Route::post('send-job', [AutoApplyOrderController::class, 'sendJob'])->name('send-job');
         Route::delete('{autoApplyOrder}', [AutoApplyOrderController::class, 'destroy'])->name('destroy');

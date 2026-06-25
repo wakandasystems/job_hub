@@ -18,7 +18,10 @@ class AutoApplyPreference extends BaseModel
         'country_ids',
         'location_keyword',
         'job_experience_id',
+        'whitelisted_company_ids',
+        'whitelisted_company_keywords',
         'blacklisted_company_ids',
+        'blacklisted_company_keywords',
         'match_score_threshold',
     ];
 
@@ -27,7 +30,10 @@ class AutoApplyPreference extends BaseModel
         'keywords'               => 'array',
         'category_ids'           => 'array',
         'country_ids'            => 'array',
+        'whitelisted_company_ids' => 'array',
+        'whitelisted_company_keywords' => 'array',
         'blacklisted_company_ids' => 'array',
+        'blacklisted_company_keywords' => 'array',
         'match_score_threshold'  => 'integer',
     ];
 
