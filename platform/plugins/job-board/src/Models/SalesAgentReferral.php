@@ -26,4 +26,9 @@ class SalesAgentReferral extends BaseModel
     {
         return $this->belongsTo(SalesAgent::class, 'sales_agent_id');
     }
+
+    public function account(): BelongsTo
+    {
+        return $this->belongsTo(\Botble\JobBoard\Models\Account::class, 'account_id');
+    }
 }

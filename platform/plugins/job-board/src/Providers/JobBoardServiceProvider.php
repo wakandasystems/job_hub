@@ -520,8 +520,17 @@ class JobBoardServiceProvider extends ServiceProvider
                     'permissions' => ['vip-alert-orders.index'],
                 ])
                 ->registerItem([
-                    'id'          => 'cms-plugins-job-board-vip-alert-orders',
+                    'id'          => 'cms-plugins-job-board-candidate-alerts',
                     'priority'    => 1,
+                    'parent_id'   => 'cms-plugins-job-board-vip-alerts',
+                    'name'        => 'VIP Job Alerts',
+                    'icon'        => 'ti ti-device-mobile-message',
+                    'url'         => route('job-board.candidate-alerts.index'),
+                    'permissions' => ['job-board.candidate-alerts.index'],
+                ])
+                ->registerItem([
+                    'id'          => 'cms-plugins-job-board-vip-alert-orders',
+                    'priority'    => 2,
                     'parent_id'   => 'cms-plugins-job-board-vip-alerts',
                     'name'        => 'VIP Alert Orders',
                     'icon'        => 'ti ti-star-filled',
@@ -530,7 +539,7 @@ class JobBoardServiceProvider extends ServiceProvider
                 ])
                 ->registerItem([
                     'id'          => 'cms-plugins-job-board-vip-alert-plans',
-                    'priority'    => 2,
+                    'priority'    => 3,
                     'parent_id'   => 'cms-plugins-job-board-vip-alerts',
                     'name'        => 'VIP Alert Plans',
                     'icon'        => 'ti ti-settings-dollar',
@@ -581,15 +590,6 @@ class JobBoardServiceProvider extends ServiceProvider
                     'icon'        => 'ti ti-list-details',
                     'url'         => route('auto-apply-logs.index'),
                     'permissions' => ['auto-apply-orders.index'],
-                ])
-                ->registerItem([
-                    'id'          => 'cms-plugins-job-board-candidate-alerts',
-                    'priority'    => 3,
-                    'parent_id'   => 'cms-plugins-job-board-vip-alerts',
-                    'name'        => 'VIP Job Alerts',
-                    'icon'        => 'ti ti-device-mobile-message',
-                    'url'         => route('job-board.candidate-alerts.index'),
-                    'permissions' => ['job-board.candidate-alerts.index'],
                 ])
                 ->registerItem([
                     'id'          => 'cms-plugins-credit-orders',
@@ -890,6 +890,15 @@ class JobBoardServiceProvider extends ServiceProvider
                     'icon' => 'ti ti-photo',
                     'url' => route('sales-agent-campaigns.generated-images'),
                     'permissions' => ['sales-agent-campaigns.generated-images'],
+                ])
+                ->registerItem([
+                    'id' => 'cms-plugins-job-board-sales-agent-leads',
+                    'priority' => 5,
+                    'parent_id' => 'cms-plugins-job-board-sales-agents',
+                    'name' => 'Lead Requests',
+                    'icon' => 'ti ti-link',
+                    'url' => route('sales-agent-leads.index'),
+                    'permissions' => ['sales-agents.index'],
                 ]);
         });
 

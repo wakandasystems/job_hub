@@ -406,6 +406,111 @@ $(function () {
         $btn.prop('disabled', false).html($btn.data('original-html') || '');
     }
 
+    function reloadCandidateAlertTable() {
+        const tableSelector = '#botble-job-board-tables-candidate-alert-table';
+
+        if ($.fn.DataTable && $.fn.DataTable.isDataTable(tableSelector)) {
+            $(tableSelector).DataTable().ajax.reload(null, false);
+            return;
+        }
+
+        window.location.reload();
+    }
+
+    async function sendMatchingJobsBatch(sendUrl, previewUrl, options = {}) {
+        const forceResend = !!options.forceResend;
+        const candidateName = options.name || 'this candidate';
+        const button = options.button || null;
+        const onComplete = typeof options.onComplete === 'function' ? options.onComplete : null;
+
+        if (! sendUrl || ! previewUrl) {
+            Botble.showError('Missing send configuration for this alert.');
+            return { ok: false, sent: 0, skipped: 0, failed: 0 };
+        }
+
+        if (button) {
+            setActionButtonLoading(button);
+        }
+
+        try {
+            const { data: previewResp } = await $httpClient.make().get(previewUrl);
+            const allJobs = Array.isArray(previewResp?.data) ? previewResp.data : [];
+            const jobsToSend = forceResend ? allJobs : allJobs.filter(job => !job.already_sent);
+
+            if (! jobsToSend.length) {
+                Botble.showSuccess('No new matching jobs to send for ' + candidateName + '.');
+                if (onComplete) {
+                    onComplete({ ok: true, sent: 0, skipped: allJobs.length, failed: 0, noJobs: true });
+                }
+
+                return { ok: true, sent: 0, skipped: allJobs.length, failed: 0, noJobs: true };
+            }
+
+            const BATCH = 3;
+            const BATCH_GAP = 400;
+            let sent = 0;
+            let skipped = 0;
+            let failed = 0;
+
+            const sendOne = async (job) => {
+                try {
+                    const { data } = await $httpClient.make().post(sendUrl, {
+                        force_resend: forceResend ? 1 : 0,
+                        job_ids: [job.id],
+                    }, { timeout: 30000 });
+
+                    const skippedNow = Array.isArray(data?.skipped_jobs) ? data.skipped_jobs.length : 0;
+                    const failedNow = Array.isArray(data?.failed_jobs) ? data.failed_jobs.length : 0;
+
+                    skipped += skippedNow;
+                    failed += failedNow;
+
+                    if (! skippedNow && ! failedNow) {
+                        sent++;
+                    }
+                } catch (error) {
+                    failed++;
+                }
+            };
+
+            for (let i = 0; i < jobsToSend.length; i += BATCH) {
+                await Promise.all(jobsToSend.slice(i, i + BATCH).map(sendOne));
+
+                if (i + BATCH < jobsToSend.length) {
+                    await new Promise((resolve) => setTimeout(resolve, BATCH_GAP));
+                }
+            }
+
+            if (failed > 0) {
+                Botble.showError(`${sent} sent, ${skipped} already sent, ${failed} failed for ${candidateName}.`);
+            } else {
+                Botble.showSuccess(`${sent} matching job(s) sent to ${candidateName}` + (skipped ? `, ${skipped} already sent (skipped)` : '') + '.');
+            }
+
+            const result = { ok: failed === 0, sent, skipped, failed };
+
+            if (onComplete) {
+                onComplete(result);
+            }
+
+            return result;
+        } catch (error) {
+            Botble.showError('Failed to fetch matching jobs for ' + candidateName + '.');
+
+            const result = { ok: false, sent: 0, skipped: 0, failed: 0 };
+
+            if (onComplete) {
+                onComplete(result);
+            }
+
+            return result;
+        } finally {
+            if (button) {
+                restoreActionButton(button);
+            }
+        }
+    }
+
     let quickAddPresetIndex = {{ count($keywordPresets) }};
     let quickAddPresetPage = 1;
     let quickAddPresetPageSize = 10;
@@ -586,6 +691,7 @@ $(function () {
     // ── Double-submit prevention ─────────────────────────────────────────────
     $(document).on('submit', '.modal form', function () {
         const $form = $(this);
+        if ($form.hasClass('candidate-alert-edit-form')) return;
         if ($form.data('submitting')) return false;
         $form.data('submitting', true);
         const $btn = $form.find('button[type="submit"]');
@@ -655,6 +761,64 @@ $(function () {
             })
             .catch(() => {
                 $modal.find('.modal-content').html('<div class="modal-body p-4 text-center text-danger">Failed to load the edit form.</div>');
+            });
+    });
+
+    $(document).on('submit', '.candidate-alert-edit-form', function (event) {
+        event.preventDefault();
+
+        const form = event.currentTarget;
+        const $form = $(form);
+
+        if ($form.data('submitting')) {
+            return;
+        }
+
+        $form.data('submitting', true);
+
+        const $submitBtn = $form.find('button[type="submit"]');
+        $submitBtn.prop('disabled', true).data('original-html', $submitBtn.html()).html('<i class="fas fa-spinner fa-spin me-1"></i> Saving…');
+
+        const formData = new FormData(form);
+        formData.append('send_matching_jobs', '1');
+
+        fetch(form.action, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: formData,
+        })
+            .then(async (response) => {
+                const payload = await response.json().catch(() => ({}));
+
+                if (! response.ok) {
+                    throw payload;
+                }
+
+                return payload;
+            })
+            .then(async (payload) => {
+                const data = payload.data || {};
+                const candidateName = data.candidate_name || $form.find('input[name="candidate_name"]').val() || $form.data('name') || 'this candidate';
+                const previewUrl = data.preview_url || $form.data('preview-url');
+                const sendUrl = data.send_url || $form.data('send-url');
+
+                Botble.showSuccess(payload.message || 'Alert updated successfully.');
+
+                bootstrap.Modal.getInstance(document.getElementById('modal-edit-alert'))?.hide();
+                reloadCandidateAlertTable();
+
+                await sendMatchingJobsBatch(sendUrl, previewUrl, { name: candidateName });
+            })
+            .catch((payload) => {
+                const errors = payload?.errors ? Object.values(payload.errors).flat() : [];
+                Botble.showError(errors[0] || payload?.message || payload?.error || 'Failed to update alert.');
+            })
+            .finally(() => {
+                $form.data('submitting', false);
+                $submitBtn.prop('disabled', false).html($submitBtn.data('original-html'));
             });
     });
 
@@ -1074,6 +1238,25 @@ $(function () {
                     .then(({ data: resp }) => Botble.showSuccess(resp.message || 'Welcome message sent to ' + name + '.'))
                     .catch(({ response }) => Botble.showError(response?.data?.error || 'Failed to send.'))
                     .finally(() => restoreActionButton($btn));
+            }
+        });
+    });
+
+    $(document).on('click', '.btn-send-all-matching', function () {
+        const $btn = $(this);
+        const previewUrl = $btn.data('preview-url');
+        const sendUrl = $btn.data('send-url');
+        const name = $btn.data('name');
+
+        showAlertActionConfirm({
+            title: 'Send all matching jobs?',
+            message: 'Find all current matching jobs and send them to ' + name + ' now?',
+            confirmText: 'Send now',
+            confirmClass: 'btn-success',
+            iconWrapClass: 'bg-success bg-opacity-10',
+            iconClass: 'ti ti-send text-success fs-3',
+            onConfirm: function () {
+                sendMatchingJobsBatch(sendUrl, previewUrl, { name: name, button: $btn });
             }
         });
     });

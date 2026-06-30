@@ -47,8 +47,11 @@ class AutoCvSession extends BaseModel
         'awaiting_cv_upload',
         'awaiting_cv_photo',
         'candidate_photo_path',
+        'candidate_cv_path',
         'cv_recheck_requested',
         'references_available_on_request',
+        'custom_questions',
+        'linked_account_id',
     ];
 
     protected $casts = [
@@ -78,6 +81,8 @@ class AutoCvSession extends BaseModel
         'awaiting_cv_photo' => 'boolean',
         'cv_recheck_requested' => 'boolean',
         'references_available_on_request' => 'boolean',
+        'custom_questions' => 'array',
+        'linked_account_id' => 'integer',
     ];
 
     public function messages(): HasMany

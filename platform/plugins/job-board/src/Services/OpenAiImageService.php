@@ -7,6 +7,8 @@ use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\SalesAgent;
 use Botble\JobBoard\Models\SalesAgentCampaign;
 use Botble\Media\Facades\RvMedia;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -175,6 +177,185 @@ class OpenAiImageService
     public function outputCompression(): int
     {
         return max(0, min(100, (int) setting('ai_social_image_output_compression', 10)));
+    }
+
+    /**
+     * @return array{
+     *   ok: bool,
+     *   prompt_template?: string,
+     *   summary?: array<string, mixed>,
+     *   message?: string
+     * }
+     */
+    public function analyzeSalesAgentInspiration(UploadedFile $file): array
+    {
+        if (! $this->isConfigured()) {
+            return ['ok' => false, 'message' => 'OpenAI API key is not configured.'];
+        }
+
+        $path = $file->getRealPath();
+
+        if (! $path || ! is_file($path)) {
+            return ['ok' => false, 'message' => 'Uploaded image could not be read.'];
+        }
+
+        $mime = $file->getMimeType() ?: 'image/jpeg';
+        $bytes = @file_get_contents($path);
+
+        if ($bytes === false || $bytes === '') {
+            return ['ok' => false, 'message' => 'Uploaded image could not be read.'];
+        }
+
+        return $this->analyzeSalesAgentInspirationBytes($bytes, $mime);
+    }
+
+    /**
+     * @return array{
+     *   ok: bool,
+     *   prompt_template?: string,
+     *   summary?: array<string, mixed>,
+     *   editable_regions?: array<string, mixed>,
+     *   message?: string
+     * }
+     */
+    private function analyzeSalesAgentInspirationBytes(string $bytes, string $mime): array
+    {
+        $payload = [
+            'model' => 'gpt-4o',
+            'response_format' => ['type' => 'json_object'],
+            'messages' => [
+                [
+                    'role' => 'system',
+                    'content' => 'You analyze a poster image and produce a Wakanda Jobs sales-agent campaign prompt template. Return JSON only.',
+                ],
+                [
+                    'role' => 'user',
+                    'content' => [
+                        [
+                            'type' => 'text',
+                            'text' => <<<'TEXT'
+Analyze this poster as a reusable inspiration reference for Wakanda Jobs sales-agent campaigns.
+
+Your goals:
+1. Identify the poster's composition, hierarchy, style, color direction, typography mood, text zones, badge styles, CTA placement, logo placement, and visual rhythm.
+2. Generate a prompt_template that will help an image model recreate THIS SAME STYLE and LAYOUT with 90-100% fidelity while changing only:
+- the person to either Nakia, the selected agent, or both
+- all poster text to Wakanda campaign placeholders
+- the branding to Wakanda Jobs
+3. The prompt_template must be ready to save directly into our campaign prompt field and must use these placeholders where relevant:
+{campaign_name}
+{product_label}
+{landing_headline}
+{landing_body}
+{cta}
+{price_line}
+{promo_deadline_line}
+{promo_badge}
+{headline_zone}
+{body_zone}
+{price_zone}
+{cta_zone}
+{logo_zone}
+{text_layout_brief}
+
+Rules for prompt_template:
+- It must treat the uploaded poster as a recreation master, not a vague inspiration.
+- It must explicitly tell the model to preserve the same composition, same palette, same text hierarchy, same spacing rhythm, same badge/button styles, and same background treatment.
+- It must explicitly say: change only the person, branding, and text.
+- It must tell the model to fully replace all visible text from the source poster with campaign placeholders while keeping the same design system.
+- It must describe all detectable design details from the image, including likely text blocks, likely offer chip positions, likely CTA zone, likely logo zone, dominant colors, accent colors, gradients, shadows, texture, and typographic feel.
+- It must explicitly say to preserve the inspiration poster's style, layout, spacing, typography mood, background treatment, and text hierarchy.
+- It must NOT mention any foreign brand from the reference image.
+- It must tell the model to replace all visible text with campaign placeholders.
+- It must leave the human subject to the separate subject-mode instructions.
+- It must explicitly describe editable zones so we can reconstruct the poster by editing only those regions.
+- It must be detailed and production-ready, not a short summary.
+
+Return strict JSON with this shape:
+{
+  "summary": {
+    "layout": "...",
+    "style": "...",
+    "colors": "...",
+    "typography": "...",
+    "text_zones": ["...", "..."],
+    "cta_zone": "...",
+    "logo_zone": "...",
+    "key_elements": ["...", "..."],
+    "background_treatment": "...",
+    "offer_treatment": "...",
+    "spacing_rhythm": "...",
+    "image_crop_style": "..."
+  },
+  "editable_regions": {
+    "subject_box": {"x": 0, "y": 0, "w": 0, "h": 0},
+    "headline_box": {"x": 0, "y": 0, "w": 0, "h": 0},
+    "body_box": {"x": 0, "y": 0, "w": 0, "h": 0},
+    "price_box": {"x": 0, "y": 0, "w": 0, "h": 0},
+    "cta_box": {"x": 0, "y": 0, "w": 0, "h": 0},
+    "logo_box": {"x": 0, "y": 0, "w": 0, "h": 0},
+    "extra_text_boxes": [
+      {"x": 0, "y": 0, "w": 0, "h": 0}
+    ]
+  },
+  "prompt_template": "..."
+}
+
+Editable region rules:
+- Use normalized coordinates on a 0..1000 scale.
+- Every box must target the source poster's current area that should be changed or repainted.
+- subject_box must cover the main human subject area.
+- headline/body/price/cta/logo boxes must cover the visible text or brand elements currently present in the source image.
+- extra_text_boxes should include any remaining text chips, footer lines, eyebrow labels, promo bursts, phone numbers, or websites that also need replacement.
+TEXT,
+                        ],
+                        [
+                            'type' => 'image_url',
+                            'image_url' => [
+                                'url' => 'data:' . $mime . ';base64,' . base64_encode($bytes),
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        try {
+            $response = Http::timeout(120)
+                ->withToken($this->apiKey())
+                ->acceptJson()
+                ->post('https://api.openai.com/v1/chat/completions', $payload);
+        } catch (\Throwable $e) {
+            Log::warning('Sales-agent inspiration analysis failed', ['error' => $e->getMessage()]);
+
+            return ['ok' => false, 'message' => 'Could not reach OpenAI for inspiration analysis.'];
+        }
+
+        if (! $response->successful()) {
+            Log::warning('Sales-agent inspiration analysis request failed', [
+                'status' => $response->status(),
+                'body_excerpt' => Str::limit($response->body(), 500, ''),
+            ]);
+
+            return ['ok' => false, 'message' => 'OpenAI inspiration analysis failed.'];
+        }
+
+        $decoded = json_decode((string) $response->json('choices.0.message.content', ''), true);
+
+        if (! is_array($decoded) || ! is_string($decoded['prompt_template'] ?? null)) {
+            Log::warning('Sales-agent inspiration analysis returned invalid JSON', [
+                'content_excerpt' => Str::limit((string) $response->json('choices.0.message.content', ''), 500, ''),
+            ]);
+
+            return ['ok' => false, 'message' => 'OpenAI returned an invalid inspiration analysis response.'];
+        }
+
+        return [
+            'ok' => true,
+            'prompt_template' => trim((string) $decoded['prompt_template']),
+            'summary' => is_array($decoded['summary'] ?? null) ? $decoded['summary'] : [],
+            'editable_regions' => is_array($decoded['editable_regions'] ?? null) ? $decoded['editable_regions'] : [],
+        ];
     }
 
     public static function slotTypes(): array
@@ -461,13 +642,25 @@ class OpenAiImageService
             return ['ok' => false, 'message' => $preview['message'] ?? 'Image references are not ready.'];
         }
 
-        $resolvedReferences = $this->resolveSalesAgentReferences($agent, $subjectMode);
+        $resolvedReferences = $this->resolveSalesAgentReferences($agent, $campaign, $subjectMode);
+        $reconstruction = $this->prepareSalesAgentReconstructionAssets($campaign);
         $references = array_values(array_map(
             static fn (array $reference): array => [
                 'content' => $reference['content'],
                 'filename' => $reference['filename'],
+                'key' => $reference['key'],
             ],
-            array_filter($resolvedReferences, static fn (array $reference): bool => $reference['available'] && $reference['content'] !== null)
+            array_filter($resolvedReferences, static function (array $reference) use ($reconstruction): bool {
+                if (! $reference['available'] || $reference['content'] === null) {
+                    return false;
+                }
+
+                if ($reconstruction && Str::startsWith($reference['key'], 'campaign_inspiration_')) {
+                    return false;
+                }
+
+                return true;
+            })
         ));
 
         if (empty($references)) {
@@ -485,6 +678,11 @@ class OpenAiImageService
 
         try {
             $request = Http::withToken($this->apiKey())->timeout(180);
+
+            if ($reconstruction) {
+                $request = $request->attach('image[]', $reconstruction['image_bytes'], $reconstruction['filename']);
+                $request = $request->attach('mask', $reconstruction['mask_bytes'], $reconstruction['mask_filename']);
+            }
 
             foreach ($references as $ref) {
                 $request = $request->attach('image[]', $ref['content'], $ref['filename']);
@@ -516,6 +714,7 @@ class OpenAiImageService
                     'required' => $reference['required'],
                     'available' => $reference['available'],
                 ], array_filter($resolvedReferences, static fn (array $reference): bool => $reference['available']))),
+                'strict_reconstruction' => (bool) $reconstruction,
                 'prompt' => $prompt,
                 'payload_meta' => [
                     'model' => $model,
@@ -556,6 +755,19 @@ class OpenAiImageService
             $binary = base64_decode($b64, true);
             if ($binary === false || $binary === '') {
                 return ['ok' => false, 'message' => 'Could not decode generated image.'];
+            }
+
+            if ($reconstruction) {
+                $finalized = $this->finalizeSalesAgentPosterReconstruction(
+                    $binary,
+                    $campaign,
+                    $agent,
+                    is_array($reconstruction['analysis'] ?? null) ? $reconstruction['analysis'] : []
+                );
+
+                if (is_string($finalized) && $finalized !== '') {
+                    $binary = $finalized;
+                }
             }
 
             $extension = $this->extensionForFormat($format);
@@ -607,7 +819,7 @@ class OpenAiImageService
                 'available' => $reference['available'],
                 'filename' => $reference['filename'],
             ],
-            $this->resolveSalesAgentReferences($agent, $subjectMode)
+            $this->resolveSalesAgentReferences($agent, $campaign, $subjectMode)
         ));
         $missingRequired = array_values(array_filter($references, static fn (array $reference): bool => $reference['required'] && ! $reference['available']));
 
@@ -631,22 +843,35 @@ class OpenAiImageService
 
     private function buildSalesAgentPrompt(SalesAgent $agent, SalesAgentCampaign $campaign, string $subjectMode): string
     {
-        $replacements = [
-            '{{agent_name}}' => $agent->name,
-            '{{agent_phone}}' => $agent->phone,
-            '{{agent_code}}' => $agent->code,
-            '{{promo_price}}' => (string) $campaign->promo_price,
-            '{{promo_original_price}}' => (string) $campaign->promo_original_price,
-            '{{promo_end_date}}' => $campaign->promo_end_date?->format('d M Y') ?? '',
-        ];
+        $campaignPrompt = $campaign->replacePromptPlaceholders($campaign->prompt_template, $agent);
+        $inspirationInstruction = $campaign->inspirationImages() !== []
+            ? "STRICT EDIT-IN-PLACE MODE: the first attached image is the source poster to edit directly, and the mask marks the only regions that may change. Preserve every non-masked pixel as faithfully as possible. Keep the original composition, palette, gradients, textures, shadows, background treatment, spacing, typography mood, visual hierarchy, and poster structure intact. This is a reconstruction task, not a redesign.
 
-        $campaignPrompt = str_replace(array_keys($replacements), array_values($replacements), $campaign->prompt_template);
+INSPIRATION-LOCK RULES: Treat the attached inspiration poster as the master design to recreate. Rebuild that SAME poster design with very high fidelity. Preserve, as closely as possible, all of the following from the inspiration reference: composition, panel structure, cropping logic, subject scale, background style, gradient direction, color palette, contrast pattern, badge/chip shapes, shadows, borders, texture, typography mood, text effects, line-break behavior, alignment, spacing rhythm, headline scale, body scale, CTA treatment, offer sticker treatment, and overall premium marketing art direction. Do NOT redesign the poster. Do NOT choose a new palette. Do NOT move the text system to a different layout. Do NOT simplify the design into a generic ad.
+
+CHANGE RULES: Change only these things:
+1. Replace the person with the selected Wakanda subject mode output.
+2. In every masked text or logo zone, recreate the same graphic block style but REMOVE all foreign readable text and branding so those zones are clean and ready for exact post-processing text compositing.
+3. Replace foreign logos/branding/contact details with Wakanda Jobs styling only where required by the masked region.
+
+TEXT ZONE RULES: The masked text areas must keep the same badge shapes, cards, boxes, buttons, spacing, and hierarchy from the source poster, but readable foreign wording should be removed or reduced to neutral/non-final placeholder styling. Do not invent new slogans, websites, phone numbers, or brands inside those zones. The exact final campaign text will be composited afterwards.
+
+COLOR RULES: Preserve the inspiration poster's dominant and accent colors as closely as possible unless Wakanda branding replacement requires a minimal localized adjustment. Do not drift to unrelated colors.
+
+LAYOUT RULES: Keep the same left/right or top/bottom balance, same spacing density, same empty-space usage, and same text/image zoning. The final result should look like the same poster designer made the same poster again for Wakanda Jobs, not like a new design inspired by it."
+            : null;
 
         return trim(implode("\n\n", array_filter([
             "Generate one polished Wakanda Jobs sales-agent campaign poster.",
             $this->salesAgentReferencePrompt($agent, $subjectMode),
             "Use the attached Wakanda Jobs logo references as brand elements only. Keep the text fully legible, premium, modern, and WhatsApp-shareable.",
+            $inspirationInstruction,
             $campaignPrompt,
+            "MASK DISCIPLINE RULE: only regenerate the masked regions for subject/text/logo replacement. Every unmasked area must remain visually equivalent to the source poster, including exact palette family, lighting treatment, effects, edge styling, and decorative elements.",
+            "TEXT REPLACEMENT RULE: do not preserve any foreign readable text from the inspiration image. Rebuild the same text containers and hierarchy, but leave them clean and style-consistent for deterministic final text compositing.",
+            "IDENTITY RULE: this is not a loose inspiration task. This is a poster recreation task where the design language, art direction, and text layout are preserved, while only the subject, logo/brand, and text content are swapped to Wakanda Jobs campaign content.",
+            "FOREIGN ELEMENT REMOVAL RULE: remove every foreign phone number, website, logo, company name, person name, and CTA from the inspiration image and replace them with Wakanda Jobs campaign equivalents only. Nothing from the original poster's branding may remain.",
+            "READABILITY RULE: the final poster must remain highly legible on a phone screen. Preserve the inspiration's hierarchy, but never allow replacement text to become tiny, blurry, or unreadable. If our replacement text is longer, reflow it inside the same design system without abandoning the layout style.",
             "Do not include any document, card, contract, or paperwork prop anywhere in the image — no employment contract, no signed papers, nothing being handed over or presented. The person(s) should not be holding or gesturing toward any such object.",
             "CRITICAL REALISM REQUIREMENT: render every person's skin with natural, photographic texture — visible pores, fine skin texture, subtle natural imperfections and asymmetry, like an unedited photo straight out of a professional camera. Avoid airbrushed, plastic, glossy, overly smooth, or 'beauty filter' skin. Avoid a CGI, 3D-rendered, illustrated, or synthetic/AI-generated look. Hands and fingers should look anatomically natural, not overly perfect or smoothed. The result should look like a real photograph of a real person, not a digital render.",
             $this->salesAgentSubjectOverridePrompt($agent, $subjectMode),
@@ -689,7 +914,7 @@ class OpenAiImageService
      *   content: ?string
      * }>
      */
-    private function resolveSalesAgentReferences(SalesAgent $agent, string $subjectMode): array
+    private function resolveSalesAgentReferences(SalesAgent $agent, SalesAgentCampaign $campaign, string $subjectMode): array
     {
         $references = [];
 
@@ -746,6 +971,18 @@ class OpenAiImageService
             ];
         }
 
+        foreach ($campaign->inspirationImages() as $index => $imagePath) {
+            $references[] = [
+                'key' => 'campaign_inspiration_' . ($index + 1),
+                'label' => 'Campaign inspiration poster ' . ($index + 1),
+                'url' => RvMedia::getImageUrl($imagePath),
+                'required' => false,
+                'available' => true,
+                'filename' => 'campaign-inspiration-' . ($index + 1) . '.png',
+                'content' => $this->fetchBytes($imagePath),
+            ];
+        }
+
         foreach ($references as &$reference) {
             if ($reference['required']) {
                 $reference['available'] = $reference['available'] && $reference['content'] !== null && $reference['content'] !== '';
@@ -756,6 +993,673 @@ class OpenAiImageService
         unset($reference);
 
         return $references;
+    }
+
+    private function cachedCampaignInspirationAnalysis(SalesAgentCampaign $campaign): array
+    {
+        $manualLayout = is_array($campaign->reconstruction_layout ?? null) ? $campaign->reconstruction_layout : null;
+        $path = $campaign->inspirationImages()[0] ?? null;
+
+        if (! $path) {
+            return $manualLayout ? [
+                'ok' => true,
+                'summary' => [],
+                'editable_regions' => $manualLayout,
+            ] : [];
+        }
+
+        $disk = Storage::disk('public');
+
+        if (! $disk->exists($path)) {
+            return [];
+        }
+
+        $lastModified = (int) ($disk->lastModified($path) ?: 0);
+        $cacheKey = 'sales-agent-campaign-inspiration-analysis:' . $campaign->getKey() . ':' . md5($path . '|' . $lastModified);
+
+        $analysis = Cache::remember($cacheKey, now()->addHours(12), function () use ($disk, $path): array {
+            $bytes = $disk->get($path);
+
+            if (! is_string($bytes) || $bytes === '') {
+                return [];
+            }
+
+            $mime = $disk->mimeType($path) ?: $this->guessMimeFromPath($path);
+            $result = $this->analyzeSalesAgentInspirationBytes($bytes, $mime);
+
+            return ($result['ok'] ?? false) ? $result : [];
+        });
+
+        if ($manualLayout) {
+            $analysis['editable_regions'] = $manualLayout;
+            $analysis['ok'] = true;
+        }
+
+        return $analysis;
+    }
+
+    private function prepareSalesAgentReconstructionAssets(SalesAgentCampaign $campaign): ?array
+    {
+        $path = $campaign->inspirationImages()[0] ?? null;
+
+        if (! $path) {
+            return null;
+        }
+
+        $disk = Storage::disk('public');
+
+        if (! $disk->exists($path)) {
+            return null;
+        }
+
+        $imageBytes = $disk->get($path);
+
+        if (! is_string($imageBytes) || $imageBytes === '') {
+            return null;
+        }
+
+        $analysis = $this->cachedCampaignInspirationAnalysis($campaign);
+        $regions = $analysis['editable_regions'] ?? [];
+        $maskBytes = $this->buildSalesAgentReconstructionMask($imageBytes, is_array($regions) ? $regions : []);
+
+        if (! $maskBytes) {
+            return null;
+        }
+
+        return [
+            'image_bytes' => $imageBytes,
+            'filename' => 'campaign-inspiration-source.' . pathinfo($path, PATHINFO_EXTENSION),
+            'mask_bytes' => $maskBytes,
+            'mask_filename' => 'campaign-inspiration-mask.png',
+            'analysis' => $analysis,
+        ];
+    }
+
+    private function buildSalesAgentReconstructionMask(string $baseImage, array $regions): ?string
+    {
+        $source = @imagecreatefromstring($baseImage);
+
+        if (! $source) {
+            return null;
+        }
+
+        try {
+            $width = imagesx($source);
+            $height = imagesy($source);
+
+            if ($width <= 0 || $height <= 0) {
+                return null;
+            }
+
+            $mask = imagecreatetruecolor($width, $height);
+            imagealphablending($mask, false);
+            imagesavealpha($mask, true);
+
+            $opaque = imagecolorallocatealpha($mask, 0, 0, 0, 0);
+            $transparent = imagecolorallocatealpha($mask, 255, 255, 255, 127);
+            imagefilledrectangle($mask, 0, 0, $width, $height, $opaque);
+
+            $editableBoxes = array_filter([
+                $regions['subject_box'] ?? null,
+                $regions['headline_box'] ?? null,
+                $regions['body_box'] ?? null,
+                $regions['price_box'] ?? null,
+                $regions['cta_box'] ?? null,
+                $regions['logo_box'] ?? null,
+            ], 'is_array');
+
+            foreach ($regions['extra_text_boxes'] ?? [] as $box) {
+                if (is_array($box)) {
+                    $editableBoxes[] = $box;
+                }
+            }
+
+            if ($editableBoxes === []) {
+                return null;
+            }
+
+            foreach ($editableBoxes as $box) {
+                $pixels = $this->normalizedBoxToPixels($box, $width, $height);
+
+                if (! $pixels) {
+                    continue;
+                }
+
+                [$x1, $y1, $x2, $y2] = $pixels;
+                imagefilledrectangle($mask, $x1, $y1, $x2, $y2, $transparent);
+            }
+
+            ob_start();
+            $written = imagepng($mask);
+            $png = ob_get_clean();
+
+            if (! $written || ! is_string($png) || $png === '') {
+                return null;
+            }
+
+            imagedestroy($mask);
+
+            return $png;
+        } finally {
+            imagedestroy($source);
+        }
+    }
+
+    private function normalizedBoxToPixels(array $box, int $width, int $height): ?array
+    {
+        $x = isset($box['x']) ? (float) $box['x'] : null;
+        $y = isset($box['y']) ? (float) $box['y'] : null;
+        $w = isset($box['w']) ? (float) $box['w'] : null;
+        $h = isset($box['h']) ? (float) $box['h'] : null;
+
+        if ($x === null || $y === null || $w === null || $h === null || $w <= 0 || $h <= 0) {
+            return null;
+        }
+
+        $paddingX = (int) round($width * 0.015);
+        $paddingY = (int) round($height * 0.015);
+        $x1 = max(0, (int) floor(($x / 1000) * $width) - $paddingX);
+        $y1 = max(0, (int) floor(($y / 1000) * $height) - $paddingY);
+        $x2 = min($width - 1, (int) ceil((($x + $w) / 1000) * $width) + $paddingX);
+        $y2 = min($height - 1, (int) ceil((($y + $h) / 1000) * $height) + $paddingY);
+
+        return ($x2 > $x1 && $y2 > $y1) ? [$x1, $y1, $x2, $y2] : null;
+    }
+
+    private function guessMimeFromPath(string $path): string
+    {
+        return match (strtolower(pathinfo($path, PATHINFO_EXTENSION))) {
+            'jpg', 'jpeg' => 'image/jpeg',
+            'webp' => 'image/webp',
+            default => 'image/png',
+        };
+    }
+
+    private function finalizeSalesAgentPosterReconstruction(
+        string $binary,
+        SalesAgentCampaign $campaign,
+        SalesAgent $agent,
+        array $analysis
+    ): ?string {
+        $generatedImage = @imagecreatefromstring($binary);
+
+        if (! $generatedImage) {
+            return null;
+        }
+
+        try {
+            $basePath = $campaign->inspirationImages()[0] ?? null;
+            $baseBytes = $basePath ? Storage::disk('public')->get($basePath) : null;
+            $image = is_string($baseBytes) && $baseBytes !== '' ? @imagecreatefromstring($baseBytes) : null;
+
+            if (! $image) {
+                $image = $generatedImage;
+            }
+
+            $regions = is_array($analysis['editable_regions'] ?? null) ? $analysis['editable_regions'] : [];
+            $fontPath = public_path('vendor/core/core/base/fonts/Roboto-Bold.ttf');
+
+            if (! is_file($fontPath)) {
+                return null;
+            }
+
+            $this->copyNormalizedRegion($generatedImage, $image, $regions['subject_box'] ?? null);
+            $this->copyNormalizedRegion($generatedImage, $image, $regions['headline_box'] ?? null);
+            $this->copyNormalizedRegion($generatedImage, $image, $regions['body_box'] ?? null);
+
+            $this->clearNormalizedRegion($image, $regions['price_box'] ?? null);
+            $this->clearNormalizedRegion($image, $regions['cta_box'] ?? null);
+            $this->clearNormalizedRegion($image, $regions['logo_box'] ?? null);
+
+            foreach ((array) ($regions['extra_text_boxes'] ?? []) as $box) {
+                $this->clearNormalizedRegion($image, $box);
+            }
+
+            $headline = $campaign->resolvedLandingHeadline();
+            $body = $campaign->resolvedLandingBody();
+            $price = $campaign->priceLine() !== '' ? $campaign->priceLine() : $campaign->resolvedProductLabel();
+            $cta = $campaign->resolvedLandingCtaText();
+            $brand = 'Wakanda Jobs';
+
+            $this->drawPosterTextRegion($image, $regions['headline_box'] ?? null, $headline, $fontPath, [
+                'max_font' => 86,
+                'min_font' => 26,
+                'align' => 'left',
+                'uppercase' => true,
+                'line_spacing' => 0.88,
+                'stroke_ratio' => 0.07,
+                'padding_ratio' => 0.08,
+            ]);
+
+            $this->drawPosterTextRegion($image, $regions['body_box'] ?? null, $body, $fontPath, [
+                'max_font' => 34,
+                'min_font' => 16,
+                'align' => 'left',
+                'uppercase' => false,
+                'line_spacing' => 1.12,
+                'stroke_ratio' => 0.045,
+                'padding_ratio' => 0.10,
+            ]);
+
+            $this->drawPosterTextRegion($image, $regions['price_box'] ?? null, $price, $fontPath, [
+                'max_font' => 74,
+                'min_font' => 24,
+                'align' => 'center',
+                'uppercase' => true,
+                'line_spacing' => 0.92,
+                'stroke_ratio' => 0.07,
+                'padding_ratio' => 0.10,
+            ]);
+
+            $this->drawPosterTextRegion($image, $regions['cta_box'] ?? null, $cta, $fontPath, [
+                'max_font' => 34,
+                'min_font' => 16,
+                'align' => 'center',
+                'uppercase' => false,
+                'line_spacing' => 1.0,
+                'stroke_ratio' => 0.045,
+                'padding_ratio' => 0.16,
+            ]);
+
+            $this->drawWakandaLogoRegion($image, $regions['logo_box'] ?? null);
+
+            $extraTextPool = array_values(array_filter([
+                $campaign->resolvedProductLabel(),
+                $campaign->name,
+                $campaign->promoDeadlineLine(),
+                $campaign->isPromoCampaign() ? 'PROMO' : null,
+                $brand,
+            ], static fn (?string $value): bool => is_string($value) && trim($value) !== ''));
+
+            foreach ((array) ($regions['extra_text_boxes'] ?? []) as $index => $box) {
+                $text = $extraTextPool[$index] ?? null;
+
+                if (! is_array($box) || ! is_string($text) || trim($text) === '') {
+                    continue;
+                }
+
+                $this->drawPosterTextRegion($image, $box, $text, $fontPath, [
+                    'max_font' => 42,
+                    'min_font' => 14,
+                    'align' => 'center',
+                    'uppercase' => true,
+                    'line_spacing' => 0.95,
+                    'stroke_ratio' => 0.05,
+                    'padding_ratio' => 0.12,
+                ]);
+            }
+
+            return $this->encodeImage($image, $this->outputFormat());
+        } finally {
+            if ($generatedImage instanceof \GdImage) {
+                imagedestroy($generatedImage);
+            }
+
+            if ($image instanceof \GdImage && $image !== $generatedImage) {
+                imagedestroy($image);
+            }
+        }
+    }
+
+    private function copyNormalizedRegion(\GdImage $source, \GdImage $target, mixed $box): void
+    {
+        if (! is_array($box)) {
+            return;
+        }
+
+        $width = imagesx($target);
+        $height = imagesy($target);
+        $pixels = $this->normalizedBoxToPixels($box, $width, $height);
+
+        if (! $pixels) {
+            return;
+        }
+
+        [$x1, $y1, $x2, $y2] = $pixels;
+        $regionWidth = max(1, $x2 - $x1);
+        $regionHeight = max(1, $y2 - $y1);
+
+        imagecopy($target, $source, $x1, $y1, $x1, $y1, $regionWidth, $regionHeight);
+    }
+
+    private function clearNormalizedRegion(\GdImage $image, mixed $box): void
+    {
+        if (! is_array($box)) {
+            return;
+        }
+
+        $width = imagesx($image);
+        $height = imagesy($image);
+        $pixels = $this->normalizedBoxToPixels($box, $width, $height);
+
+        if (! $pixels) {
+            return;
+        }
+
+        [$x1, $y1, $x2, $y2] = $pixels;
+        $background = $this->allocateRegionBackgroundColor($image, $pixels);
+
+        imagefilledrectangle($image, $x1, $y1, $x2, $y2, $background);
+    }
+
+    private function allocateRegionBackgroundColor(\GdImage $image, array $pixels): int
+    {
+        [$x1, $y1, $x2, $y2] = $pixels;
+        $samplePoints = [
+            [$x1 + 4, $y1 + 4],
+            [$x2 - 4, $y1 + 4],
+            [$x1 + 4, $y2 - 4],
+            [$x2 - 4, $y2 - 4],
+        ];
+        $red = 0;
+        $green = 0;
+        $blue = 0;
+        $count = 0;
+
+        foreach ($samplePoints as [$x, $y]) {
+            $color = imagecolorat($image, max(0, min(imagesx($image) - 1, $x)), max(0, min(imagesy($image) - 1, $y)));
+            $red += ($color >> 16) & 0xFF;
+            $green += ($color >> 8) & 0xFF;
+            $blue += $color & 0xFF;
+            $count++;
+        }
+
+        return imagecolorallocate(
+            $image,
+            (int) round($red / max(1, $count)),
+            (int) round($green / max(1, $count)),
+            (int) round($blue / max(1, $count))
+        );
+    }
+
+    private function drawPosterTextRegion(
+        \GdImage $image,
+        mixed $box,
+        string $text,
+        string $fontPath,
+        array $options = []
+    ): void {
+        if (! is_array($box) || trim($text) === '') {
+            return;
+        }
+
+        $width = imagesx($image);
+        $height = imagesy($image);
+        $pixels = $this->normalizedBoxToPixels($box, $width, $height);
+
+        if (! $pixels) {
+            return;
+        }
+
+        [$x1, $y1, $x2, $y2] = $pixels;
+        $paddingRatio = (float) ($options['padding_ratio'] ?? 0.1);
+        $paddingX = (int) round(($x2 - $x1) * $paddingRatio);
+        $paddingY = (int) round(($y2 - $y1) * $paddingRatio);
+        $left = $x1 + $paddingX;
+        $top = $y1 + $paddingY;
+        $right = max($left + 10, $x2 - $paddingX);
+        $bottom = max($top + 10, $y2 - $paddingY);
+        $availableWidth = $right - $left;
+        $availableHeight = $bottom - $top;
+
+        if ($availableWidth < 24 || $availableHeight < 18) {
+            return;
+        }
+
+        $preparedText = ! empty($options['uppercase']) ? mb_strtoupper($text) : $text;
+        $layout = $this->fitTextToBox(
+            $preparedText,
+            $fontPath,
+            $availableWidth,
+            $availableHeight,
+            (int) ($options['max_font'] ?? 64),
+            (int) ($options['min_font'] ?? 16),
+            (float) ($options['line_spacing'] ?? 1.0)
+        );
+
+        if (! $layout) {
+            return;
+        }
+
+        $style = $this->sampleAdaptiveTextStyle($image, $pixels);
+        $align = $options['align'] ?? 'left';
+        $strokeWidth = max(1, (int) round($layout['font_size'] * (float) ($options['stroke_ratio'] ?? 0.05)));
+        $lineHeight = (float) $layout['line_height'];
+        $blockHeight = (int) round(count($layout['lines']) * $lineHeight);
+        $baselineY = (int) round($top + (($availableHeight - $blockHeight) / 2) + $layout['font_size']);
+
+        foreach ($layout['lines'] as $index => $line) {
+            $lineWidth = $this->measureTextWidth($line, $fontPath, $layout['font_size']);
+            $lineX = match ($align) {
+                'center' => (int) round($left + (($availableWidth - $lineWidth) / 2)),
+                'right' => $right - $lineWidth,
+                default => $left,
+            };
+            $lineY = (int) round($baselineY + ($index * $lineHeight));
+
+            $this->drawOutlinedText(
+                $image,
+                $layout['font_size'],
+                $lineX,
+                $lineY,
+                $line,
+                $fontPath,
+                $style['fill'],
+                $style['stroke'],
+                $strokeWidth
+            );
+        }
+    }
+
+    private function drawWakandaLogoRegion(\GdImage $image, mixed $box): void
+    {
+        if (! is_array($box)) {
+            return;
+        }
+
+        $width = imagesx($image);
+        $height = imagesy($image);
+        $pixels = $this->normalizedBoxToPixels($box, $width, $height);
+
+        if (! $pixels) {
+            return;
+        }
+
+        [$x1, $y1, $x2, $y2] = $pixels;
+        $logoBytes = null;
+
+        foreach (self::WJ_LOGOS as $logoPath) {
+            $logoBytes = $this->fetchBytes($logoPath);
+
+            if ($logoBytes) {
+                break;
+            }
+        }
+
+        if (! $logoBytes) {
+            return;
+        }
+
+        $logo = @imagecreatefromstring($logoBytes);
+
+        if (! $logo) {
+            return;
+        }
+
+        try {
+            $boxWidth = max(1, $x2 - $x1);
+            $boxHeight = max(1, $y2 - $y1);
+            $logoWidth = imagesx($logo);
+            $logoHeight = imagesy($logo);
+
+            if ($logoWidth <= 0 || $logoHeight <= 0) {
+                return;
+            }
+
+            $scale = min($boxWidth / $logoWidth, $boxHeight / $logoHeight, 1.0);
+            $targetWidth = max(1, (int) round($logoWidth * $scale));
+            $targetHeight = max(1, (int) round($logoHeight * $scale));
+            $destX = (int) round($x1 + (($boxWidth - $targetWidth) / 2));
+            $destY = (int) round($y1 + (($boxHeight - $targetHeight) / 2));
+
+            imagealphablending($image, true);
+            imagesavealpha($image, true);
+            imagecopyresampled($image, $logo, $destX, $destY, 0, 0, $targetWidth, $targetHeight, $logoWidth, $logoHeight);
+        } finally {
+            imagedestroy($logo);
+        }
+    }
+
+    private function fitTextToBox(
+        string $text,
+        string $fontPath,
+        int $maxWidth,
+        int $maxHeight,
+        int $maxFont,
+        int $minFont,
+        float $lineSpacing
+    ): ?array {
+        for ($fontSize = $maxFont; $fontSize >= $minFont; $fontSize -= 2) {
+            $lines = $this->wrapTextToWidth($text, $fontPath, $fontSize, $maxWidth);
+
+            if ($lines === []) {
+                continue;
+            }
+
+            $lineHeight = $fontSize * $lineSpacing;
+            $blockHeight = count($lines) * $lineHeight;
+
+            if ($blockHeight > $maxHeight) {
+                continue;
+            }
+
+            $fits = true;
+
+            foreach ($lines as $line) {
+                if ($this->measureTextWidth($line, $fontPath, $fontSize) > $maxWidth) {
+                    $fits = false;
+                    break;
+                }
+            }
+
+            if ($fits) {
+                return [
+                    'font_size' => $fontSize,
+                    'lines' => $lines,
+                    'line_height' => $lineHeight,
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    private function wrapTextToWidth(string $text, string $fontPath, int $fontSize, int $maxWidth): array
+    {
+        $paragraphs = preg_split('/\R/u', trim($text)) ?: [];
+        $lines = [];
+
+        foreach ($paragraphs as $paragraph) {
+            $words = preg_split('/\s+/u', trim($paragraph)) ?: [];
+
+            if ($words === []) {
+                continue;
+            }
+
+            $current = '';
+
+            foreach ($words as $word) {
+                $candidate = trim($current === '' ? $word : $current . ' ' . $word);
+
+                if ($candidate === '') {
+                    continue;
+                }
+
+                if ($this->measureTextWidth($candidate, $fontPath, $fontSize) <= $maxWidth) {
+                    $current = $candidate;
+                    continue;
+                }
+
+                if ($current !== '') {
+                    $lines[] = $current;
+                    $current = $word;
+                    continue;
+                }
+
+                $lines[] = $word;
+                $current = '';
+            }
+
+            if ($current !== '') {
+                $lines[] = $current;
+            }
+        }
+
+        return array_values(array_filter($lines, static fn (string $line): bool => trim($line) !== ''));
+    }
+
+    private function measureTextWidth(string $text, string $fontPath, int $fontSize): int
+    {
+        $box = imagettfbbox($fontSize, 0, $fontPath, $text);
+
+        if (! is_array($box)) {
+            return 0;
+        }
+
+        return (int) abs(max($box[2], $box[4]) - min($box[0], $box[6]));
+    }
+
+    private function sampleAdaptiveTextStyle(\GdImage $image, array $pixels): array
+    {
+        [$x1, $y1, $x2, $y2] = $pixels;
+        $samplePoints = [
+            [$x1, $y1],
+            [$x2, $y1],
+            [$x1, $y2],
+            [$x2, $y2],
+            [(int) round(($x1 + $x2) / 2), (int) round(($y1 + $y2) / 2)],
+        ];
+        $luminanceTotal = 0.0;
+
+        foreach ($samplePoints as [$x, $y]) {
+            $rgb = imagecolorat($image, max(0, $x), max(0, $y));
+            $r = ($rgb >> 16) & 0xFF;
+            $g = ($rgb >> 8) & 0xFF;
+            $b = $rgb & 0xFF;
+            $luminanceTotal += (0.2126 * $r) + (0.7152 * $g) + (0.0722 * $b);
+        }
+
+        $average = $luminanceTotal / max(1, count($samplePoints));
+        $useLightText = $average < 150;
+
+        return [
+            'fill' => imagecolorallocate($image, $useLightText ? 255 : 24, $useLightText ? 255 : 24, $useLightText ? 255 : 24),
+            'stroke' => imagecolorallocate($image, $useLightText ? 18 : 255, $useLightText ? 18 : 255, $useLightText ? 18 : 255),
+        ];
+    }
+
+    private function drawOutlinedText(
+        \GdImage $image,
+        int $fontSize,
+        int $x,
+        int $y,
+        string $text,
+        string $fontPath,
+        int $fillColor,
+        int $strokeColor,
+        int $strokeWidth
+    ): void {
+        for ($offsetX = -$strokeWidth; $offsetX <= $strokeWidth; $offsetX++) {
+            for ($offsetY = -$strokeWidth; $offsetY <= $strokeWidth; $offsetY++) {
+                if ($offsetX === 0 && $offsetY === 0) {
+                    continue;
+                }
+
+                imagettftext($image, $fontSize, 0, $x + $offsetX, $y + $offsetY, $strokeColor, $fontPath, $text);
+            }
+        }
+
+        imagettftext($image, $fontSize, 0, $x, $y, $fillColor, $fontPath, $text);
     }
 
     private function fetchSettingImageBytes(string $settingKey): ?string

@@ -116,4 +116,63 @@ $(document).ready(() => {
                     $(table).load(`${$('.page-body form').prop('action')} ${table} > *`)
                 })
         })
+        .on('click', '.js-account-resume-preview', (event) => {
+            event.preventDefault()
+
+            const tools = $(event.currentTarget).closest('.resume-admin-tools')
+            const inputName = tools.data('input-name') || 'resume'
+            const input = $(`input[name="${inputName}"]`)
+            const path = input.val()
+
+            if (!path) {
+                Botble.showError('No CV is linked to this candidate yet.')
+                return
+            }
+
+            const frame = document.getElementById('accountResumePreviewFrame')
+            if (!frame) return
+            frame.src = path.startsWith('http') ? path : `/storage/${path.replace(/^\/+/, '')}`
+            $('#accountResumePreviewModal').modal('show')
+        })
+        .on('click', '.attachment-wrapper .attachment-info a', (event) => {
+            const wrapper = $(event.currentTarget).closest('.attachment-wrapper')
+            const inputName = wrapper.find('input.attachment-url').attr('name')
+            if (inputName !== 'resume') return
+
+            event.preventDefault()
+            const frame = document.getElementById('accountResumePreviewFrame')
+            if (!frame) return
+            frame.src = $(event.currentTarget).attr('href')
+            $('#accountResumePreviewModal').modal('show')
+        })
+        .on('click', '.js-account-resume-remove', (event) => {
+            event.preventDefault()
+
+            const tools = $(event.currentTarget).closest('.resume-admin-tools')
+            const inputName = tools.data('input-name') || 'resume'
+            const input = $(`input[name="${inputName}"]`)
+            const existingRemove = input.closest('.attachment-wrapper').find('[data-bb-toggle="media-file-remove"]').first()
+
+            if (existingRemove.length) {
+                existingRemove.trigger('click')
+                return
+            }
+
+            input.val('')
+            Botble.showNotice('success', 'The CV link was cleared. Save the form to keep the change.')
+        })
+        .on('click', '.js-account-sync-cv', (event) => {
+            event.preventDefault()
+
+            const button = $(event.currentTarget)
+
+            $httpClient
+                .make()
+                .withButtonLoading(button)
+                .post(button.data('url'))
+                .then(({ data }) => {
+                    Botble.showNotice('success', data.message)
+                    window.location.reload()
+                })
+        })
 })

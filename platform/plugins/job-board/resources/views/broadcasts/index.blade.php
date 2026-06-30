@@ -178,9 +178,14 @@
                                     <i class="ti ti-photo-up fs-1 text-muted d-block mb-1"></i>
                                     <span class="text-muted">Click or drag an image here (JPG, PNG, WebP — max 10 MB)</span>
                                 </div>
-                                <div id="bc-image-uploading" style="display:none">
-                                    <div class="spinner-border spinner-border-sm text-primary me-2"></div>
-                                    <span class="text-muted">Uploading…</span>
+                                <div id="bc-image-uploading" style="display:none;position:relative;">
+                                    <img id="bc-uploading-thumb" class="img-fluid rounded" style="max-height:280px;opacity:.55;display:block;margin:0 auto;">
+                                    <div style="position:absolute;bottom:0;left:0;right:0;padding:6px 10px 8px;background:rgba(0,0,0,.45);border-radius:0 0 6px 6px;">
+                                        <div class="progress mb-1" style="height:5px;border-radius:999px;background:rgba(255,255,255,.25);">
+                                            <div id="bc-upload-bar" class="progress-bar bg-white" role="progressbar" style="width:0%;transition:width .12s linear;"></div>
+                                        </div>
+                                        <span class="text-white" id="bc-upload-pct" style="font-size:11px;line-height:1;">0%</span>
+                                    </div>
                                 </div>
                                 <div id="bc-image-preview" style="display:none">
                                     <img id="bc-image-img" class="img-fluid rounded mb-2" style="max-height:280px">
@@ -218,10 +223,24 @@
                     @if($broadcasts->isEmpty())
                         <p class="text-muted mb-0">No broadcasts sent yet — your history will show up here.</p>
                     @else
+                        {{-- Bulk action toolbar --}}
+                        <div id="bc-bulk-toolbar" class="d-flex align-items-center gap-2 mb-2 d-none">
+                            <span class="text-muted small" id="bc-bulk-count">0 selected</span>
+                            <button type="button" class="btn btn-sm btn-outline-warning" id="bc-bulk-cancel">
+                                <i class="ti ti-player-pause me-1"></i> Cancel Selected
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" id="bc-bulk-delete">
+                                <i class="ti ti-trash me-1"></i> Delete Selected
+                            </button>
+                        </div>
+
                         <div class="table-responsive">
                             <table class="table table-sm align-middle">
                                 <thead>
                                     <tr>
+                                        <th style="width:36px">
+                                            <input type="checkbox" class="form-check-input" id="bc-check-all" title="Select all">
+                                        </th>
                                         <th>Message</th>
                                         <th>Status</th>
                                         <th>Scheduled / Sent</th>
@@ -232,6 +251,9 @@
                                 <tbody>
                                     @foreach($broadcasts as $broadcast)
                                         <tr>
+                                            <td>
+                                                <input type="checkbox" class="form-check-input bc-row-check" value="{{ $broadcast->id }}">
+                                            </td>
                                             <td style="max-width:260px">
                                                 <span title="{{ $broadcast->message }}">{{ Str::limit($broadcast->message, 70) }}</span>
                                                 @if($broadcast->image_path)
@@ -296,21 +318,6 @@
                                                         <i class="ti ti-player-pause me-1"></i> Cancel
                                                     </button>
                                                 @endif
-                                                @if(false && $broadcast->audience === 'employers' && in_array($broadcast->status, ['failed', 'sent']))
-                                                    @php
-                                                        $sentSoFar = count($broadcast->sent_recipients ?? []);
-                                                        $totalRecipients = $broadcast->recipient_count ?? 0;
-                                                        $remaining = max(0, $totalRecipients - $sentSoFar);
-                                                        $retryLabel = $broadcast->status === 'failed'
-                                                            ? ($sentSoFar ? "Retry ({$remaining} remaining, {$sentSoFar} already reached)" : 'Retry')
-                                                            : "Resend to all ({$totalRecipients})";
-                                                    @endphp
-                                                    <button class="btn btn-sm btn-outline-primary bc-retry"
-                                                            data-url="{{ route('job-board.automations.broadcast-retry', $broadcast->id) }}"
-                                                            data-label="{{ $retryLabel }}">
-                                                        <i class="ti ti-refresh me-1"></i> Retry
-                                                    </button>
-                                                @endif
                                                 <button class="btn btn-sm btn-outline-danger bc-delete"
                                                         data-url="{{ route('job-board.automations.broadcast-destroy', $broadcast->id) }}"
                                                         data-label='Remove "{{ Str::limit($broadcast->message, 60) }}" from history? This does not unpublish posts already sent.'>
@@ -322,6 +329,40 @@
                                 </tbody>
                             </table>
                         </div>
+
+                        {{-- Pagination --}}
+                        @if($broadcasts->lastPage() > 1)
+                            <div class="d-flex align-items-center justify-content-between mt-3">
+                                <span class="text-muted small">
+                                    Showing {{ $broadcasts->firstItem() }}–{{ $broadcasts->lastItem() }} of {{ $broadcasts->total() }}
+                                </span>
+                                <div class="d-flex gap-2">
+                                    @if($broadcasts->onFirstPage())
+                                        <button class="btn btn-sm btn-outline-secondary" disabled>
+                                            <i class="ti ti-chevron-left me-1"></i> Previous
+                                        </button>
+                                    @else
+                                        <a href="{{ $broadcasts->previousPageUrl() }}" class="btn btn-sm btn-outline-secondary">
+                                            <i class="ti ti-chevron-left me-1"></i> Previous
+                                        </a>
+                                    @endif
+
+                                    <span class="btn btn-sm btn-light disabled">
+                                        Page {{ $broadcasts->currentPage() }} of {{ $broadcasts->lastPage() }}
+                                    </span>
+
+                                    @if($broadcasts->hasMorePages())
+                                        <a href="{{ $broadcasts->nextPageUrl() }}" class="btn btn-sm btn-outline-secondary">
+                                            Next <i class="ti ti-chevron-right ms-1"></i>
+                                        </a>
+                                    @else
+                                        <button class="btn btn-sm btn-outline-secondary" disabled>
+                                            Next <i class="ti ti-chevron-right ms-1"></i>
+                                        </button>
+                                    @endif
+                                </div>
+                            </div>
+                        @endif
                     @endif
                 </x-core::card.body>
                 </div>
@@ -609,6 +650,55 @@
             $('#bc-drop-placeholder').show();
         });
 
+        var progressTimer = null;
+
+        function setProgress(pct) {
+            $('#bc-upload-bar').css('width', pct + '%');
+            $('#bc-upload-pct').text(pct < 100 ? pct + '%' : 'Processing…');
+        }
+
+        function startProgressAnimation(fileSize) {
+            var estimatedMs = Math.max(800, (fileSize / 512000) * 1000);
+            var startTime = Date.now();
+            clearInterval(progressTimer);
+            setProgress(0);
+            progressTimer = setInterval(function () {
+                var pct = Math.min(90, Math.round(((Date.now() - startTime) / estimatedMs) * 90));
+                setProgress(pct);
+                if (pct >= 90) clearInterval(progressTimer);
+            }, 80);
+        }
+
+        function finishProgress() {
+            clearInterval(progressTimer);
+            $('#bc-upload-bar').css('transition', 'width .2s ease');
+            $('#bc-upload-bar').css('width', '100%');
+            $('#bc-upload-pct').text('Done');
+        }
+
+        function playDing() {
+            try {
+                var Ctx = window.AudioContext || window.webkitAudioContext;
+                if (!Ctx) return;
+                var ctx = new Ctx();
+                function tone(freq, startAt, dur) {
+                    var osc = ctx.createOscillator();
+                    var gain = ctx.createGain();
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.type = 'sine';
+                    osc.frequency.value = freq;
+                    gain.gain.setValueAtTime(0, ctx.currentTime + startAt);
+                    gain.gain.linearRampToValueAtTime(0.22, ctx.currentTime + startAt + 0.01);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startAt + dur);
+                    osc.start(ctx.currentTime + startAt);
+                    osc.stop(ctx.currentTime + startAt + dur);
+                }
+                tone(880,  0,    0.35);
+                tone(1320, 0.18, 0.45);
+            } catch (e) {}
+        }
+
         function uploadImage(file) {
             if (file.size > 10 * 1024 * 1024) {
                 Botble.showError('Image is too large — max 10 MB.');
@@ -618,43 +708,66 @@
             uploading = true;
             uploadedImagePath = null;
             uploadedImageUrl  = null;
-            $('#bc-drop-placeholder, #bc-image-preview').hide();
-            $('#bc-image-uploading').show();
 
-            const fd = new FormData();
-            fd.append('_token', csrfToken);
-            fd.append('image', file);
+            // Show local preview immediately so user sees the image while it uploads
+            var reader = new FileReader();
+            reader.onload = function (e) {
+                $('#bc-uploading-thumb').attr('src', e.target.result);
+                $('#bc-drop-placeholder, #bc-image-preview').hide();
+                $('#bc-image-uploading').show();
+                startProgressAnimation(file.size);
 
-            fetch(uploadUrl, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-                .then(r => r.json())
-                .then(resp => {
+                var fd = new FormData();
+                fd.append('_token', csrfToken);
+                fd.append('image', file);
+
+                fetch(uploadUrl, {
+                    method: 'POST',
+                    body: fd,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+                })
+                .then(function (r) {
+                    return r.json().then(function (resp) { return { ok: r.ok, status: r.status, resp: resp }; });
+                })
+                .then(function (result) {
                     uploading = false;
-                    $('#bc-image-uploading').hide();
+                    finishProgress();
 
-                    if (!resp.ok) {
-                        Botble.showError(resp.message || 'Image upload failed.');
-                        $('#bc-drop-placeholder').show();
+                    if (!result.ok || !result.resp.ok) {
+                        var msg = result.resp.message
+                            || (result.resp.errors ? Object.values(result.resp.errors).flat().join(' ') : null)
+                            || (result.status === 419 ? 'Session expired — please refresh and try again.' : 'Upload failed (HTTP ' + result.status + ').');
+                        setTimeout(function () {
+                            $('#bc-image-uploading').hide();
+                            $('#bc-drop-placeholder').show();
+                            Botble.showError(msg);
+                        }, 250);
                         return;
                     }
 
-                    uploadedImagePath = resp.path;
-                    uploadedImageUrl  = resp.url;
-                    $('#bc-image-img').attr('src', resp.url);
-                    $('#bc-image-preview').show();
+                    uploadedImagePath = result.resp.path;
+                    uploadedImageUrl  = result.resp.url;
+                    $('#bc-image-img').attr('src', result.resp.url);
 
-                    Botble.showSuccess('Image uploaded.');
-
-                    // "Once image is uploaded, ask to send."
-                    if ($('#bc-message').val().trim().length > 0) {
-                        openConfirmModal();
-                    }
+                    setTimeout(function () {
+                        $('#bc-image-uploading').hide();
+                        $('#bc-image-preview').show();
+                        playDing();
+                        Botble.showSuccess('Image uploaded.');
+                        if ($('#bc-message').val().trim().length > 0) {
+                            openConfirmModal();
+                        }
+                    }, 250);
                 })
-                .catch(() => {
+                .catch(function () {
                     uploading = false;
+                    clearInterval(progressTimer);
                     $('#bc-image-uploading').hide();
                     $('#bc-drop-placeholder').show();
-                    Botble.showError('Image upload failed — network error.');
+                    Botble.showError('Upload failed — your session may have expired. Please refresh the page and try again.');
                 });
+            };
+            reader.readAsDataURL(file);
         }
 
         // ── Confirm / schedule modal ─────────────────────────────────────
@@ -785,6 +898,52 @@
                 });
         });
 
+        // ── Checkbox / bulk selection ────────────────────────────────────
+        const bulkUrl = '{{ route('job-board.automations.broadcast-bulk-action') }}';
+
+        function getCheckedIds() {
+            return [...document.querySelectorAll('.bc-row-check:checked')].map(el => parseInt(el.value, 10));
+        }
+
+        function updateBulkToolbar() {
+            const ids = getCheckedIds();
+            const toolbar = document.getElementById('bc-bulk-toolbar');
+            const countEl = document.getElementById('bc-bulk-count');
+            if (ids.length > 0) {
+                toolbar.classList.remove('d-none');
+                countEl.textContent = ids.length + ' selected';
+            } else {
+                toolbar.classList.add('d-none');
+            }
+            const checkAll = document.getElementById('bc-check-all');
+            const all = document.querySelectorAll('.bc-row-check');
+            checkAll.indeterminate = ids.length > 0 && ids.length < all.length;
+            checkAll.checked = ids.length > 0 && ids.length === all.length;
+        }
+
+        document.getElementById('bc-check-all')?.addEventListener('change', function () {
+            document.querySelectorAll('.bc-row-check').forEach(el => el.checked = this.checked);
+            updateBulkToolbar();
+        });
+
+        $(document).on('change', '.bc-row-check', updateBulkToolbar);
+
+        function doBulkAction(action, label) {
+            const ids = getCheckedIds();
+            if (!ids.length) return;
+            pendingGenericAction = { bulk: true, action, ids };
+            $('#bcGenericConfirmLabel').text(label.replace('{n}', ids.length));
+            $('#bcGenericConfirmBtn').text(action === 'delete' ? 'Delete' : 'Cancel');
+            genericConfirmModal.show();
+        }
+
+        document.getElementById('bc-bulk-delete')?.addEventListener('click', function () {
+            doBulkAction('delete', 'Delete {n} broadcast(s) from history? This does not unpublish posts already sent.');
+        });
+        document.getElementById('bc-bulk-cancel')?.addEventListener('click', function () {
+            doBulkAction('cancel', 'Cancel {n} broadcast(s)? Only scheduled or recurring ones will be affected.');
+        });
+
         // ── Generic confirm (cancel scheduled / delete history row) ──────
         const genericConfirmModal = new bootstrap.Modal(document.getElementById('bcGenericConfirmModal'));
         let pendingGenericAction = null;
@@ -804,11 +963,21 @@
             const $btn = $(this);
             $btn.prop('disabled', true);
 
-            const fd = new FormData();
-            fd.append('_token', csrfToken);
-            if (pendingGenericAction.method === 'DELETE') fd.append('_method', 'DELETE');
+            let fetchPromise;
+            if (pendingGenericAction.bulk) {
+                fetchPromise = fetch(bulkUrl, {
+                    method : 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                    body   : JSON.stringify({ action: pendingGenericAction.action, ids: pendingGenericAction.ids }),
+                });
+            } else {
+                const fd = new FormData();
+                fd.append('_token', csrfToken);
+                if (pendingGenericAction.method === 'DELETE') fd.append('_method', 'DELETE');
+                fetchPromise = fetch(pendingGenericAction.url, { method: 'POST', body: fd, headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+            }
 
-            fetch(pendingGenericAction.url, { method: 'POST', body: fd, headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
+            fetchPromise
                 .then(r => r.json())
                 .then(resp => {
                     if (resp.error) {

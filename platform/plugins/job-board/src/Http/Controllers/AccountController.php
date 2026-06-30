@@ -13,12 +13,14 @@ use Botble\JobBoard\Http\Requests\AccountCreateRequest;
 use Botble\JobBoard\Http\Requests\AccountEditRequest;
 use Botble\JobBoard\Http\Resources\AccountResource;
 use Botble\JobBoard\Models\Account;
+use Botble\JobBoard\Services\AccountCvProfileSyncService;
 use Botble\JobBoard\Tables\AccountTable;
 use Botble\Media\Models\MediaFile;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use RuntimeException;
 
 class AccountController extends BaseController
 {
@@ -146,6 +148,20 @@ class AccountController extends BaseController
             ->httpResponse()
             ->setPreviousUrl(route('accounts.index'))
             ->withUpdatedSuccessMessage();
+    }
+
+    public function syncCvProfile(Account $account, AccountCvProfileSyncService $syncService)
+    {
+        try {
+            $syncService->syncFromAnalysis($account, $syncService->analyzeStoredCv($account));
+        } catch (RuntimeException $exception) {
+            return $this->httpResponse()
+                ->setError()
+                ->setMessage($exception->getMessage());
+        }
+
+        return $this->httpResponse()
+            ->setMessage('Candidate profile fields were updated from the linked CV.');
     }
 
     public function destroy(Account $account)

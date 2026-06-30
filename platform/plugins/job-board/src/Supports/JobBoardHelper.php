@@ -913,7 +913,7 @@ class JobBoardHelper
         $jobName = e($job->name);
 
         if ($job->apply_url) {
-            $isMailto = str_starts_with($job->apply_url, 'mailto:') ? '1' : '0';
+            $isMailto = ($job->apply_email || str_starts_with($job->apply_url, 'mailto:')) ? '1' : '0';
 
             return '<button type="button" class="btn btn-apply-now btn-sm" data-bs-toggle="modal" data-bs-target="#ModalApplyExternalJobForm" data-job-name="' . $jobName . '" data-job-id="' . $job->id . '" data-apply-mailto="' . $isMailto . '">' . $label . '</button>';
         }

@@ -28,6 +28,40 @@
         </div>
     </div>
 
+    <div class="row g-3 mb-3">
+        <div class="col-12">
+            <x-core::card>
+                <x-core::card.body>
+                    <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
+                        <div>
+                            <div class="text-muted text-uppercase small fw-semibold mb-1">Auto Apply Catch-Up</div>
+                            <div class="fw-semibold mb-1">
+                                @if(!empty($reconcileStatus['ran_at']))
+                                    Last run {{ \Carbon\Carbon::parse($reconcileStatus['ran_at'])->diffForHumans() }}
+                                @else
+                                    No background reconcile run recorded yet
+                                @endif
+                            </div>
+                            <div class="text-muted small">
+                                @if(!empty($reconcileStatus['ran_at']))
+                                    Window {{ $reconcileStatus['hours'] ?? '—' }}h · Lag {{ $reconcileStatus['lag_minutes'] ?? '—' }}m · Job limit {{ $reconcileStatus['job_limit'] ?? '—' }} · Match limit {{ $reconcileStatus['match_limit'] ?? '—' }}
+                                @else
+                                    The background service checks for missed auto-apply matches every 10 minutes.
+                                @endif
+                            </div>
+                        </div>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <span class="badge bg-primary text-white px-3 py-2">Scanned: {{ number_format(data_get($reconcileStatus, 'stats.jobs_scanned', 0)) }}</span>
+                            <span class="badge bg-warning text-dark px-3 py-2">Missed: {{ number_format(data_get($reconcileStatus, 'stats.missed_matches_found', 0)) }}</span>
+                            <span class="badge bg-success text-white px-3 py-2">Processed: {{ number_format(data_get($reconcileStatus, 'stats.processed', 0)) }}</span>
+                            <span class="badge bg-danger text-white px-3 py-2">Errors: {{ number_format(data_get($reconcileStatus, 'stats.errors', 0)) }}</span>
+                        </div>
+                    </div>
+                </x-core::card.body>
+            </x-core::card>
+        </div>
+    </div>
+
     <x-core::card>
         <x-core::card.header>
             <x-core::card.title>Auto Apply Orders</x-core::card.title>
@@ -40,6 +74,9 @@
                 </a>
                 <button type="button" class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#setupModal">
                     <i class="ti ti-user-plus me-1"></i> Setup for Candidate
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#sendDigestModal">
+                    <i class="ti ti-mail-forward me-1"></i> Send Weekly Reports
                 </button>
             </div>
         </x-core::card.header>
@@ -250,14 +287,20 @@
                                             <x-core::icon name="ti ti-list-details" />
                                         </a>
                                         @if($order->account)
-                                            <form method="POST" action="{{ route('auto-apply-orders.resend-invite', $order) }}" class="d-inline">
-                                                @csrf
-                                                <button type="submit" class="btn btn-sm btn-icon btn-outline-success"
-                                                    title="Resend invite"
-                                                    aria-label="Resend invite">
-                                                    <x-core::icon name="ti ti-brand-whatsapp" />
-                                                </button>
-                                            </form>
+                                            @php
+                                                $resendNumbers = array_values(array_filter((array) ($order->account->whatsapp_numbers ?? [])));
+                                                if (empty($resendNumbers) && $order->account->whatsapp_number) {
+                                                    $resendNumbers = [$order->account->whatsapp_number];
+                                                }
+                                            @endphp
+                                            <button type="button"
+                                                class="btn btn-sm btn-icon btn-outline-success js-resend-invite"
+                                                title="Resend invite to: {{ implode(', ', $resendNumbers) ?: 'no WhatsApp number on file' }}"
+                                                aria-label="Resend invite"
+                                                data-url="{{ route('auto-apply-orders.resend-invite', $order) }}"
+                                                data-numbers="{{ implode(', ', $resendNumbers) }}">
+                                                <x-core::icon name="ti ti-brand-whatsapp" />
+                                            </button>
                                         @endif
                                         @if($order->admin_status !== 'cancelled')
                                             <button type="button" class="btn btn-sm btn-icon btn-outline-warning"
@@ -330,7 +373,7 @@
                                 <div class="row g-3">
                                     <div class="col-md-7">
                                         <label class="form-label">Upload CV <span class="text-muted small">(optional — replaces the candidate's CV on file)</span></label>
-                                        <input type="file" class="form-control" id="editCvFile" name="cv_file" accept=".pdf,.doc,.docx,.txt" data-analyze-url="{{ route('auto-apply-orders.analyze-cv') }}">
+                                        <input type="file" class="form-control" id="editCvFile" name="cv_file" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" data-analyze-url="{{ route('auto-apply-orders.analyze-cv') }}">
                                         <div class="form-text">Use this to update the candidate's CV and regenerate keyword/filter suggestions.</div>
                                     </div>
                                     <div class="col-md-5">
@@ -372,6 +415,11 @@
                                             <i class="ti ti-user-check me-1"></i>
                                             <span id="editCandidateSelectedLabel"></span>
                                         </div>
+                                        <div id="editCandidateContactNumbers" class="d-none border rounded px-3 py-2 bg-light mt-1">
+                                            <div class="text-muted small text-uppercase fw-semibold mb-2">Contact Numbers</div>
+                                            <div id="editCandidateCallNumbers"></div>
+                                            <div id="editCandidateWhatsappNumbers"></div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -386,10 +434,13 @@
                                     </div>
                                     <div class="col-md-6">
                                         <div class="d-flex align-items-center justify-content-between">
-                                            <label class="form-label mb-0">Location Keyword</label>
+                                            <label class="form-label mb-0">Location Keywords</label>
                                             <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="editLocationClearBtn">Clear</button>
                                         </div>
-                                        <input type="text" name="location_keyword" id="editLocationKeyword" class="form-control" placeholder="e.g. Johannesburg">
+                                        <input type="text" id="editLocationKeywordInput" class="form-control" placeholder="Type a location and press comma or Enter">
+                                        <input type="hidden" name="location_keyword" id="editLocationKeyword">
+                                        <div id="editLocationKeywordChips" class="d-flex flex-wrap gap-2 mt-2"></div>
+                                        <div class="form-text">Add multiple towns or districts. Each one will match separately.</div>
                                     </div>
                                     <div class="col-12">
                                         <div class="d-flex align-items-center justify-content-between">
@@ -652,6 +703,7 @@
                 <form method="POST" action="{{ route('auto-apply-orders.setup-for-candidate') }}" enctype="multipart/form-data">
                     @csrf
                     <input type="hidden" name="create_candidate_account" id="setupCreateCandidateAccount" value="0">
+                    <input type="hidden" name="analysis_payload" id="setupAnalysisPayload">
                     <input type="hidden" name="candidate_first_name" id="setupCandidateFirstNameHidden">
                     <input type="hidden" name="candidate_last_name" id="setupCandidateLastNameHidden">
                     <input type="hidden" name="candidate_email" id="setupCandidateEmailHidden">
@@ -686,7 +738,7 @@
                                 <div class="row g-3">
                                     <div class="col-md-7">
                                         <label class="form-label">Upload CV for AI filter setup <span class="text-muted small">(optional)</span></label>
-                                        <input type="file" class="form-control" id="setupCvFile" name="cv_file" accept=".pdf,.doc,.docx,.txt" data-analyze-url="{{ route('auto-apply-orders.analyze-cv') }}">
+                                        <input type="file" class="form-control" id="setupCvFile" name="cv_file" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" data-analyze-url="{{ route('auto-apply-orders.analyze-cv') }}">
                                         <div class="form-text">Saved as the candidate's CV on file, and used to generate keywords, country/category suggestions, location, and experience filters.</div>
                                     </div>
                                     <div class="col-md-5">
@@ -777,10 +829,13 @@
                                     </div>
                                     <div class="col-md-6">
                                         <div class="d-flex align-items-center justify-content-between">
-                                            <label class="form-label mb-0">Location Keyword</label>
+                                            <label class="form-label mb-0">Location Keywords</label>
                                             <button type="button" class="btn btn-link btn-sm p-0 text-danger" id="setupLocationClearBtn">Clear</button>
                                         </div>
-                                        <input type="text" name="location_keyword" id="setupLocationKeyword" class="form-control" placeholder="e.g. Johannesburg">
+                                        <input type="text" id="setupLocationKeywordInput" class="form-control" placeholder="Type a location and press comma or Enter">
+                                        <input type="hidden" name="location_keyword" id="setupLocationKeyword">
+                                        <div id="setupLocationKeywordChips" class="d-flex flex-wrap gap-2 mt-2"></div>
+                                        <div class="form-text">Add multiple towns or districts. Each one will match separately.</div>
                                     </div>
                                     <div class="col-12">
                                         <div class="d-flex align-items-center justify-content-between">
@@ -933,6 +988,19 @@
         </div>
     </div>
 
+    {{-- Save loading modal — shown while setup form submits --}}
+    <div class="modal fade" id="setupSavingModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content">
+                <div class="modal-body text-center py-4 px-3">
+                    <div class="spinner-border text-primary mb-3" style="width:2.5rem;height:2.5rem;"></div>
+                    <h6 class="fw-semibold mb-1">Saving &amp; Activating</h6>
+                    <p class="text-muted small mb-0">Setting up Auto Apply for this candidate. This may take a moment…</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     {{-- Active jobs modal --}}
     <div class="modal fade" id="activeJobsModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-xl" style="max-width:1540px;width:98vw;">
@@ -1064,6 +1132,9 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-outline-primary" id="activeJobPreviewSendCoverBtn">
+                        <i class="ti ti-mail-forward me-1"></i> Send Cover
+                    </button>
                     <button type="button" class="btn btn-success" id="activeJobPreviewSendBtn" data-bs-toggle="modal" data-bs-target="#sendAutoApplyModal">
                         <i class="ti ti-send me-1"></i> Send
                     </button>
@@ -1479,6 +1550,7 @@
 
             document.getElementById('editOrderModal').addEventListener('show.bs.modal', function (e) {
                 var btn = e.relatedTarget;
+                if (!btn) return;
                 var order = autoApplyEditOrders[btn.dataset.orderId] || {};
                 document.getElementById('editOrderForm').action = btn.dataset.action;
                 document.getElementById('editOrderModalLabel').textContent = btn.dataset.label;
@@ -1487,7 +1559,7 @@
                 document.getElementById('editOrderPlan').value = btn.dataset.plan || Object.keys(autoApplyPlans)[0];
                 fillAutoApplyPlanFields(document.getElementById('editOrderPlan').value, 'editOrder');
                 document.getElementById('editMatchScoreThreshold').value = order.match_score_threshold || {{ \Botble\JobBoard\Models\AutoApplyOrder::globalMatchThreshold() }};
-                document.getElementById('editLocationKeyword').value = order.location_keyword || '';
+                editLocationKeywords && editLocationKeywords.setValue(order.location_keyword || '');
                 document.getElementById('editKeywordsInput').value = (order.keywords || []).join(', ');
                 document.getElementById('editWhitelistKeywordsInput').value = (order.whitelisted_company_keywords || []).join(', ');
                 document.getElementById('editBlacklistKeywordsInput').value = (order.blacklisted_company_keywords || []).join(', ');
@@ -1508,12 +1580,46 @@
                     resume_url: order.resume_url || '',
                     resume_name: order.resume_name || ''
                 };
+
+                try {
+                    var callNums = Array.isArray(order.call_numbers) ? order.call_numbers : [];
+                    var whatsappNums = Array.isArray(order.whatsapp_numbers) ? order.whatsapp_numbers : [];
+                    var contactDiv = document.getElementById('editCandidateContactNumbers');
+                    var callEl = document.getElementById('editCandidateCallNumbers');
+                    var waEl = document.getElementById('editCandidateWhatsappNumbers');
+                    if (contactDiv && callEl && waEl) {
+                        if (callNums.length || whatsappNums.length) {
+                            callEl.innerHTML = callNums.length
+                                ? '<div class="text-muted small fw-semibold mb-1"><i class="ti ti-phone me-1"></i> Call</div>'
+                                  + callNums.map(function (n) {
+                                      return '<div class="small mb-1 ps-3">' + setupEscapeHtml(n) + '</div>';
+                                  }).join('')
+                                : '';
+                            waEl.innerHTML = whatsappNums.length
+                                ? '<div class="text-muted small fw-semibold mb-1' + (callNums.length ? ' mt-2' : '') + '"><i class="ti ti-brand-whatsapp me-1 text-success"></i> WhatsApp</div>'
+                                  + whatsappNums.map(function (n) {
+                                      return '<div class="small mb-1 ps-3">' + setupEscapeHtml(n) + '</div>';
+                                  }).join('')
+                                : '';
+                            contactDiv.classList.remove('d-none');
+                        } else {
+                            callEl.innerHTML = '';
+                            waEl.innerHTML = '';
+                            contactDiv.classList.add('d-none');
+                        }
+                    }
+                } catch (err) {
+                    // contact numbers display is non-critical; don't let it block the modal
+                }
+
                 if (window.onEditAccountReady) window.onEditAccountReady();
             });
             document.getElementById('editOrderModal').addEventListener('hidden.bs.modal', function () {
                 document.getElementById('editCvFile').value = '';
                 document.getElementById('editAnalysisResult').classList.add('d-none');
                 document.getElementById('editAnalysisResult').innerHTML = '';
+                var contactDiv = document.getElementById('editCandidateContactNumbers');
+                if (contactDiv) contactDiv.classList.add('d-none');
                 editSelectedAccount = null;
                 if (window.onEditAccountReady) window.onEditAccountReady();
             });
@@ -1536,6 +1642,29 @@
                 var btn = e.relatedTarget;
                 document.getElementById('deleteForm').action = btn.dataset.action;
                 document.getElementById('deleteModalLabel').textContent = btn.dataset.label || 'This cannot be undone.';
+            });
+
+            document.addEventListener('click', function (e) {
+                var btn = e.target.closest('.js-resend-invite');
+                if (!btn) return;
+                e.preventDefault();
+
+                var numbers = btn.dataset.numbers || '';
+                var url = btn.dataset.url;
+                if (!url) return;
+
+                btn.disabled = true;
+                var icon = btn.querySelector('svg, i');
+                if (icon) icon.style.opacity = '0.4';
+
+                $httpClient.make().post(url).then(function (res) {
+                    Botble.showNotice('success', res.data.message || 'Invite sent.');
+                }).catch(function () {
+                    Botble.showError('Failed to send invite' + (numbers ? ' to ' + numbers : '') + '.');
+                }).finally(function () {
+                    btn.disabled = false;
+                    if (icon) icon.style.opacity = '';
+                });
             });
 
             function updateModalStackFocus(activeModalId) {
@@ -1608,6 +1737,101 @@
                     h.dataset.generatedKeyword = '1';
                     input.parentNode.appendChild(h);
                 });
+            }
+
+            function setupCommaChipInput(opts) {
+                var input = document.getElementById(opts.inputId);
+                var hidden = document.getElementById(opts.hiddenId);
+                var chips = document.getElementById(opts.chipsId);
+                var values = [];
+
+                if (!input || !hidden || !chips) {
+                    return null;
+                }
+
+                function normalize(list) {
+                    var unique = {};
+
+                    return (Array.isArray(list) ? list : String(list || '').split(','))
+                        .map(function (item) { return String(item || '').trim(); })
+                        .filter(Boolean)
+                        .filter(function (item) {
+                            var key = item.toLowerCase();
+                            if (unique[key]) {
+                                return false;
+                            }
+
+                            unique[key] = true;
+                            return true;
+                        });
+                }
+
+                function syncHidden() {
+                    hidden.value = values.join(', ');
+                }
+
+                function render() {
+                    chips.innerHTML = '';
+
+                    values.forEach(function (value, index) {
+                        var badge = document.createElement('span');
+                        badge.className = 'badge bg-light text-dark border d-inline-flex align-items-center gap-1 px-2 py-1';
+                        badge.style.fontSize = '.8rem';
+                        badge.innerHTML = '<span>' + setupEscapeHtml(value) + '</span>'
+                            + '<button type="button" class="btn btn-link text-danger p-0 ms-1 lh-1" aria-label="Remove" title="Remove" style="font-size:1rem;text-decoration:none;">&times;</button>';
+                        badge.querySelector('button').addEventListener('click', function () {
+                            values.splice(index, 1);
+                            syncHidden();
+                            render();
+                        });
+                        chips.appendChild(badge);
+                    });
+                }
+
+                function commitInputValue() {
+                    var pending = input.value.trim();
+
+                    if (!pending) {
+                        input.value = '';
+                        return;
+                    }
+
+                    values = normalize(values.concat(pending.split(',')));
+                    input.value = '';
+                    syncHidden();
+                    render();
+                }
+
+                input.addEventListener('keydown', function (event) {
+                    if (event.key === 'Enter' || event.key === ',') {
+                        event.preventDefault();
+                        commitInputValue();
+                    }
+                });
+
+                input.addEventListener('blur', commitInputValue);
+
+                return {
+                    clear: function () {
+                        values = [];
+                        input.value = '';
+                        syncHidden();
+                        render();
+                    },
+                    setValue: function (value) {
+                        values = normalize(value);
+                        input.value = '';
+                        syncHidden();
+                        render();
+                    },
+                    getValue: function () {
+                        return hidden.value;
+                    },
+                    getItems: function () {
+                        return values.slice();
+                    },
+                    commit: commitInputValue,
+                };
             }
 
             function setupFillCandidateHiddenFields(candidate) {
@@ -1772,9 +1996,12 @@
                 }
 
                 document.getElementById('setupCreateCandidateAccount').value = '0';
+                setupLocationKeywords && setupLocationKeywords.commit();
                 prepareKeywords('keywordsInput', 'keywordsHidden');
                 prepareKeywords('setupWhitelistKeywordsInput', 'setupWhitelistKeywordsHidden', 'whitelisted_company_keywords[]');
                 prepareKeywords('setupBlacklistKeywordsInput', 'setupBlacklistKeywordsHidden', 'blacklisted_company_keywords[]');
+
+                bootstrap.Modal.getOrCreateInstance(document.getElementById('setupSavingModal')).show();
             });
 
             document.querySelector('#editOrderForm').addEventListener('submit', function(e) {
@@ -1784,6 +2011,7 @@
                     return;
                 }
 
+                editLocationKeywords && editLocationKeywords.commit();
                 prepareKeywords('editKeywordsInput', 'editKeywordsHidden');
                 prepareKeywords('editWhitelistKeywordsInput', 'editWhitelistKeywordsHidden', 'whitelisted_company_keywords[]');
                 prepareKeywords('editBlacklistKeywordsInput', 'editBlacklistKeywordsHidden', 'blacklisted_company_keywords[]');
@@ -1899,10 +2127,14 @@
                     resultsList.innerHTML = '';
                     setupSelectedAccount = null;
                     setupPendingCandidate = null;
+                    document.getElementById('setupAnalysisPayload').value = '';
                     setupFillCandidateHiddenFields({});
                     setupShowPendingCandidateNotice(null);
                     if (window.onSetupCandidateCleared) window.onSetupCandidateCleared();
                 });
+
+                // Expose for auto-selection when CV analysis finds an existing account
+                window.setupSelectCandidateFromAnalysis = selectCandidate;
             })();
 
             // Generic AJAX-searchable chip picker (used for countries, categories, blacklisted companies)
@@ -2039,6 +2271,12 @@
                 parseResponse: function (resp) { return (resp.data || resp).items || []; },
             });
 
+            var setupLocationKeywords = setupCommaChipInput({
+                inputId: 'setupLocationKeywordInput',
+                hiddenId: 'setupLocationKeyword',
+                chipsId: 'setupLocationKeywordChips',
+            });
+
             document.getElementById('setupCategoryClearBtn').addEventListener('click', function () {
                 setupCategoryPicker.clear();
             });
@@ -2049,7 +2287,7 @@
             });
 
             document.getElementById('setupLocationClearBtn').addEventListener('click', function () {
-                document.getElementById('setupLocationKeyword').value = '';
+                setupLocationKeywords && setupLocationKeywords.clear();
             });
 
             document.getElementById('setupWhitelistKeywordsClearBtn').addEventListener('click', function () {
@@ -2183,10 +2421,9 @@
                     var keywords = Array.isArray(data.keywords) && data.keywords.length ? data.keywords : (data.keyword ? [data.keyword] : []);
                     var splitName = setupSplitCandidateName(data.candidate_name);
                     document.getElementById('keywordsInput').value = keywords.join(', ');
+                    document.getElementById('setupAnalysisPayload').value = JSON.stringify(data || {});
 
-                    if (data.location_keyword) {
-                        document.querySelector('#setup-pane-filters input[name="location_keyword"]').value = data.location_keyword;
-                    }
+                    setupLocationKeywords && setupLocationKeywords.setValue(data.location_keyword || '');
 
                     if (data.job_experience_id) {
                         document.querySelector('#setup-pane-filters select[name="job_experience_id"]').value = data.job_experience_id;
@@ -2200,31 +2437,60 @@
                         setupCategoryPicker.setSelected(selectedObjects(data.category_ids || [], data.category_names || []));
                     }
 
-                    if (!document.getElementById('setupAccountId').value && (splitName.first_name || splitName.last_name || data.candidate_email || data.candidate_phone)) {
-                        setupPendingCandidate = {
-                            create_account: true,
-                            first_name: splitName.first_name || '',
-                            last_name: splitName.last_name || '',
-                            email: data.candidate_email || '',
-                            phone: data.candidate_phone || '',
-                            whatsapp_number: data.candidate_phone || '',
-                        };
-                        setupFillCandidateHiddenFields(setupPendingCandidate);
-                        setupShowPendingCandidateNotice(setupPendingCandidate);
+                    if (!document.getElementById('setupAccountId').value) {
+                        if (data.existing_account && data.existing_account.id) {
+                            // Existing account matched by email — auto-select it, skip account creation
+                            if (window.setupSelectCandidateFromAnalysis) {
+                                window.setupSelectCandidateFromAnalysis(data.existing_account);
+                            }
+                            Botble.showSuccess('Existing account found for ' + (data.existing_account.email || '') + ' — selected automatically.');
+                        } else if (splitName.first_name || splitName.last_name || data.candidate_email || data.candidate_phone) {
+                            setupPendingCandidate = {
+                                create_account: true,
+                                first_name: splitName.first_name || '',
+                                last_name: splitName.last_name || '',
+                                email: data.candidate_email || '',
+                                phone: data.candidate_phone || '',
+                                whatsapp_number: data.candidate_phone || '',
+                            };
+                            setupFillCandidateHiddenFields(setupPendingCandidate);
+                            setupShowPendingCandidateNotice(setupPendingCandidate);
+                        }
                     }
 
                     renderAnalysis(data);
-                    Botble.showSuccess('AI analysis complete. Auto Apply filters were filled in.');
+                    if (!data.existing_account) {
+                        Botble.showSuccess('AI analysis complete. Auto Apply filters were filled in.');
+                    }
                 }
 
                 function handleAnalysisResponse(resp) {
-                    if (resp.error) {
-                        Botble.showError(resp.error);
+                    if (resp.error) { Botble.showError(resp.error); return; }
+                    if (resp.errors) {
+                        var first = Object.values(resp.errors)[0];
+                        Botble.showError(Array.isArray(first) ? first[0] : first);
                         return;
                     }
-
+                    if (resp.message && !resp.data) { Botble.showError(resp.message); return; }
                     applySetupAnalysis(resp.data || {});
                     bootstrap.Tab.getOrCreateInstance(document.getElementById('setup-tab-filters')).show();
+                }
+
+                function runSetupCvAnalysis() {
+                    if (!cvFileInput.files || !cvFileInput.files.length) return;
+                    analyzeCvBtn.disabled = true;
+                    analyzeCvBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Analysing...';
+                    var formData = new FormData();
+                    formData.append('cv_file', cvFileInput.files[0]);
+                    formData.append('_token', document.querySelector('meta[name="csrf-token"]').content);
+                    fetch(cvFileInput.dataset.analyzeUrl, { method: 'POST', body: formData, headers: { 'Accept': 'application/json' } })
+                        .then(function (r) { return r.json(); })
+                        .then(handleAnalysisResponse)
+                        .catch(function () { Botble.showError('CV analysis failed.'); })
+                        .finally(function () {
+                            analyzeCvBtn.innerHTML = '<i class="ti ti-sparkles me-1"></i> Analyse Uploaded CV';
+                            updateCvActions();
+                        });
                 }
 
                 cvFileInput.addEventListener('change', function () {
@@ -2235,33 +2501,13 @@
 
                     if (this.files && this.files.length) {
                         uploadedCvObjectUrl = URL.createObjectURL(this.files[0]);
+                        runSetupCvAnalysis();
                     }
 
                     updateCvActions();
                 });
 
-                analyzeCvBtn.addEventListener('click', function () {
-                    if (!cvFileInput.files || !cvFileInput.files.length) {
-                        Botble.showError('Please select a CV file first.');
-                        return;
-                    }
-
-                    analyzeCvBtn.disabled = true;
-                    analyzeCvBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Analysing...';
-
-                    var formData = new FormData();
-                    formData.append('cv_file', cvFileInput.files[0]);
-                    formData.append('_token', document.querySelector('meta[name="csrf-token"]').content);
-
-                    fetch(cvFileInput.dataset.analyzeUrl, { method: 'POST', body: formData, headers: { 'Accept': 'application/json' } })
-                        .then(function (r) { return r.json(); })
-                        .then(handleAnalysisResponse)
-                        .catch(function () { Botble.showError('CV analysis failed.'); })
-                        .finally(function () {
-                            analyzeCvBtn.innerHTML = '<i class="ti ti-sparkles me-1"></i> Analyse Uploaded CV';
-                            updateCvActions();
-                        });
-                });
+                analyzeCvBtn.addEventListener('click', runSetupCvAnalysis);
 
                 analyzeAccountCvBtn.addEventListener('click', function () {
                     if (!setupSelectedAccount || !setupSelectedAccount.id) {
@@ -2308,6 +2554,7 @@
 
                     bootstrap.Modal.getInstance(document.getElementById('setupCreateCandidateModal')).hide();
                     prepareKeywords('keywordsInput', 'keywordsHidden');
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('setupSavingModal')).show();
                     document.querySelector('#setupModal form').submit();
                 });
 
@@ -2335,7 +2582,7 @@
                             whitelisted_company_keywords: document.getElementById('setupWhitelistKeywordsInput').value.split(',').map(function (item) { return item.trim(); }).filter(Boolean),
                             blacklisted_company_ids: selectedValues('setupBlacklistHidden'),
                             blacklisted_company_keywords: document.getElementById('setupBlacklistKeywordsInput').value.split(',').map(function (item) { return item.trim(); }).filter(Boolean),
-                            location_keyword: document.querySelector('#setup-pane-filters input[name="location_keyword"]').value,
+                            location_keyword: setupLocationKeywords ? setupLocationKeywords.getValue() : '',
                             job_experience_id: document.querySelector('#setup-pane-filters select[name="job_experience_id"]').value
                         })
                     })
@@ -2390,6 +2637,7 @@
                         uploadedCvObjectUrl = '';
                     }
                     cvFileInput.value = '';
+                    document.getElementById('setupAnalysisPayload').value = '';
                     analysisPanel.classList.add('d-none');
                     analysisPanel.innerHTML = '';
                     previewJobsResult.innerHTML = 'Analyse a CV or adjust filters, then preview matching jobs before saving.';
@@ -2438,6 +2686,12 @@
                 parseResponse: function (resp) { return (resp.data || resp).items || []; },
             });
 
+            var editLocationKeywords = setupCommaChipInput({
+                inputId: 'editLocationKeywordInput',
+                hiddenId: 'editLocationKeyword',
+                chipsId: 'editLocationKeywordChips',
+            });
+
             document.getElementById('editCategoryClearBtn').addEventListener('click', function () {
                 editCategoryPicker.clear();
             });
@@ -2448,7 +2702,7 @@
             });
 
             document.getElementById('editLocationClearBtn').addEventListener('click', function () {
-                document.getElementById('editLocationKeyword').value = '';
+                editLocationKeywords && editLocationKeywords.clear();
             });
 
             document.getElementById('editWhitelistKeywordsClearBtn').addEventListener('click', function () {
@@ -2573,9 +2827,7 @@
                     var keywords = Array.isArray(data.keywords) && data.keywords.length ? data.keywords : (data.keyword ? [data.keyword] : []);
                     document.getElementById('editKeywordsInput').value = keywords.join(', ');
 
-                    if (data.location_keyword) {
-                        document.getElementById('editLocationKeyword').value = data.location_keyword;
-                    }
+                    editLocationKeywords && editLocationKeywords.setValue(data.location_keyword || '');
 
                     if (data.job_experience_id) {
                         document.getElementById('editJobExperienceId').value = data.job_experience_id;
@@ -2594,13 +2846,32 @@
                 }
 
                 function handleAnalysisResponse(resp) {
-                    if (resp.error) {
-                        Botble.showError(resp.error);
+                    if (resp.error) { Botble.showError(resp.error); return; }
+                    if (resp.errors) {
+                        var first = Object.values(resp.errors)[0];
+                        Botble.showError(Array.isArray(first) ? first[0] : first);
                         return;
                     }
-
+                    if (resp.message && !resp.data) { Botble.showError(resp.message); return; }
                     applyEditAnalysis(resp.data || {});
                     bootstrap.Tab.getOrCreateInstance(document.getElementById('edit-tab-filters')).show();
+                }
+
+                function runEditCvAnalysis() {
+                    if (!cvFileInput.files || !cvFileInput.files.length) return;
+                    analyzeCvBtn.disabled = true;
+                    analyzeCvBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Analysing...';
+                    var formData = new FormData();
+                    formData.append('cv_file', cvFileInput.files[0]);
+                    formData.append('_token', document.querySelector('meta[name="csrf-token"]').content);
+                    fetch(cvFileInput.dataset.analyzeUrl, { method: 'POST', body: formData, headers: { 'Accept': 'application/json' } })
+                        .then(function (r) { return r.json(); })
+                        .then(handleAnalysisResponse)
+                        .catch(function () { Botble.showError('CV analysis failed.'); })
+                        .finally(function () {
+                            analyzeCvBtn.innerHTML = '<i class="ti ti-sparkles me-1"></i> Analyse Uploaded CV';
+                            updateCvActions();
+                        });
                 }
 
                 cvFileInput.addEventListener('change', function () {
@@ -2611,33 +2882,13 @@
 
                     if (this.files && this.files.length) {
                         uploadedCvObjectUrl = URL.createObjectURL(this.files[0]);
+                        runEditCvAnalysis();
                     }
 
                     updateCvActions();
                 });
 
-                analyzeCvBtn.addEventListener('click', function () {
-                    if (!cvFileInput.files || !cvFileInput.files.length) {
-                        Botble.showError('Please select a CV file first.');
-                        return;
-                    }
-
-                    analyzeCvBtn.disabled = true;
-                    analyzeCvBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Analysing...';
-
-                    var formData = new FormData();
-                    formData.append('cv_file', cvFileInput.files[0]);
-                    formData.append('_token', document.querySelector('meta[name="csrf-token"]').content);
-
-                    fetch(cvFileInput.dataset.analyzeUrl, { method: 'POST', body: formData, headers: { 'Accept': 'application/json' } })
-                        .then(function (r) { return r.json(); })
-                        .then(handleAnalysisResponse)
-                        .catch(function () { Botble.showError('CV analysis failed.'); })
-                        .finally(function () {
-                            analyzeCvBtn.innerHTML = '<i class="ti ti-sparkles me-1"></i> Analyse Uploaded CV';
-                            updateCvActions();
-                        });
-                });
+                analyzeCvBtn.addEventListener('click', runEditCvAnalysis);
 
                 analyzeAccountCvBtn.addEventListener('click', function () {
                     if (!editSelectedAccount || !editSelectedAccount.id) {
@@ -3005,7 +3256,8 @@
                                 }
 
                                 var datesCell = '<div class="small text-nowrap">'
-                                    + '<div><span class="text-muted">Posted:</span> ' + escapeHtml(job.created_at || '—') + '</div>'
+                                    + '<div><span class="text-muted">Created:</span> ' + escapeHtml(job.created_date || job.created_at || '—') + '</div>'
+                                    + '<div><span class="text-muted">Posted:</span> ' + escapeHtml(job.posted_date || job.created_at || '—') + '</div>'
                                     + '<div><span class="text-muted">Closing:</span> ' + escapeHtml(job.closing_date || '—') + '</div>'
                                     + '</div>';
 
@@ -3015,12 +3267,14 @@
                                     : renderScoreBadge(job.score, job.match_reasons);
 
                                 var logStatusBadges = {
+                                    queued: 'bg-info',
                                     sent: 'bg-success',
                                     failed: 'bg-danger',
                                     bounced: 'bg-danger',
                                     skipped_low_score: 'bg-secondary'
                                 };
                                 var logStatusLabels = {
+                                    queued: 'Queued',
                                     sent: 'Sent',
                                     failed: 'Failed',
                                     bounced: 'Bounced',
@@ -3035,14 +3289,16 @@
                                     if (job.log_error) {
                                         badgeTitle += (badgeTitle ? ' — ' : '') + job.log_error;
                                     }
-                                    actionsCell = '<div class="d-inline-flex gap-1 align-items-center">'
+                                    actionsCell = '<div class="d-inline-flex gap-1 align-items-center flex-wrap justify-content-end">'
                                         + '<button type="button" class="btn btn-sm btn-outline-info js-preview-active-job" title="Preview application" data-job-id="' + job.id + '" data-job-name="' + escapeHtml(job.name) + '">Preview</button>'
+                                        + '<button type="button" class="btn btn-sm btn-outline-primary js-send-active-cover" title="Send cover letter to candidate" data-job-id="' + job.id + '" data-job-name="' + escapeHtml(job.name) + '">Cover</button>'
                                         + '<span class="badge ' + badgeClass + '" title="' + escapeHtml(badgeTitle) + '" style="cursor:help;color:#fff">' + escapeHtml(badgeLabel) + '</span>'
                                         + '</div>';
                                 } else {
                                     var canSendNow = canSendForScore(job.score);
-                                    actionsCell = '<div class="d-inline-flex gap-1">'
+                                    actionsCell = '<div class="d-inline-flex gap-1 flex-wrap justify-content-end">'
                                         + '<button type="button" class="btn btn-sm btn-outline-info js-preview-active-job" title="Preview application" data-job-id="' + job.id + '" data-job-name="' + escapeHtml(job.name) + '">Preview</button>'
+                                        + '<button type="button" class="btn btn-sm btn-outline-primary js-send-active-cover" title="Send cover letter to candidate" data-job-id="' + job.id + '" data-job-name="' + escapeHtml(job.name) + '">Cover</button>'
                                         + '<button type="button" class="btn btn-sm ' + (canSendNow ? 'btn-success' : 'btn-outline-secondary') + ' js-send-active-job" title="' + escapeHtml(canSendNow ? 'Send application' : thresholdHelpText(job.score)) + '" data-bs-toggle="modal" data-bs-target="#sendAutoApplyModal" data-job-id="' + job.id + '" data-job-name="' + escapeHtml(job.name) + '" data-score="' + escapeHtml(job.score) + '"' + (canSendNow ? '' : ' disabled aria-disabled="true"') + '>Send</button>'
                                         + '</div>';
                                 }
@@ -3080,6 +3336,7 @@
                 var activeJobsJobCountsUrl = '';
                 var activeJobsUnsentIdsUrl = '';
                 var sendJobUrl = '{{ route("auto-apply-orders.send-job") }}';
+                var sendCoverUrl = '{{ route("auto-apply-orders.send-cover") }}';
 
                 document.getElementById('activeJobsModal').addEventListener('show.bs.modal', function (e) {
                     var btn = e.relatedTarget;
@@ -3125,6 +3382,7 @@
                 activeJobsList.addEventListener('click', function (e) {
                     var removeKeywordBtn = e.target.closest('.js-remove-active-keyword');
                     var previewBtn = e.target.closest('.js-preview-active-job');
+                    var sendCoverBtn = e.target.closest('.js-send-active-cover');
                     var sendBtn = e.target.closest('.js-send-active-job');
 
                     if (removeKeywordBtn) {
@@ -3179,6 +3437,52 @@
                             .finally(function () {
                                 activeJobsLoading.classList.add('d-none');
                             });
+
+                        return;
+                    }
+
+                    if (sendCoverBtn) {
+                        var originalCoverHtml = sendCoverBtn.innerHTML;
+                        sendCoverBtn.disabled = true;
+                        sendCoverBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+                        fetch(sendCoverUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                                'Accept': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                account_id: activeJobsAccountId,
+                                job_id: sendCoverBtn.dataset.jobId
+                            })
+                        })
+                            .then(function (r) {
+                                return r.json().catch(function () { return {}; }).then(function (data) {
+                                    return { ok: r.ok, data: data };
+                                });
+                            })
+                            .then(function (result) {
+                                var payload = result.data || {};
+                                var ok = result.ok && !payload.error;
+                                var message = payload.message || (ok ? 'Cover letter sent.' : 'Failed to send cover letter.');
+
+                                if (ok) {
+                                    Botble.showSuccess(message);
+                                } else {
+                                    Botble.showError(message);
+                                }
+                            })
+                            .catch(function () {
+                                Botble.showError('Network error — please try again.');
+                            })
+                            .finally(function () {
+                                sendCoverBtn.disabled = false;
+                                sendCoverBtn.innerHTML = originalCoverHtml;
+                            });
+
+                        return;
                     }
 
                     if (sendBtn) {
@@ -3269,7 +3573,8 @@
                         : (job.wakanda_job_url ? '<strong>Manual Apply:</strong> No application email. Use <a href="' + escapeHtml(job.wakanda_job_url) + '" target="_blank" rel="noopener">this Wakanda Jobs link</a>.' : '<strong>Manual Apply:</strong> No application email available.');
 
                     var dates = [];
-                    if (job.created_at) dates.push('Posted: ' + job.created_at);
+                    if (job.created_date || job.created_at) dates.push('Created: ' + (job.created_date || job.created_at));
+                    if (job.posted_date || job.created_at) dates.push('Posted: ' + (job.posted_date || job.created_at));
                     if (job.closing_date) dates.push('Closing: ' + job.closing_date);
                     document.getElementById('activeJobPreviewJobDates').textContent = dates.join(' · ');
 
@@ -3280,6 +3585,53 @@
                     document.getElementById('sendAutoApplyAccountId').value = activeJobsAccountId;
                     document.getElementById('sendAutoApplyJobId').value = previewedJobId;
                     document.getElementById('sendAutoApplyLabel').textContent = 'Send application for ' + activeJobsCandidateLabel + ' to ' + previewedJobName + '?';
+                });
+
+                document.getElementById('activeJobPreviewSendCoverBtn').addEventListener('click', function () {
+                    if (!previewedJobId || !activeJobsAccountId) {
+                        Botble.showError('Preview a job first.');
+                        return;
+                    }
+
+                    var btn = this;
+                    btn.disabled = true;
+                    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Sending...';
+
+                    fetch(sendCoverUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            account_id: activeJobsAccountId,
+                            job_id: previewedJobId
+                        })
+                    })
+                        .then(function (r) {
+                            return r.json().catch(function () { return {}; }).then(function (data) {
+                                return { ok: r.ok, data: data };
+                            });
+                        })
+                        .then(function (result) {
+                            var payload = result.data || {};
+                            var ok = result.ok && !payload.error;
+                            var message = payload.message || (ok ? 'Cover letter sent.' : 'Failed to send cover letter.');
+
+                            if (ok) {
+                                Botble.showSuccess(message);
+                            } else {
+                                Botble.showError(message);
+                            }
+                        })
+                        .catch(function () {
+                            Botble.showError('Network error — please try again.');
+                        })
+                        .finally(function () {
+                            btn.disabled = false;
+                            btn.innerHTML = '<i class="ti ti-mail-forward me-1"></i> Send Cover';
+                        });
                 });
 
                 document.getElementById('activeJobPreviewCvBtn').addEventListener('click', function () {
@@ -3817,6 +4169,63 @@
                     Botble.showError('Network error.');
                 });
             });
+        // Send weekly digest
+        (function() {
+            var digestUrl = '{{ route('auto-apply-orders.send-weekly-digest') }}';
+            var csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '{{ csrf_token() }}';
+
+            document.getElementById('sendDigestAllBtn')?.addEventListener('click', function() {
+                var btn = this;
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Sending…';
+                fetch(digestUrl, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                })
+                .then(r => r.json())
+                .then(function(data) {
+                    bootstrap.Modal.getInstance(document.getElementById('sendDigestModal'))?.hide();
+                    if (data.error) {
+                        Botble.showError(data.message || 'Failed to send digests.');
+                    } else {
+                        Botble.showSuccess(data.message || 'Digests sent.');
+                    }
+                })
+                .catch(function() { Botble.showError('Network error.'); })
+                .finally(function() { btn.disabled = false; btn.innerHTML = '<i class="ti ti-send me-1"></i> Send to All Active'; });
+            });
+        })();
         </script>
+
+    {{-- Send Digest Modal --}}
+    <div class="modal fade" id="sendDigestModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content">
+                <div class="modal-header py-3">
+                    <h5 class="modal-title">Send Weekly Reports</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">
+                        This will generate a PDF digest for each active Auto Apply subscriber
+                        and send it to their <strong>email</strong> and <strong>WhatsApp</strong>.
+                    </p>
+                    <div class="alert alert-light border small py-2 px-3 mb-0">
+                        <i class="ti ti-clock me-1 text-muted"></i>
+                        Automatically runs every <strong>Friday at 17:00 +2 GMT</strong>.
+                        Use this button to send manually at any time.
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="sendDigestAllBtn">
+                        <i class="ti ti-send me-1"></i> Send to All Active
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     @endpush
 @endsection

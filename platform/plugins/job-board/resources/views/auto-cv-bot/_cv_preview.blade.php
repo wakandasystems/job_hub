@@ -46,7 +46,7 @@
     $overallScoreColor = $overallScore >= 90 ? 'success' : ($overallScore >= 50 ? 'warning' : 'danger');
 
     $sectionButton = function (int $topicNumber, string $label = 'Get More Info') use ($session, $icon) {
-        return '<button type="button" class="btn btn-sm btn-outline-primary js-request-section-info" data-topic-number="' . $topicNumber . '" data-url="' . e(route('job-board.auto-cv-bot.request-section-information', $session->id)) . '">' . $icon('message-plus', 'me-1') . e($label) . '</button>';
+        return '<button type="button" class="btn btn-sm btn-outline-primary js-request-section-info" data-topic-number="' . $topicNumber . '" data-topic-label="' . e($label) . '" data-url="' . e(route('job-board.auto-cv-bot.request-section-information', $session->id)) . '">' . $icon('message-plus', 'me-1') . e($label) . '</button>';
     };
 
     $editable = function (string $field, $value, string $emptyText = 'Click to add') {
@@ -58,6 +58,23 @@
     $clearButton = function (string $section) use ($session, $icon) {
         return '<button type="button" class="btn btn-sm btn-outline-danger js-clear-cv-section" data-section="' . e($section) . '" data-url="' . e(route('job-board.auto-cv-bot.clear-cv-section', $session->id)) . '" title="Clear this section">' . $icon('eraser') . '</button>';
     };
+
+    $addButton = function (string $section, string $label) use ($session, $icon) {
+        return '<button type="button" class="btn btn-sm btn-outline-success js-add-cv-item" data-section="' . e($section) . '" data-label="' . e($label) . '" data-url="' . e(route('job-board.auto-cv-bot.add-cv-item', $session->id)) . '" title="Add ' . e($label) . '">' . $icon('plus') . '</button>';
+    };
+
+    $requestUrl = route('job-board.auto-cv-bot.request-section-information', $session->id);
+
+    $contactFields = [
+        'phone'          => ["What's the best number to call you on? We already have your WhatsApp — this is for a separate call number if different.",  'Call number'],
+        'whatsapp'       => ['(Auto-filled from the WhatsApp session number)',                                                                          'WhatsApp number'],
+        'email'          => ["What's the best email address to reach you on? If you don't have one, just say no.",                                     'Email address'],
+        'location'       => ['Which town or city do you live in?',                                                                                     'Town / City'],
+        'address'        => ["Do you want to add your residential area? For example: Chalala, Libala, or Matero. If not, just say no.",                'Residential area'],
+        'age'            => ["How old are you, if you don't mind sharing? If you'd rather skip it, just say no.",                                      'Age'],
+        'marital_status' => ["Would you like to include your marital status? If not, just say no.",                                                    'Marital status'],
+        'linkedin'       => ["Do you have a LinkedIn profile? If not, just say no.",                                                                   'LinkedIn'],
+    ];
 @endphp
 
 <div class="cv-section bg-light">
@@ -85,52 +102,171 @@
             {!! $sectionButton(3, 'Get Headline Info') !!}
         </div>
     </div>
-    <p class="small mb-0">
-        <span class="text-muted">Phone:</span> {!! $editable('phone', $cv['phone'] ?? '', 'Click to add phone') !!}
-        &middot; <span class="text-muted">Email:</span> {!! $editable('email', $cv['email'] ?? '', 'Click to add email') !!}
-        &middot; <span class="text-muted">Location:</span> {!! $editable('location', $cv['location'] ?? '', 'Click to add location') !!}
-    </p>
-    <p class="small mb-0">
-        <span class="text-muted">Address:</span> {!! $editable('address', $cv['address'] ?? '', 'Click to add address') !!}
-        &middot; <span class="text-muted">Age:</span> {!! $editable('age', $cv['age'] ?? '', 'Click to add age') !!}
-        &middot; <span class="text-muted">Marital Status:</span> {!! $editable('marital_status', $cv['marital_status'] ?? '', 'Click to add status') !!}
-        {!! $scoreBadge(2) !!}
-    </p>
-    @if (!empty($cv['linkedin']))
-        <p class="small mb-0"><span class="text-muted">LinkedIn:</span> {!! $editable('linkedin', $cv['linkedin'] ?? '') !!}</p>
-    @endif
+    {{-- Contact sub-field breakdown --}}
+    <div class="mt-2 border-top pt-2">
+        @foreach ($contactFields as $field => [$question, $label])
+            @php
+                $val     = trim((string) ($cv[$field] ?? ''));
+                $filled  = $val !== '';
+                $color   = $filled ? 'success' : 'danger';
+                $editKey = $field;
+                $emptyTxt = 'Click to add ' . strtolower($label);
+            @endphp
+            <div class="d-flex align-items-center gap-2 py-1 {{ !$loop->last ? 'border-bottom' : '' }}">
+                <span class="badge bg-{{ $color }}-lt text-{{ $color }} border border-{{ $color }} flex-shrink-0" style="font-size:10px;min-width:90px">
+                    {{ $label }}
+                </span>
+                <span class="small flex-grow-1 min-width-0" style="word-break:break-word">
+                    @if ($filled)
+                        {!! $editable($editKey, $val, $emptyTxt) !!}
+                    @else
+                        <span class="text-danger">✗ missing</span>
+                    @endif
+                </span>
+                @if (!$filled)
+                    <button type="button"
+                            class="btn btn-xs btn-outline-primary js-request-section-info flex-shrink-0"
+                            style="font-size:10px;padding:1px 7px"
+                            data-topic-number="2"
+                            data-topic-label="{{ $label }}"
+                            data-exact-question="{{ $question }}"
+                            data-url="{{ $requestUrl }}">
+                        {!! $icon('message-plus', 'me-1') !!}Ask
+                    </button>
+                @endif
+            </div>
+        @endforeach
+    </div>
+    {!! $scoreBadge(2) !!}
     <div class="btn-group btn-group-sm mt-2">
         {!! $clearButton('contact') !!}
         {!! $sectionButton(2, 'Get Contact Info') !!}
     </div>
 </div>
 
+@php
+    $uploadedCvPath  = trim((string) ($session->candidate_cv_path ?? ''));
+    $uploadedCvExists = $uploadedCvPath !== '' && \Illuminate\Support\Facades\Storage::disk('local')->exists($uploadedCvPath);
+    $uploadedCvUrl   = $uploadedCvExists ? route('job-board.auto-cv-bot.uploaded-cv', $session->id) : null;
+    $uploadedCvExt   = $uploadedCvExists ? strtolower(pathinfo($uploadedCvPath, PATHINFO_EXTENSION)) : '';
+    $uploadedCvIsPdf = in_array($uploadedCvExt, ['pdf'], true);
+    $uploadedCvIsImg = in_array($uploadedCvExt, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true);
+@endphp
+
 <div class="cv-section">
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">
-        <strong class="small">Existing CV File</strong>
+        <strong class="small">
+            Existing CV File
+            @if ($uploadedCvExists)
+                <span class="badge bg-success-lt text-success border border-success ms-1" style="font-size:10px">File on file</span>
+            @endif
+        </strong>
         <div class="btn-group btn-group-sm">
+            @if ($uploadedCvExists)
+                <button type="button" class="btn btn-outline-info"
+                        data-bs-toggle="modal" data-bs-target="#modal-uploaded-cv-preview"
+                        data-cv-url="{{ $uploadedCvUrl }}"
+                        data-cv-is-pdf="{{ $uploadedCvIsPdf ? '1' : '0' }}">
+                    {!! $icon('eye', 'me-1') !!}Preview
+                </button>
+            @endif
             <button type="button" class="btn btn-outline-primary js-request-cv-upload" data-url="{{ route('job-board.auto-cv-bot.request-cv-upload', $session->id) }}">{!! $icon('message-plus', 'me-1') !!}Ask Again</button>
             <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#modal-upload-cv">{!! $icon('upload', 'me-1') !!}Upload It</button>
         </div>
     </div>
-    <p class="small text-muted mb-0">Ask the candidate again if they have a CV to send (in case they missed it earlier), or upload one yourself if you already have it.</p>
+    <p class="small text-muted mb-0">
+        @if ($uploadedCvExists)
+            Candidate's uploaded CV is on file.
+        @else
+            Ask the candidate again if they have a CV to send (in case they missed it earlier), or upload one yourself if you already have it.
+        @endif
+    </p>
 </div>
+
+{{-- Uploaded CV Preview Modal --}}
+<div class="modal fade" id="modal-uploaded-cv-preview" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Uploaded CV File</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0" id="uploaded-cv-preview-body" style="min-height:500px">
+                <div class="d-flex align-items-center justify-content-center h-100 text-muted p-4">Loading…</div>
+            </div>
+            <div class="modal-footer">
+                <a href="{{ $uploadedCvUrl }}" target="_blank" class="btn btn-outline-secondary btn-sm">{!! $icon('external-link', 'me-1') !!}Open in new tab</a>
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    var modal = document.getElementById('modal-uploaded-cv-preview');
+    if (!modal) return;
+    modal.addEventListener('show.bs.modal', function (e) {
+        var btn   = e.relatedTarget;
+        var url   = btn ? btn.dataset.cvUrl   : null;
+        var isPdf = btn ? btn.dataset.cvIsPdf === '1' : false;
+        var body  = document.getElementById('uploaded-cv-preview-body');
+        if (!body || !url) return;
+
+        if (isPdf) {
+            body.innerHTML = '<iframe src="' + url + '" style="width:100%;height:80vh;border:0"></iframe>';
+        } else {
+            body.innerHTML = '<div class="text-center p-3"><img src="' + url + '" style="max-width:100%;max-height:80vh;object-fit:contain" alt="Uploaded CV"></div>';
+        }
+    });
+    modal.addEventListener('hidden.bs.modal', function () {
+        var body = document.getElementById('uploaded-cv-preview-body');
+        if (body) body.innerHTML = '<div class="d-flex align-items-center justify-content-center h-100 text-muted p-4">Loading…</div>';
+    });
+})();
+</script>
 
 <div class="cv-section">
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">
         <strong class="small">Photo</strong>
         <div class="btn-group btn-group-sm">
             {!! $clearButton('photo') !!}
+            <button type="button"
+                class="btn btn-outline-secondary js-upload-cv-photo"
+                data-save-url="{{ route('job-board.auto-cv-bot.save-cropped-photo', $session->id) }}"
+                data-upload-input-id="cvPhotoUploadInput{{ $session->id }}">
+                {!! $icon('upload', 'me-1') !!}Upload Photo
+            </button>
             <button type="button" class="btn btn-outline-primary js-request-cv-photo" data-url="{{ route('job-board.auto-cv-bot.request-cv-photo', $session->id) }}">{!! $icon('message-plus', 'me-1') !!}Get Photo</button>
         </div>
     </div>
-    <p class="small mb-0">
-        @if ($session->candidate_photo_path)
-            <span class="text-success">{!! $icon('check', 'me-1') !!}Photo received</span>
-        @else
-            {!! $notProvided !!}
-        @endif
-    </p>
+    <input type="file"
+        class="d-none"
+        accept="image/jpeg,image/png,image/webp"
+        id="cvPhotoUploadInput{{ $session->id }}">
+    @if ($session->candidate_photo_path)
+        <div class="d-flex align-items-start gap-3 mt-1">
+            <img src="{{ route('job-board.auto-cv-bot.photo', $session->id) }}"
+                 alt="Candidate photo"
+                 class="rounded border"
+                 style="width:72px;height:72px;object-fit:cover;cursor:pointer"
+                 id="cvPhotoThumb">
+            <div class="d-flex flex-column gap-1">
+                <span class="text-success small">{!! $icon('check', 'me-1') !!}Photo received</span>
+                <button type="button"
+                    class="btn btn-sm btn-outline-primary js-open-crop-photo"
+                    data-photo-url="{{ route('job-board.auto-cv-bot.photo', $session->id) }}"
+                    data-save-url="{{ route('job-board.auto-cv-bot.save-cropped-photo', $session->id) }}"
+                    style="font-size:11px;padding:2px 8px">
+                    ✂ Crop photo
+                </button>
+                <span class="text-muted small">You can also upload your own image and crop it here.</span>
+            </div>
+        </div>
+    @else
+        <p class="small mb-0">{!! $notProvided !!}</p>
+        <p class="small text-muted mt-1 mb-0">Upload an image yourself, then crop and save it into this CV session.</p>
+    @endif
 </div>
 
 <div class="cv-section">
@@ -154,7 +290,30 @@
     </div>
     @if ($education->isNotEmpty())
         @foreach ($education as $i => $row)
-            <div class="small mb-1"><strong>{!! $editable("education.$i.qualification", $row['qualification'] ?? '', 'Qualification') !!} — {!! $editable("education.$i.institution", $row['institution'] ?? '', 'Institution') !!}</strong></div>
+            @php
+                $qualification = $row['qualification'] ?? '';
+                $field = $row['field'] ?? '';
+                $institution = $row['institution'] ?? '';
+                $years = trim(implode(' - ', array_filter([$row['start_year'] ?? '', $row['end_year'] ?? ''])));
+            @endphp
+            <div class="small mb-1">
+                <strong>
+                    {!! $editable("education.$i.qualification", $qualification, 'Qualification') !!}
+                    @if ($field !== '')
+                        , {!! $editable("education.$i.field", $field, 'Field of study') !!}
+                    @endif
+                    — {!! $editable("education.$i.institution", $institution, 'Institution') !!}
+                </strong>
+                @if ($years !== '')
+                    <div class="text-muted">
+                        {!! $editable("education.$i.start_year", $row['start_year'] ?? '', 'Start year') !!}
+                        @if (($row['start_year'] ?? '') !== '' || ($row['end_year'] ?? '') !== '')
+                            -
+                        @endif
+                        {!! $editable("education.$i.end_year", $row['end_year'] ?? '', 'End year') !!}
+                    </div>
+                @endif
+            </div>
         @endforeach
     @else
         <p class="small mb-0">{!! $notProvided !!}</p>
@@ -189,30 +348,114 @@
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">
         <strong class="small">Work Experience{!! $scoreBadge(6) !!}</strong>
         <div class="btn-group btn-group-sm">
+            {!! $addButton('experience', 'Work Experience') !!}
             {!! $clearButton('experience') !!}
             {!! $sectionButton(6) !!}
         </div>
     </div>
     @if ($experience->isNotEmpty())
+        <div class="cv-sortable-list" data-section="experience" data-reorder-url="{{ route('job-board.auto-cv-bot.reorder-cv-section', $session->id) }}">
         @foreach ($experience as $i => $row)
-            <div class="small mb-1">
-                <strong>{!! $editable("experience.$i.job_title", $row['job_title'] ?? '', 'Job title') !!} — {!! $editable("experience.$i.company", $row['company'] ?? '', 'Company') !!}</strong>
-                ({!! $editable("experience.$i.start_date", $row['start_date'] ?? '', 'Start date') !!} to {!! $editable("experience.$i.end_date", $row['end_date'] ?? '', 'End date') !!})
+            @php $responsibilities = array_values((array) ($row['responsibilities'] ?? [])); @endphp
+            <div class="border rounded p-2 mb-2 cv-sortable-item" data-index="{{ $i }}">
+                <div class="small mb-1 d-flex align-items-start gap-2">
+                    <span class="cv-drag-handle text-muted flex-shrink-0" title="Drag to reorder" style="cursor:grab;font-size:16px;line-height:1.4;user-select:none">⠿</span>
+                    <div class="flex-grow-1">
+                        <strong>{!! $editable("experience.$i.job_title", $row['job_title'] ?? '', 'Job title') !!} — {!! $editable("experience.$i.company", $row['company'] ?? '', 'Company') !!}</strong>
+                        ({!! $editable("experience.$i.start_date", $row['start_date'] ?? '', 'Start date') !!} to {!! $editable("experience.$i.end_date", $row['end_date'] ?? '', 'End date') !!})
+                    </div>
+                </div>
+                @if ($responsibilities)
+                    <ul class="mb-1 ps-3" style="list-style:disc">
+                        @foreach ($responsibilities as $j => $resp)
+                            <li class="d-flex align-items-start gap-1 small" style="list-style:none;padding-left:0">
+                                <span style="margin-top:2px;flex-shrink:0">•</span>
+                                <span class="flex-grow-1">{!! $editable("experience.$i.responsibilities.$j", $resp, 'Responsibility') !!}</span>
+                                <button type="button"
+                                    class="btn btn-link p-0 ms-1 text-danger js-remove-cv-array-item flex-shrink-0"
+                                    style="font-size:13px;line-height:1"
+                                    data-path="experience.{{ $i }}.responsibilities"
+                                    data-index="{{ $j }}"
+                                    data-url="{{ route('job-board.auto-cv-bot.remove-cv-array-item', $session->id) }}"
+                                    title="Remove">×</button>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+                <div class="d-flex align-items-center gap-1 mt-1">
+                    <button type="button"
+                        class="btn btn-outline-success js-add-responsibility"
+                        style="font-size:10px;padding:1px 8px"
+                        data-exp-index="{{ $i }}"
+                        data-next-index="{{ count($responsibilities) }}"
+                        data-url="{{ route('job-board.auto-cv-bot.update-cv-field', $session->id) }}">
+                        + Add responsibility
+                    </button>
+                    <button type="button"
+                        class="btn btn-outline-primary js-request-section-info"
+                        style="font-size:10px;padding:1px 8px"
+                        data-topic-number="6"
+                        data-topic-label="Responsibilities — {{ e($row['job_title'] ?? 'this role') }} at {{ e($row['company'] ?? 'this company') }}"
+                        data-exact-question="What were your main responsibilities as {{ e($row['job_title'] ?? 'employee') }} at {{ e($row['company'] ?? 'the company') }}? Please list what you did day to day — even simple things like handling customers, filing, managing stock, or reporting to a manager."
+                        data-url="{{ $requestUrl }}">
+                        Ask responsibilities
+                    </button>
+                </div>
             </div>
         @endforeach
+        </div>
     @else
         <p class="small mb-0">{!! $notProvided !!}</p>
     @endif
 </div>
 
+@php
+    $projectSubTypes = [
+        'internship' => [
+            'label'    => 'Internship / Attachment',
+            'q'        => 'Did you do any internship or attachment at a company? For example: 6 months at Bankers Den, or 3 months at a hospital. If not, just say no.',
+            'keywords' => ['internship', 'attachment'],
+        ],
+        'volunteer' => [
+            'label'    => 'Volunteer work',
+            'q'        => 'Did you do any volunteer work? For example: helping at a church, school, or community event. If not, just say no.',
+            'keywords' => ['volunteer'],
+        ],
+        'project' => [
+            'label'    => 'Personal / school project',
+            'q'        => "Did you work on any personal or school project? For example: a business plan, a website, or something you built or helped with. If not, just say no.",
+            'keywords' => ['personal project', 'school project', 'project'],
+        ],
+        'github' => [
+            'label'    => 'GitHub / Portfolio link',
+            'q'        => "Do you have a GitHub profile or a link to any work you've done online? For example: github.com/yourname or a website. If not, just say no.",
+            'keywords' => ['github', 'portfolio', 'online link'],
+        ],
+    ];
+
+    $askedSubTypes = [];
+    foreach ($session->answers ?: [] as $turn) {
+        $q = strtolower((string) ($turn['question_sent'] ?? ''));
+        foreach ($projectSubTypes as $type => $meta) {
+            if (isset($askedSubTypes[$type])) continue;
+            foreach ($meta['keywords'] as $kw) {
+                if (str_contains($q, $kw)) { $askedSubTypes[$type] = true; break; }
+            }
+        }
+    }
+@endphp
+
 <div class="cv-section">
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">
         <strong class="small">Projects / Volunteer Work{!! $scoreBadge(7) !!}</strong>
         <div class="btn-group btn-group-sm">
+            {!! $addButton('projects', 'Project / Volunteer Work') !!}
             {!! $clearButton('projects') !!}
-            {!! $sectionButton(7) !!}
+            {!! $sectionButton(7, 'Get Projects Info') !!}
         </div>
     </div>
+
+    {{-- Existing captured entries --}}
     @if ($projects->isNotEmpty())
         @foreach ($projects as $i => $row)
             <div class="small mb-1">
@@ -226,12 +469,37 @@
     @else
         <p class="small mb-0">{!! $notProvided !!}</p>
     @endif
+
+    {{-- Sub-type breakdown with Ask buttons for anything not yet asked --}}
+    <div class="mt-2 border-top pt-2">
+        @foreach ($projectSubTypes as $type => $meta)
+            @php $asked = isset($askedSubTypes[$type]); @endphp
+            <div class="d-flex align-items-center gap-2 py-1 {{ !$loop->last ? 'border-bottom' : '' }}">
+                <span class="badge {{ $asked ? 'bg-success-lt text-success border border-success' : 'bg-danger-lt text-danger border border-danger' }} flex-shrink-0" style="font-size:10px;min-width:110px">
+                    {{ $meta['label'] }}
+                </span>
+                <span class="small text-muted flex-grow-1" style="font-size:11px">{{ $asked ? '✓ Asked' : '✗ Not asked yet' }}</span>
+                @if (!$asked)
+                    <button type="button"
+                            class="btn btn-xs btn-outline-primary js-request-section-info flex-shrink-0"
+                            style="font-size:10px;padding:1px 7px"
+                            data-topic-number="7"
+                            data-topic-label="{{ $meta['label'] }}"
+                            data-exact-question="{{ $meta['q'] }}"
+                            data-url="{{ route('job-board.auto-cv-bot.request-section-information', $session->id) }}">
+                        {!! $icon('message-plus', 'me-1') !!}Ask
+                    </button>
+                @endif
+            </div>
+        @endforeach
+    </div>
 </div>
 
 <div class="cv-section">
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">
         <strong class="small">Skills{!! $scoreBadge(8) !!}</strong>
         <div class="btn-group btn-group-sm">
+            {!! $addButton('skills', 'Skill') !!}
             {!! $clearButton('skills') !!}
             {!! $sectionButton(8) !!}
         </div>
@@ -251,6 +519,7 @@
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">
         <strong class="small">Languages{!! $scoreBadge(10) !!}</strong>
         <div class="btn-group btn-group-sm">
+            {!! $addButton('languages', 'Language') !!}
             {!! $clearButton('languages') !!}
             {!! $sectionButton(10) !!}
         </div>

@@ -38,7 +38,12 @@ class SalesAgentController extends BaseController
     {
         $this->pageTitle('Sales Agents');
 
-        $agents = SalesAgent::query()->with('candidateAccount.avatar')->latest()->paginate(20)->withQueryString();
+        $agents = SalesAgent::query()
+            ->with('candidateAccount.avatar')
+            ->withCount('campaignClicks')
+            ->latest()
+            ->paginate(10)
+            ->withQueryString();
 
         return view('plugins/job-board::sales-agents.index', compact('agents'));
     }
@@ -62,11 +67,15 @@ class SalesAgentController extends BaseController
         $errorMessage = null;
         $sender->sendText($agent->phone, $this->welcomeMessage($agent), $errorMessage);
 
-        $this->dispatchWelcomeNakiaPoster($agent);
+        $queued = $this->dispatchAllCampaignPosters($agent);
+
+        $suffix = $queued > 0
+            ? " {$queued} campaign poster(s) generating and will be sent to their WhatsApp on completion."
+            : '';
 
         return $this
             ->httpResponse()
-            ->setMessage('Sales agent created. Welcome message and Nakia poster queued.')
+            ->setMessage('Sales agent created. Welcome message sent.' . $suffix)
             ->setNextUrl(route('sales-agents.edit', $agent->getKey()));
     }
 
@@ -98,7 +107,82 @@ class SalesAgentController extends BaseController
             ->unique('campaign_id')
             ->keyBy('campaign_id');
 
-        return view('plugins/job-board::sales-agents.edit', compact('agent', 'campaigns', 'latestMarketingImages'));
+        $clients = $salesAgent->referrals()
+            ->with('account.avatar')
+            ->whereNotNull('account_id')
+            ->latest()
+            ->paginate(15, ['*'], 'clients_page');
+
+        return view('plugins/job-board::sales-agents.edit', compact('agent', 'campaigns', 'latestMarketingImages', 'clients'));
+    }
+
+    public function linkClient(SalesAgent $salesAgent, Request $request): BaseHttpResponse
+    {
+        $data = $request->validate([
+            'account_id' => ['required', 'integer', 'exists:jb_accounts,id'],
+        ]);
+
+        $alreadyLinked = $salesAgent->referrals()
+            ->where('account_id', $data['account_id'])
+            ->exists();
+
+        if ($alreadyLinked) {
+            return $this->httpResponse()->setError()->setMessage('This candidate is already linked to the agent.');
+        }
+
+        $account = Account::query()->findOrFail($data['account_id']);
+
+        $salesAgent->referrals()->create([
+            'account_id'   => $account->getKey(),
+            'phone'        => $account->whatsapp_number ?: $account->phone,
+            'source'       => 'manual',
+            'first_used_at' => now(),
+        ]);
+
+        return $this->httpResponse()->setMessage($account->name . ' linked as a client.');
+    }
+
+    public function createClient(SalesAgent $salesAgent, Request $request): BaseHttpResponse
+    {
+        $data = $request->validate([
+            'full_name' => ['required', 'string', 'max:120'],
+            'phone'     => ['required', 'string', 'max:30'],
+            'email'     => ['nullable', 'email', 'max:120'],
+        ]);
+
+        $nameParts  = explode(' ', trim($data['full_name']), 2);
+        $firstName  = $nameParts[0];
+        $lastName   = $nameParts[1] ?? '';
+
+        $account = Account::query()->create([
+            'first_name' => $firstName,
+            'last_name'  => $lastName,
+            'phone'      => $data['phone'],
+            'email'      => $data['email'] ?? null,
+            'type'       => AccountTypeEnum::JOB_SEEKER,
+            'password'   => bcrypt(Str::random(24)),
+        ]);
+
+        $salesAgent->referrals()->create([
+            'account_id'    => $account->getKey(),
+            'phone'         => $data['phone'],
+            'source'        => 'manual',
+            'first_used_at' => now(),
+        ]);
+
+        return $this->httpResponse()->setMessage($account->name . ' created and linked as a client.');
+    }
+
+    public function unlinkClient(SalesAgent $salesAgent, \Botble\JobBoard\Models\SalesAgentReferral $referral): BaseHttpResponse
+    {
+        if ((int) $referral->sales_agent_id !== (int) $salesAgent->getKey()) {
+            abort(403);
+        }
+
+        $name = $referral->account?->name ?: $referral->phone;
+        $referral->delete();
+
+        return $this->httpResponse()->setMessage($name . ' unlinked.');
     }
 
     public function update(SalesAgent $salesAgent, Request $request): BaseHttpResponse
@@ -168,11 +252,12 @@ class SalesAgentController extends BaseController
                 ->setMessage($errorMessage ?: 'Could not send welcome message.');
         }
 
-        $this->dispatchWelcomeNakiaPoster($salesAgent);
+        $queued = $this->dispatchAllCampaignPosters($salesAgent);
+        $posterNote = $queued > 0 ? " {$queued} campaign poster(s) generating." : '';
 
         return $this
             ->httpResponse()
-            ->setMessage('Welcome message sent to ' . $salesAgent->name . '. Nakia poster queued.');
+            ->setMessage('Welcome message sent to ' . $salesAgent->name . '.' . $posterNote);
     }
 
     private function welcomeMessage(SalesAgent $salesAgent): string
@@ -183,22 +268,30 @@ class SalesAgentController extends BaseController
             . "We will send you marketing posters and campaign material you can share on WhatsApp.";
     }
 
-    private function dispatchWelcomeNakiaPoster(SalesAgent $salesAgent): void
+    private function dispatchAllCampaignPosters(SalesAgent $salesAgent): int
     {
-        $campaign = SalesAgentCampaign::query()->where('is_active', true)->latest()->first();
+        $campaigns = SalesAgentCampaign::query()->where('is_active', true)->latest()->get();
 
-        if (! $campaign) {
-            return;
+        if ($campaigns->isEmpty()) {
+            return 0;
         }
 
-        $image = SalesAgentMarketingImage::query()->create([
-            'sales_agent_id' => $salesAgent->getKey(),
-            'campaign_id' => $campaign->getKey(),
-            'subject_mode' => 'nakia',
-            'status' => 'generating',
-        ]);
+        $subjectMode = $salesAgent->preferredMarketingSubjectMode();
+        $queued = 0;
 
-        GenerateSalesAgentPosterJob::dispatch($image->getKey(), true);
+        foreach ($campaigns as $campaign) {
+            $image = SalesAgentMarketingImage::query()->create([
+                'sales_agent_id' => $salesAgent->getKey(),
+                'campaign_id' => $campaign->getKey(),
+                'subject_mode' => $subjectMode,
+                'status' => 'generating',
+            ]);
+
+            GenerateSalesAgentPosterJob::dispatch($image->getKey(), true);
+            $queued++;
+        }
+
+        return $queued;
     }
 
     public function generateMarketingImage(SalesAgent $salesAgent, Request $request): BaseHttpResponse
@@ -370,8 +463,7 @@ class SalesAgentController extends BaseController
         }
 
         $path = Storage::disk('public')->path($salesAgentMarketingImage->image_path);
-        $caption = "Hi {$salesAgent->name}, here is your Wakanda Jobs campaign poster.\n\n"
-            . "Your referral code: *{$salesAgent->code}*";
+        $caption = $salesAgentMarketingImage->campaign->buildShareMessage($salesAgent);
 
         $errorMessage = null;
 
@@ -452,6 +544,37 @@ class SalesAgentController extends BaseController
         return $this
             ->httpResponse()
             ->setMessage($images->count() . ' marketing image(s) deleted.')
+            ->setNextUrl(route('sales-agents.show', $salesAgent->getKey()));
+    }
+
+    public function bulkSendMarketingImages(SalesAgent $salesAgent, Request $request): BaseHttpResponse
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+        ]);
+
+        $images = SalesAgentMarketingImage::query()
+            ->where('sales_agent_id', $salesAgent->getKey())
+            ->whereIn('id', $data['ids'])
+            ->where('status', 'completed')
+            ->whereNotNull('image_path')
+            ->get();
+
+        foreach ($images as $image) {
+            SendSalesAgentMarketingImageJob::dispatch($image->getKey());
+        }
+
+        $skipped = count($data['ids']) - $images->count();
+        $message = $images->count() . ' marketing image(s) queued for WhatsApp send to ' . $salesAgent->name . '.';
+
+        if ($skipped > 0) {
+            $message .= ' ' . $skipped . ' skipped (not completed).';
+        }
+
+        return $this
+            ->httpResponse()
+            ->setMessage($message)
             ->setNextUrl(route('sales-agents.show', $salesAgent->getKey()));
     }
 

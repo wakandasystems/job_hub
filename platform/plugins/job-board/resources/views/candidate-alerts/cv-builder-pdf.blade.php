@@ -25,31 +25,31 @@
         .hero-top { width: 100%; }
         .monogram-wrap {
             float: right;
-            width: 60px;
-            height: 60px;
+            width: 88px;
+            height: 88px;
         }
         .monogram {
             display: table;
-            width: 60px;
-            height: 60px;
+            width: 88px;
+            height: 88px;
             border: 1px solid #b08d57;
             border-radius: 50%;
             overflow: hidden;
         }
         .monogram span {
             display: table-cell;
-            width: 60px;
-            height: 60px;
+            width: 88px;
+            height: 88px;
             text-align: center;
             vertical-align: middle;
             color: #d8b88a;
             font-family: "DejaVu Serif", serif;
-            font-size: 19px;
+            font-size: 26px;
             letter-spacing: .02em;
         }
         .monogram img {
-            width: 60px;
-            height: 60px;
+            width: 88px;
+            height: 88px;
             border-radius: 50%;
         }
         h1 {
@@ -153,6 +153,41 @@
             .contact { color: #000; }
             h2 { font-family: "DejaVu Sans", sans-serif; border-bottom: 1px solid #000; text-transform: none; letter-spacing: 0; color: #000; }
             .item { border-left: 0; padding-left: 0; }
+        @elseif($design === 'executive')
+            /* Navy-and-gold executive style — two-panel header, gold section underlines. */
+            @@page { margin: 0 0 46px; }
+            body { font-family: "DejaVu Sans", sans-serif; color: #2C2C2C; font-size: 10.5px; }
+            .exec-header { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
+            .exec-header-left { background: #1B3A6B; padding: 18px 16px 18px 22px; width: 71%; vertical-align: middle; }
+            .exec-header-right { background: #142D55; padding: 14px 12px; width: 29%; vertical-align: middle; }
+            .exec-name { color: #FFFFFF; font-size: 22px; font-weight: bold; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 6px; }
+            .exec-headline { color: #C9A84C; font-size: 10.5px; margin: 0 0 5px; }
+            .exec-credentials { color: #CCCCCC; font-size: 9px; margin: 0; }
+            .exec-contact-item { color: #DDDDDD; font-size: 9px; margin-bottom: 4px; }
+            .hero { display: none; }
+            .rule-gold { display: none; }
+            .footer { left: 0; right: 0; }
+            h2 {
+                font-family: "DejaVu Sans", sans-serif;
+                font-size: 10px;
+                font-weight: bold;
+                color: #1B3A6B;
+                margin: 18px 22px 0;
+                padding: 0 0 4px;
+                border-bottom: 1.5px solid #C9A84C;
+                text-transform: uppercase;
+                letter-spacing: .12em;
+            }
+            .exec-body { margin: 0 22px; }
+            .item { margin: 6px 22px 10px; padding-left: 10px; border-left: 1.5px solid #C9A84C; page-break-inside: avoid; }
+            .item-title { font-weight: bold; color: #1B3A6B; font-size: 10.5px; }
+            .item-meta { color: #C9A84C; font-size: 9.5px; font-weight: bold; margin-top: 1px; }
+            .item-dates { color: #666666; font-style: italic; font-size: 9px; }
+            ul { margin: 4px 22px 0 36px; padding: 0; }
+            li { margin-bottom: 3px; font-size: 10px; color: #2C2C2C; }
+            p { margin: 6px 22px 8px; font-size: 10px; }
+            .skills span { display: inline-block; border: 0.75px solid #C9A84C; border-radius: 10px; padding: 3px 9px; margin: 0 5px 5px 0; color: #1B3A6B; font-size: 9px; }
+            .skills { margin: 4px 22px 0; }
         @endif
     </style>
 </head>
@@ -161,6 +196,54 @@
         <div class="side-stripe"></div>
         <div class="side-accent"></div>
     @endif
+
+    @php($execTopEd = $cv['education'][0] ?? [])
+    @php($execFirstCert = $cv['certifications'][0] ?? '')
+    @php($execFirstCertName = is_array($execFirstCert) ? ($execFirstCert['name'] ?? '') : $execFirstCert)
+    @php($execCredentials = implode('  •  ', array_filter([trim(($execTopEd['qualification'] ?? '') . (! empty($execTopEd['institution']) ? ' (' . $execTopEd['institution'] . ')' : '')), $execFirstCertName])))
+    @php($_phone = trim($cv['phone'] ?? ''))
+    @php($_whatsapp = trim($cv['whatsapp'] ?? ''))
+    @php($_phonePart = $_phone !== '' ? 'Tel: ' . $_phone : null)
+    @php($_waPart = ($_whatsapp !== '' && $_whatsapp !== $_phone) ? 'WA: ' . $_whatsapp : ($_whatsapp !== '' && $_phone === '' ? 'WA: ' . $_whatsapp : null))
+    @php($contactLine = implode('  ·  ', array_filter([$_phonePart, $_waPart, $cv['email'] ?? null, $cv['location'] ?? null])))
+    @php($execContacts = array_values(array_filter([
+        ! empty($cv['location'])       ? '📍 ' . $cv['location'] : '',
+        ! empty($cv['address'])        ? '🏠 ' . $cv['address'] : '',
+        $_phone !== ''                 ? '📞 Tel: ' . $_phone : '',
+        ($_whatsapp !== '' && $_whatsapp !== $_phone) ? '💬 WA: ' . $_whatsapp : ($_whatsapp !== '' && $_phone === '' ? '💬 WA: ' . $_whatsapp : ''),
+        ! empty($cv['email'])          ? '✉ ' . $cv['email'] : '',
+        ! empty($cv['linkedin'])       ? '🔗 ' . $cv['linkedin'] : '',
+        ! empty($cv['age'])            ? '🪪 Age: ' . $cv['age'] : '',
+        ! empty($cv['marital_status']) ? '👤 ' . $cv['marital_status'] : '',
+    ])))
+    @php($bioLine = implode('  ·  ', array_filter([
+        ! empty($cv['address']) ? 'Address: ' . $cv['address'] : '',
+        ! empty($cv['linkedin']) ? $cv['linkedin'] : '',
+        ! empty($cv['age']) ? 'Age: ' . $cv['age'] : '',
+        ! empty($cv['marital_status']) ? 'Marital Status: ' . $cv['marital_status'] : '',
+    ])))
+
+    @if($design === 'executive')
+        <table class="exec-header">
+            <tr>
+                <td class="exec-header-left">
+                    <div class="exec-name">{{ $cv['full_name'] ?? 'Candidate' }}</div>
+                    @if(! empty($cv['headline']))
+                        <div class="exec-headline">{{ $cv['headline'] }}</div>
+                    @endif
+                    @if($execCredentials !== '')
+                        <div class="exec-credentials">{{ $execCredentials }}</div>
+                    @endif
+                </td>
+                <td class="exec-header-right">
+                    @foreach($execContacts as $contactItem)
+                        <div class="exec-contact-item">{{ $contactItem }}</div>
+                    @endforeach
+                </td>
+            </tr>
+        </table>
+    @endif
+
     <div class="hero">
         <div class="hero-top">
             {{-- Academic keeps the initials monogram but never the actual photo — a formal CV
@@ -182,9 +265,12 @@
             <div class="headline">{{ $cv['headline'] }}</div>
         @endif
 
-        <div class="contact">
-            {{ implode('  ·  ', array_filter([$cv['phone'] ?? null, $cv['email'] ?? null, $cv['location'] ?? null])) }}
-        </div>
+        @if($contactLine !== '')
+            <div class="contact">{{ $contactLine }}</div>
+        @endif
+        @if($bioLine !== '')
+            <div class="contact" style="margin-top:6px;">{{ $bioLine }}</div>
+        @endif
     </div>
 
     @if(! empty($cv['summary']))
@@ -197,7 +283,13 @@
         @foreach($cv['education'] as $item)
             <div class="item">
                 <div class="item-title">{{ implode(' - ', array_filter([$item['qualification'] ?? null, $item['field'] ?? null])) }}</div>
-                <div class="item-meta">{{ implode('  ·  ', array_filter([$item['institution'] ?? null, trim(implode(' - ', array_filter([$item['start_year'] ?? null, $item['end_year'] ?? null])))])) }}</div>
+                @if($design === 'executive')
+                    <div class="item-meta">{{ $item['institution'] ?? '' }}</div>
+                    @php($edYears = trim(implode(' – ', array_filter([$item['start_year'] ?? null, $item['end_year'] ?? null]))))
+                    @if($edYears !== '')<div class="item-dates">{{ $edYears }}</div>@endif
+                @else
+                    <div class="item-meta">{{ implode('  ·  ', array_filter([$item['institution'] ?? null, trim(implode(' - ', array_filter([$item['start_year'] ?? null, $item['end_year'] ?? null])))])) }}</div>
+                @endif
             </div>
         @endforeach
     @endif
@@ -206,7 +298,7 @@
         <h2>{!! $tick !!}Certifications</h2>
         <ul>
             @foreach($cv['certifications'] as $certification)
-                <li>{{ $certification }}</li>
+                <li>{{ is_array($certification) ? trim(implode(' — ', array_filter([$certification['name'] ?? '', $certification['issuing_body'] ?? '', $certification['date'] ?? '']))) : $certification }}</li>
             @endforeach
         </ul>
     @endif
@@ -215,8 +307,15 @@
         <h2>{!! $tick !!}Work Experience</h2>
         @foreach($cv['experience'] as $item)
             <div class="item">
-                <div class="item-title">{{ implode(' - ', array_filter([$item['job_title'] ?? null, $item['company'] ?? null])) }}</div>
-                <div class="item-meta">{{ implode('  ·  ', array_filter([$item['location'] ?? null, trim(implode(' to ', array_filter([$item['start_date'] ?? null, $item['end_date'] ?? null])))])) }}</div>
+                @if($design === 'executive')
+                    <div class="item-title">{{ $item['job_title'] ?? '' }}</div>
+                    <div class="item-meta">{{ $item['company'] ?? '' }}</div>
+                    @php($expDates = trim(implode(' – ', array_filter([$item['start_date'] ?? null, $item['end_date'] ?? null]))))
+                    @if($expDates !== '')<div class="item-dates">{{ $expDates }}</div>@endif
+                @else
+                    <div class="item-title">{{ implode(' - ', array_filter([$item['job_title'] ?? null, $item['company'] ?? null])) }}</div>
+                    <div class="item-meta">{{ implode('  ·  ', array_filter([$item['location'] ?? null, trim(implode(' to ', array_filter([$item['start_date'] ?? null, $item['end_date'] ?? null])))])) }}</div>
+                @endif
                 @if(! empty($item['responsibilities']))
                     <ul>
                         @foreach($item['responsibilities'] as $responsibility)
@@ -235,6 +334,9 @@
                 <div class="item-title">{{ $item['name'] ?? '' }}</div>
                 @if(! empty($item['description']))
                     <div>{{ $item['description'] }}</div>
+                @endif
+                @if(! empty($item['link']))
+                    <div class="item-meta">{{ $item['link'] }}</div>
                 @endif
             </div>
         @endforeach

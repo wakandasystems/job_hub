@@ -40,6 +40,9 @@
                 <span class="card-time">
                     <span>{{ $job->created_at->diffForHumans() }}</span>
                 </span>
+                @if(isset($job->applications_count) && $job->applications_count > 0)
+                    <span class="ms-2 text-muted" style="font-size:12px;"><i class="fi-rr-user"></i> {{ $job->applications_count }} {{ $job->applications_count == 1 ? 'applicant' : 'applicants' }}</span>
+                @endif
             </div>
             <p class="font-sm color-text-paragraph mt-10">{{ $job->description }}</p>
             <div class="card-2-bottom mt-20">

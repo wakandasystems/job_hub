@@ -58,6 +58,8 @@ app()->booted(function (): void {
             }
 
             if ($shortcode->style === 'style-3') {
+                $selectedCountry = wakanda_selected_country();
+
                 $categories = Category::query()
                     ->with(['slugable', 'metadata'])
                     ->withCount(['activeJobs as jobs_count'])
@@ -65,7 +67,23 @@ app()->booted(function (): void {
                     ->having('jobs_count', '>', 0)
                     ->get();
 
-                return Theme::partial('shortcodes.search-box', compact('shortcode', 'categories'));
+                $coverImages = Job::query()
+                    ->join('jb_jobs_categories as jc', 'jb_jobs.id', '=', 'jc.job_id')
+                    ->whereIn('jc.category_id', $categories->pluck('id'))
+                    ->whereNotNull('jb_jobs.cover_image')
+                    ->where('jb_jobs.cover_image', '!=', '')
+                    ->where('jb_jobs.status', 'published')
+                    ->orderByDesc('jb_jobs.id')
+                    ->select(['jc.category_id', 'jb_jobs.cover_image'])
+                    ->get()
+                    ->unique('category_id')
+                    ->pluck('cover_image', 'category_id');
+
+                foreach ($categories as $category) {
+                    $category->setAttribute('job_cover_image', $coverImages->get($category->id));
+                }
+
+                return Theme::partial('shortcodes.search-box', compact('shortcode', 'categories', 'selectedCountry'));
             }
 
             return Theme::partial('shortcodes.search-box', compact('shortcode'));
@@ -156,6 +174,22 @@ app()->booted(function (): void {
                 ->having('jobs_count', '>', 0)
                 ->orderByDesc('jobs_count')
                 ->paginate((int) $shortcode->limit_category ?: Arr::first(JobBoardHelper::getPerPageParams()));
+
+            $coverImages = Job::query()
+                ->join('jb_jobs_categories as jc', 'jb_jobs.id', '=', 'jc.job_id')
+                ->whereIn('jc.category_id', $categories->pluck('id'))
+                ->whereNotNull('jb_jobs.cover_image')
+                ->where('jb_jobs.cover_image', '!=', '')
+                ->where('jb_jobs.status', 'published')
+                ->orderByDesc('jb_jobs.id')
+                ->select(['jc.category_id', 'jb_jobs.cover_image'])
+                ->get()
+                ->unique('category_id')
+                ->pluck('cover_image', 'category_id');
+
+            foreach ($categories as $category) {
+                $category->setAttribute('job_cover_image', $coverImages->get($category->id));
+            }
 
             return Theme::partial('shortcodes.job-categories', compact('shortcode', 'categories'));
         });
@@ -520,7 +554,37 @@ app()->booted(function (): void {
 
                 $categories = $query->get();
 
-                return Theme::partial('shortcodes.popular-category', compact('shortcode', 'categories'));
+                $jobWith = ['slugable', 'company', 'company.slugable', 'currency', 'jobTypes'];
+                if (is_plugin_active('location')) {
+                    $jobWith = array_merge($jobWith, array_keys(Location::getSupported(Job::class)));
+                }
+                $recentJobs = Job::query()
+                    ->where('jb_jobs.status', \Botble\JobBoard\Enums\JobStatusEnum::PUBLISHED)
+                    ->where('jb_jobs.moderation_status', \Botble\JobBoard\Enums\ModerationStatusEnum::APPROVED)
+                    ->where(function ($q): void {
+                        $q->where('jb_jobs.never_expired', true)
+                            ->orWhereNull('jb_jobs.expire_date')
+                            ->orWhere('jb_jobs.expire_date', '>=', now());
+                    })
+                    ->when($countryId, fn ($q) => $q->where('jb_jobs.country_id', $countryId))
+                    ->with($jobWith)
+                    ->latest('jb_jobs.created_at')
+                    ->take(10)
+                    ->get();
+
+                $companies = Company::query()
+                    ->with(['slugable'])
+                    ->whereNotNull('logo')
+                    ->whereHas('activeJobs', function ($q) use ($countryId): void {
+                        if ($countryId) {
+                            $q->where('country_id', $countryId);
+                        }
+                    })
+                    ->take(18)
+                    ->latest()
+                    ->get();
+
+                return Theme::partial('shortcodes.popular-category', compact('shortcode', 'categories', 'recentJobs', 'companies', 'selectedCountry'));
             }
         );
 
@@ -653,6 +717,7 @@ app()->booted(function (): void {
                         'per_page' => (int) $shortcode->jobs_per_page ?: Arr::get($requestQuery, 'per_page'),
                         'current_paged' => Arr::get($requestQuery, 'page') ?: 1,
                     ],
+                    'withCount' => ['applicants as applications_count'],
                 ],
             );
 

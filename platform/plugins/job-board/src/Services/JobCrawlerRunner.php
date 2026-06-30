@@ -247,6 +247,10 @@ class JobCrawlerRunner
             return $this->fetchJobZambiaJobs($crawler);
         }
 
+        if ($crawler->parser_type === 'zambiajobalerts') {
+            return $this->fetchZambiaJobAlertsJobs($crawler);
+        }
+
         if ($crawler->parser_type === 'jobmail') {
             return $this->fetchJobMailJobs($crawler);
         }
@@ -473,6 +477,10 @@ class JobCrawlerRunner
 
         if ($crawler->parser_type === 'jobzambia') {
             return $this->importJobZambiaJobs($crawler, $items);
+        }
+
+        if ($crawler->parser_type === 'zambiajobalerts') {
+            return $this->importZambiaJobAlertsJobs($crawler, $items);
         }
 
         if ($crawler->parser_type === 'jobmail') {
@@ -1737,6 +1745,11 @@ class JobCrawlerRunner
     {
         $emails = static::extractAllEmailsFromHtml($job->getRawOriginal('content') ?: $job->getRawOriginal('description'));
 
+        $storedApplyEmail = trim((string) $job->getRawOriginal('apply_email'));
+        if ($storedApplyEmail !== '' && ! in_array(strtolower($storedApplyEmail), array_map('strtolower', $emails), true)) {
+            array_unshift($emails, $storedApplyEmail);
+        }
+
         if ($emails) {
             $job->apply_email = $emails[0];
             $subject = rawurlencode(trim(strip_tags((string) $job->name)) . ' Application');
@@ -1749,7 +1762,13 @@ class JobCrawlerRunner
             return;
         }
 
-        // No email — fall back to external source URL, then company website.
+        // No email — prefer a crawler-provided apply URL, then the job detail page, then company website.
+        $existingApplyUrl = trim((string) $job->getRawOriginal('apply_url'));
+        if ($existingApplyUrl !== '') {
+            $job->apply_url = $existingApplyUrl;
+            return;
+        }
+
         $sourceUrl = trim((string) $job->external_source_url);
         if ($sourceUrl) {
             $job->apply_url = $sourceUrl;
@@ -1766,8 +1785,12 @@ class JobCrawlerRunner
     {
         // Content-duplicate guard: same title + company across ALL crawlers catches the
         // same job syndicated to multiple sites (e.g. jobzambia + gozambiajobs).
+        // Must compare against the raw (SafeContent-encoded) attribute, not the $job->name
+        // accessor — the accessor html_entity_decodes on read, so any title containing "&"
+        // (or other encodable characters) would never match the encoded value stored in the
+        // DB column, silently letting duplicates through.
         $contentDupe = Job::query()
-            ->where('name', $job->name)
+            ->where('name', $job->getAttributes()['name'] ?? $job->name)
             ->where('company_id', $job->company_id)
             ->exists();
 
@@ -3939,19 +3962,21 @@ class JobCrawlerRunner
     protected function parseJobSearchZmJobPage(string $html, string $url): array
     {
         $data = $this->extractJobSearchZmStructuredData($html);
+        $applicationContact = $this->extractWpJobManagerApplicationContact($html);
 
         $title = trim(html_entity_decode((string) data_get($data, 'title'), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
         $company = trim(html_entity_decode((string) data_get($data, 'hiringOrganization.name'), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
         $logo = (string) data_get($data, 'hiringOrganization.logo', '');
         $location = trim(html_entity_decode((string) data_get($data, 'jobLocation.address', 'Zambia'), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
         $description = (string) data_get($data, 'description', '');
-        $applyUrl = $this->extractJobSearchZmApplyUrl($html) ?: $url;
+        $applyUrl = trim((string) ($applicationContact['apply_url'] ?? '')) ?: ($this->extractJobSearchZmApplyUrl($html) ?: $url);
 
         return [
             'title' => $title ?: $this->titleFromJobSearchZmUrl($url),
             'company' => $company ?: 'JobSearchZM',
             'logo' => $logo,
             'location' => $location ?: 'Zambia',
+            'apply_email' => trim((string) ($applicationContact['apply_email'] ?? '')),
             'apply_url' => $applyUrl,
             'content' => $description ?: $this->extractJobSearchZmArticleHtml($html),
             'date' => data_get($data, 'datePosted') ?: null,
@@ -4131,6 +4156,9 @@ class JobCrawlerRunner
 
                 if ($job) {
                     $deadline = $item['deadline'] ?? null;
+                    $job->apply_email = trim((string) ($item['apply_email'] ?? '')) ?: null;
+                    $job->apply_url = (string) ($item['apply_url'] ?? $job->apply_url ?? $job->external_source_url);
+                    $this->resolveApplyContact($job);
                     $job->forceFill([
                         'name'                     => $this->limitGoZambiaField($item['title'] ?? $job->name, 110),
                         'expire_date'              => $deadline ? Carbon::parse($deadline) : Carbon::now()->addDays(30),
@@ -4210,6 +4238,7 @@ class JobCrawlerRunner
             'company_id'               => $company->getKey(),
             'address'                  => (string) ($item['location'] ?? 'Zambia'),
             'country_id'               => 7, // Zambia
+            'apply_email'              => trim((string) ($item['apply_email'] ?? '')) ?: null,
             'apply_url'                => (string) ($item['apply_url'] ?? $item['url'] ?? ''),
             'status'                   => JobStatusEnum::PUBLISHED,
             'moderation_status'        => ModerationStatusEnum::APPROVED,
@@ -5047,10 +5076,15 @@ class JobCrawlerRunner
             }
         }
 
+        // Extract real apply URL / email from the WP Job Manager application widget.
+        $contact  = $this->extractWpJobManagerApplicationContact($html);
+        $applyUrl = $contact['apply_url'] !== '' ? $contact['apply_url'] : $url;
+
         return [
-            'content'   => $content,
-            'deadline'  => $deadline,
-            'apply_url' => $url,
+            'content'     => $content,
+            'deadline'    => $deadline,
+            'apply_url'   => $applyUrl,
+            'apply_email' => $contact['apply_email'],
         ];
     }
 
@@ -5181,6 +5215,399 @@ class JobCrawlerRunner
             'address'                  => (string) ($item['location'] ?? 'Zambia'),
             'country_id'               => 7, // Zambia
             'apply_url'                => (string) ($item['apply_url'] ?? $item['url'] ?? ''),
+            'apply_email'              => trim((string) ($item['apply_email'] ?? '')) ?: null,
+            'status'                   => JobStatusEnum::PUBLISHED,
+            'moderation_status'        => ModerationStatusEnum::APPROVED,
+            'salary_type'              => SalaryTypeEnum::HIDDEN,
+            'career_level_id'          => 3,
+            'is_featured'              => false,
+            'expire_date'              => $expireDate,
+            'application_closing_date' => $expireDate,
+            'never_expired'            => false,
+            'created_at'               => $postedDate,
+            'updated_at'               => $postedDate,
+        ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Zambia Job Alerts (zambiajobalerts.com) — WP Job Manager AJAX listings
+    // -------------------------------------------------------------------------
+
+    protected function fetchZambiaJobAlertsJobs(JobCrawler $crawler): array
+    {
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->toArray();
+
+        $isFirstRun = empty($existingIds);
+
+        $parsed  = parse_url((string) $crawler->source_url);
+        $base    = ($parsed['scheme'] ?? 'https') . '://' . ($parsed['host'] ?? 'zambiajobalerts.com');
+        $ajaxUrl = $base . '/jm-ajax/get_listings/';
+
+        $jobs    = [];
+        $seenIds = [];
+        // A "new" item only means new by external_source_id for THIS crawler — recent pages
+        // are mostly content already imported via other Zambian crawlers, so a low cap here
+        // would exhaust itself on cross-crawler duplicates before ever reaching older pages.
+        // In full mode, rely on the page ceiling below instead of an item-count cap.
+        $maxNew  = $this->runMode === 'full' ? 100_000 : 40;
+        // The source site never expires old listings, so its pagination runs many months
+        // deep. Normal runs only need the first few pages to stay current; a 'full' run is
+        // a deliberate backfill, so it's allowed to scan much further back.
+        $maxPage = $this->runMode === 'full' ? 500 : 20;
+        $newFetched = 0;
+
+        for ($page = 1; $page <= $maxPage; $page++) {
+            $this->saveProgress($page, count($jobs));
+
+            if ($page > 1) {
+                usleep(500_000);
+            }
+
+            try {
+                $resp = Http::withHeaders($this->zambiaJobAlertsHeaders('application/json,*/*;q=0.8'))
+                    ->asForm()
+                    ->timeout(20)
+                    ->post($ajaxUrl, [
+                        'search_keywords'  => '',
+                        'search_location'  => '',
+                        'per_page'         => 16,
+                        'orderby'          => 'featured',
+                        'order'            => 'DESC',
+                        'page'             => $page,
+                        'show_pagination'  => 'false',
+                        'post_id'          => 3070,
+                    ]);
+            } catch (Throwable) {
+                break;
+            }
+
+            if (! $resp->successful()) {
+                break;
+            }
+
+            $json = $resp->json();
+
+            if (empty($json['found_jobs']) || empty($json['html'])) {
+                break;
+            }
+
+            $maxPages = (int) ($json['max_num_pages'] ?? 1);
+            $cards    = $this->parseZambiaJobAlertsListingCards($json['html']);
+
+            if (empty($cards)) {
+                break;
+            }
+
+            $newOnPage = 0;
+
+            foreach ($cards as $card) {
+                $sourceId = $card['id'];
+
+                if (isset($seenIds[$sourceId])) {
+                    continue;
+                }
+                $seenIds[$sourceId] = true;
+
+                if (array_key_exists($sourceId, $existingIds)) {
+                    continue;
+                }
+
+                $detail = $this->fetchZambiaJobAlertsDetail($card['url'], $base);
+                if (! $detail) {
+                    continue;
+                }
+
+                $jobs[] = array_merge($card, $detail);
+                $newOnPage++;
+                $newFetched++;
+
+                if ($newFetched >= $maxNew) {
+                    return $jobs;
+                }
+            }
+
+            // Caught up — entire page was already known.
+            if (! $this->disableEarlyStop && ! $isFirstRun && $page > 1 && $newOnPage === 0) {
+                break;
+            }
+
+            if ($page >= $maxPages) {
+                break;
+            }
+
+            DB::reconnect();
+        }
+
+        return $jobs;
+    }
+
+    protected function parseZambiaJobAlertsListingCards(string $html): array
+    {
+        $doc = new \DOMDocument();
+        @$doc->loadHTML('<?xml encoding="utf-8" ?><ul>' . $html . '</ul>');
+        $xpath = new \DOMXPath($doc);
+
+        $cards = [];
+
+        foreach ($xpath->query('//li[contains(@class,"job_listing")]') as $li) {
+            // Post ID from class="zja-wpjm-listing post-{id} job_listing ..."
+            preg_match('/\bpost-(\d+)\b/', $li->getAttribute('class'), $idMatch);
+            $postId = $idMatch[1] ?? null;
+            if (! $postId) {
+                continue;
+            }
+
+            $link = $xpath->query('.//a[contains(@class,"zja-job-card__main")]', $li)->item(0)
+                ?? $xpath->query('.//a', $li)->item(0);
+            $url  = $link ? trim($link->getAttribute('href')) : '';
+            if (! $url) {
+                continue;
+            }
+
+            // Job type slug from class="... job-type-full-time" (or job-type-contract, job-type-internship, ...).
+            preg_match('/\bjob-type-([a-z0-9-]+)/', $li->getAttribute('class'), $typeMatch);
+            $jobType = $typeMatch[1] ?? '';
+
+            $title    = $this->xpathText($xpath, './/h3', $li);
+            $company  = $this->xpathText($xpath, './/p/strong', $li);
+            $location = $this->xpathText($xpath, './/p/span', $li);
+
+            // ISO date from <time datetime="YYYY-MM-DD">
+            $timeNode = $xpath->query('.//time', $li)->item(0);
+            $dateStr  = $timeNode ? $timeNode->getAttribute('datetime') : null;
+
+            $cards[] = [
+                'id'       => $postId,
+                'url'      => $url,
+                'job_type' => $jobType,
+                'title'    => html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+                'company'  => html_entity_decode($company, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+                'location' => html_entity_decode($location, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+                'date'     => $dateStr,
+            ];
+        }
+
+        return $cards;
+    }
+
+    /**
+     * Fetch the job detail page for description HTML, the apply email, the company logo, and
+     * the company website — guarding against two things the source site does for missing data:
+     * it renders the WP Job Manager *default* company.png placeholder when no logo was uploaded,
+     * and it points the company "Website" link back at zambiajobalerts.com itself when the
+     * employer didn't supply one. Both must be treated as "absent", not as real values.
+     */
+    protected function fetchZambiaJobAlertsDetail(string $url, string $base): ?array
+    {
+        try {
+            $resp = Http::withHeaders($this->zambiaJobAlertsHeaders())->timeout(20)->get($url);
+        } catch (Throwable) {
+            return null;
+        }
+
+        if (! $resp->successful()) {
+            return null;
+        }
+
+        $html  = $resp->body();
+        $doc   = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        @$doc->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $xpath = new \DOMXPath($doc);
+
+        $descNode = $xpath->query('//section[contains(@class,"zja-job-description")]')->item(0)
+            ?? $xpath->query('//*[contains(@class,"job_description")]')->item(0);
+        $content  = $descNode ? $this->sanitizeGoZambiaHtml($doc->saveHTML($descNode)) : '';
+
+        // The site's own JobPosting structured data never includes a closing date (checked
+        // across many listings — it's just absent, not something we're discarding), but
+        // employers often state one in the description body, so look for that instead of
+        // always falling back to a guessed default.
+        $deadline = null;
+        $plain    = strip_tags($content);
+        if (preg_match('/(?:deadline|closing date|apply by|close(?:s|d)?)\s*[:\-]?\s*(\d{1,2}(?:st|nd|rd|th)?\s+\w+,?\s+\d{4}|\w+\s+\d{1,2},?\s+\d{4})/i', $plain, $m)) {
+            try {
+                $deadline = Carbon::parse($m[1])->toDateString();
+            } catch (Throwable) {
+                $deadline = null;
+            }
+        }
+
+        $logo = $this->extractCompanyLogoFromXpath($xpath);
+        if ($logo !== '' && str_contains($logo, '/wp-job-manager/assets/images/company.png')) {
+            // The plugin's own "no logo uploaded" placeholder — not a real company logo.
+            $logo = '';
+        }
+
+        $emailNode = $xpath->query('//a[contains(@class,"job_application_email")]')->item(0);
+        $email     = $emailNode ? trim($emailNode->textContent) : '';
+
+        $websiteNode = $xpath->query('//div[contains(@class,"company")]//a[contains(@class,"website")]')->item(0);
+        $website     = $websiteNode ? trim($websiteNode->getAttribute('href')) : '';
+        if ($website !== '' && parse_url($website, PHP_URL_HOST) === parse_url($base, PHP_URL_HOST)) {
+            // The theme falls back to linking the site's own homepage when no company
+            // website was set — that's not a real company website.
+            $website = '';
+        }
+
+        return [
+            'content'   => $content,
+            'deadline'  => $deadline,
+            'logo'      => $logo,
+            'email'     => $email,
+            'website'   => $website,
+            'apply_url' => $url,
+        ];
+    }
+
+    protected function zambiaJobAlertsHeaders(string $accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'): array
+    {
+        return [
+            'User-Agent'      => 'WakandaJobsCrawler/1.0 (+https://www.wakandajobs.com)',
+            'Accept'          => $accept,
+            'Accept-Language' => 'en-US,en;q=0.9',
+        ];
+    }
+
+    protected function importZambiaJobAlertsJobs(JobCrawler $crawler, array $items): array
+    {
+        $stats = [
+            'jobs_found'   => count($items),
+            'jobs_created' => 0,
+            'jobs_updated' => 0,
+            'jobs_skipped' => 0,
+        ];
+
+        $existingIds = Job::query()
+            ->where('crawler_id', $crawler->getKey())
+            ->whereNotNull('external_source_id')
+            ->pluck('external_source_id')
+            ->flip()
+            ->toArray();
+
+        $newItems = array_values(array_filter(
+            $items,
+            fn ($i) => ! array_key_exists($i['id'] ?? '', $existingIds)
+        ));
+        $newTotal = count($newItems);
+
+        $this->saveNewImportProgress(0, $newTotal, $stats);
+
+        foreach ($newItems as $index => $item) {
+            $sourceId = (string) ($item['id'] ?? '');
+            $title    = trim((string) ($item['title'] ?? ''));
+
+            if ($sourceId === '' || $title === '') {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
+            $company = $this->firstOrCreateZambiaJobAlertsCompany($item);
+            if (! $company) {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
+            $attributes = $this->buildZambiaJobAlertsAttributes($crawler, $item, $company);
+
+            $newJob = new Job();
+            $newJob->forceFill($attributes);
+            $this->persistNewJob($newJob, $crawler, $stats, function (Job $j) use ($item): void {
+                $j->jobTypes()->syncWithoutDetaching([$this->zambiaJobAlertsJobTypeId($item['job_type'] ?? '')]);
+                $this->dispatchNewJobEvents($j);
+            });
+
+            $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+        }
+
+        return $stats;
+    }
+
+    protected function firstOrCreateZambiaJobAlertsCompany(array $item): ?Company
+    {
+        $name = trim((string) ($item['company'] ?? ''));
+        if ($name === '') {
+            return null;
+        }
+
+        $website = trim((string) ($item['website'] ?? '')) ?: null;
+        $company = $this->findGoZambiaCompany($name, $website);
+
+        if (! $company) {
+            $company = $this->firstOrCreateCompany([
+                'name'        => $this->limitGoZambiaField($name, 110),
+                'website'     => $website ? $this->limitGoZambiaField($website, 110) : null,
+                'country_id'  => 7, // Zambia
+                'status'      => BaseStatusEnum::PUBLISHED,
+                'is_verified' => false,
+            ], $name);
+            SlugHelper::createSlug($company);
+
+            $logoUrl = $item['logo'] ?? null;
+            if ($logoUrl) {
+                $logoPath = $this->uploadCompanyLogo($logoUrl);
+                if ($logoPath) {
+                    $company->logo = $logoPath;
+                    $company->saveQuietly();
+                }
+            }
+        }
+
+        return $company;
+    }
+
+    protected function zambiaJobAlertsJobTypeId(string $slug): int
+    {
+        return match (true) {
+            str_contains($slug, 'contract') => 1,
+            str_contains($slug, 'freelance') => 2,
+            str_contains($slug, 'intern') => 4,
+            str_contains($slug, 'part-time'), str_contains($slug, 'part_time') => 5,
+            default => 3, // Full Time
+        };
+    }
+
+    protected function buildZambiaJobAlertsAttributes(JobCrawler $crawler, array $item, Company $company): array
+    {
+        $date       = $item['date'] ?? null;
+        $deadline   = $item['deadline'] ?? null;
+        $postedDate = $date ? Carbon::parse($date) : Carbon::now();
+        $expireDate = $deadline
+            ? Carbon::parse($deadline)
+            : $postedDate->copy()->addDays(45);
+
+        $rawContent  = (string) ($item['content'] ?? '');
+        $description = Str::limit(trim(strip_tags($rawContent)), 400, '');
+
+        $email     = trim((string) ($item['email'] ?? ''));
+        $sourceUrl = (string) ($item['url'] ?? '');
+        $applyUrl  = $sourceUrl;
+
+        if ($email !== '') {
+            $applyUrl = 'mailto:' . $email . '?subject=' . rawurlencode(trim($item['title'] ?? '') . ' Application');
+        }
+
+        return [
+            'crawler_id'               => $crawler->getKey(),
+            'external_source_id'       => (string) ($item['id'] ?? ''),
+            'external_source_url'      => $sourceUrl,
+            'name'                     => $this->limitGoZambiaField($item['title'] ?? '', 110),
+            'description'              => $description,
+            'content'                  => $rawContent ?: $description,
+            'company_id'               => $company->getKey(),
+            'address'                  => (string) ($item['location'] ?? 'Zambia'),
+            'country_id'               => 7, // Zambia
+            'apply_email'              => $email !== '' ? $email : null,
+            'apply_url'                => $applyUrl,
             'status'                   => JobStatusEnum::PUBLISHED,
             'moderation_status'        => ModerationStatusEnum::APPROVED,
             'salary_type'              => SalaryTypeEnum::HIDDEN,
@@ -6128,7 +6555,8 @@ class JobCrawlerRunner
                 'country_id' => $countryId ?: null,
                 'currency_id' => $currencyId,
                 'address' => $this->limitGoZambiaField($location, 500),
-                'apply_url' => $url,
+                'apply_email' => trim((string) ($detail['apply_email'] ?? '')) ?: null,
+                'apply_url' => trim((string) ($detail['apply_url'] ?? '')) ?: $url,
                 'status' => JobStatusEnum::PUBLISHED,
                 'moderation_status' => ModerationStatusEnum::APPROVED,
                 'salary_type' => SalaryTypeEnum::HIDDEN,
@@ -6144,7 +6572,7 @@ class JobCrawlerRunner
             $job = new Job();
             $job->forceFill($attributes);
             $this->resolveApplyContact($job);
-            if (! $job->apply_email) {
+            if (! $job->apply_email && ! $job->apply_url) {
                 $job->apply_url = $url;
             }
             $this->persistNewJob($job, $crawler, $stats, function (Job $job) use ($detail): void {
@@ -6209,6 +6637,8 @@ class JobCrawlerRunner
                 $description = $contentMatch[1];
             }
 
+            $applicationContact = $this->extractWpJobManagerApplicationContact($html);
+
             return [
                 'title' => (string) ($job['title'] ?? ''),
                 'company_name' => (string) ($organization['name'] ?? ''),
@@ -6219,10 +6649,116 @@ class JobCrawlerRunner
                 'datePosted' => $job['datePosted'] ?? null,
                 'validThrough' => $job['validThrough'] ?? null,
                 'description' => $description,
+                'apply_url' => $applicationContact['apply_url'] ?? '',
+                'apply_email' => $applicationContact['apply_email'] ?? '',
             ];
         }
 
         return $this->extractNooJobMonsterDetail($html);
+    }
+
+    protected function extractWpJobManagerApplicationContact(string $html): array
+    {
+        $document = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        if (! $loaded) {
+            return ['apply_email' => '', 'apply_url' => ''];
+        }
+
+        $xpath = new \DOMXPath($document);
+        $emailNode = $xpath->query(
+            '//div[contains(concat(" ", normalize-space(@class), " "), " job_application ")]'
+            . '//a[contains(concat(" ", normalize-space(@class), " "), " job_application_email ")]'
+        )?->item(0);
+
+        $applyEmail = '';
+        if ($emailNode instanceof \DOMElement) {
+            $mailto = trim(html_entity_decode($emailNode->getAttribute('href'), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+
+            if (preg_match('/^mailto:([^?]+)/i', $mailto, $matches)) {
+                $applyEmail = trim(rawurldecode($matches[1]));
+            }
+
+            if ($applyEmail === '') {
+                $applyEmail = trim(html_entity_decode($emailNode->textContent, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            }
+        }
+
+        $linkNode = $xpath->query(
+            '//div[contains(concat(" ", normalize-space(@class), " "), " job_application ")]'
+            . '//div[contains(concat(" ", normalize-space(@class), " "), " application_details ")]//a[@href]'
+        )?->item(0);
+
+        if (! $linkNode instanceof \DOMElement) {
+            return [
+                'apply_email' => $applyEmail,
+                'apply_url' => '',
+            ];
+        }
+
+        $href = trim(html_entity_decode($linkNode->getAttribute('href'), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+
+        if ($href === '' || str_starts_with($href, 'javascript:')) {
+            return [
+                'apply_email' => $applyEmail,
+                'apply_url' => '',
+            ];
+        }
+
+        if (str_starts_with($href, 'mailto:')) {
+            if ($applyEmail === '' && preg_match('/^mailto:([^?]+)/i', $href, $matches)) {
+                $applyEmail = trim(rawurldecode($matches[1]));
+            }
+
+            return [
+                'apply_email' => $applyEmail,
+                'apply_url' => $href,
+            ];
+        }
+
+        return [
+            'apply_email' => $applyEmail,
+            'apply_url' => $this->expandRedirectUrl($href),
+        ];
+    }
+
+    protected function expandRedirectUrl(string $url): string
+    {
+        $url = trim($url);
+
+        if ($url === '' || ! Str::startsWith($url, ['http://', 'https://'])) {
+            return $url;
+        }
+
+        try {
+            $response = Http::timeout(20)
+                ->withOptions([
+                    'allow_redirects' => [
+                        'max' => 10,
+                        'track_redirects' => true,
+                    ],
+                ])
+                ->get($url);
+
+            $history = $response->header('X-Guzzle-Redirect-History');
+            if (is_array($history) && ! empty($history)) {
+                return trim((string) end($history)) ?: $url;
+            }
+
+            if (is_string($history) && trim($history) !== '') {
+                $parts = array_values(array_filter(array_map('trim', explode(',', $history))));
+
+                return ! empty($parts) ? end($parts) : $url;
+            }
+        } catch (Throwable) {
+            return $url;
+        }
+
+        return $url;
     }
 
     protected function extractNooJobMonsterDetail(string $html): array

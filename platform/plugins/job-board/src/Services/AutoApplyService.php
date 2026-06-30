@@ -14,6 +14,7 @@ use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\JobApplication;
 use Botble\JobBoard\Jobs\NotifyCandidateAutoApplySentJob;
 use Botble\Media\Facades\RvMedia;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -469,7 +470,7 @@ PROMPT;
      */
     public function processAutoApply(Account $account, Job $job, string $candidateProfile, ?string $aiModel = null): ?AutoApplyLog
     {
-        $toEmail = trim((string) $job->apply_email);
+        $toEmail = $this->resolveJobApplyEmail($job);
         if ($toEmail === '') {
             return null;
         }
@@ -600,6 +601,125 @@ PROMPT;
         ]);
     }
 
+    /**
+     * Admin-triggered single application flow that reuses the same AI cover-letter generation
+     * and manual-notify fallback as Auto Apply, but does not require an Auto Apply quota.
+     *
+     * @return array{status:string, job_id:int, message:string, score?:int}
+     */
+    public function sendOnDemandApplication(Account $account, Job $job, ?string $aiModel = null): array
+    {
+        if (trim((string) $account->resume) === '') {
+            return [
+                'status' => 'missing_cv',
+                'job_id' => $job->id,
+                'message' => 'Candidate has no CV uploaded.',
+            ];
+        }
+
+        if ($this->hasAlreadyApplied($account->id, $job->id)) {
+            return [
+                'status' => 'already_processed',
+                'job_id' => $job->id,
+                'message' => 'This candidate has already been processed for this job.',
+            ];
+        }
+
+        $preview = $this->resolvePreviewForJob($account, $job, $aiModel);
+
+        if (! $preview) {
+            return [
+                'status' => 'generation_failed',
+                'job_id' => $job->id,
+                'message' => 'Could not generate the cover letter and application email for this candidate.',
+            ];
+        }
+
+        $score = (int) ($preview['score'] ?? 0);
+        $subject = trim((string) ($preview['subject'] ?? ''));
+        $body = trim((string) ($preview['body'] ?? ''));
+        $model = (string) ($preview['ai_model'] ?? ($aiModel ?: AutoApplyOrder::globalAiModel()));
+
+        if ($subject === '' || $body === '') {
+            return [
+                'status' => 'generation_failed',
+                'job_id' => $job->id,
+                'message' => 'The AI response was incomplete, so the application was not sent.',
+            ];
+        }
+
+        if ($this->containsPlaceholders($subject) || $this->containsPlaceholders($body)) {
+            AutoApplyLog::create([
+                'account_id' => $account->id,
+                'job_id' => $job->id,
+                'email_sent_to' => $this->resolveJobApplyEmail($job) ?: 'manual-apply-notice',
+                'ai_email_subject' => $subject,
+                'ai_email_body' => $body,
+                'ai_model_used' => $model,
+                'prompt_tokens' => $preview['prompt_tokens'] ?? null,
+                'completion_tokens' => $preview['completion_tokens'] ?? null,
+                'total_tokens' => $preview['total_tokens'] ?? null,
+                'ai_cost_usd' => $preview['cost'] ?? null,
+                'match_score' => $score,
+                'match_reasons' => $preview['reasons'] ?? [],
+                'status' => 'failed',
+                'error_message' => 'Email contained placeholders — blocked for safety',
+                'sent_at' => now(),
+            ]);
+
+            return [
+                'status' => 'placeholder_blocked',
+                'job_id' => $job->id,
+                'message' => 'The generated application still contained placeholders, so it was blocked for safety.',
+                'score' => $score,
+            ];
+        }
+
+        if ($this->resolveJobApplyEmail($job) === '') {
+            $manualResult = $this->sendManualApplyPackage($account, $job, $score, $preview);
+            $manualResult['score'] = $score;
+
+            return $manualResult;
+        }
+
+        $toEmail = $this->resolveJobApplyEmail($job);
+        $messageId = sprintf('vip-on-demand-%s@%s', (string) Str::uuid(), parse_url(config('app.url'), PHP_URL_HOST) ?: 'wakandajobs.com');
+        $sent = $this->sendApplicationEmail($account, $job, $subject, $body, $toEmail, $messageId);
+
+        if ($sent) {
+            $this->createJobApplication($account, $job, $body);
+            NotifyCandidateAutoApplySentJob::dispatch($account->id, $job->id, $subject, $body)->onQueue('default');
+        }
+
+        AutoApplyLog::create([
+            'account_id' => $account->id,
+            'job_id' => $job->id,
+            'email_sent_to' => $toEmail,
+            'message_id' => $sent ? $messageId : null,
+            'ai_email_subject' => $subject,
+            'ai_email_body' => $body,
+            'ai_model_used' => $model,
+            'prompt_tokens' => $preview['prompt_tokens'] ?? null,
+            'completion_tokens' => $preview['completion_tokens'] ?? null,
+            'total_tokens' => $preview['total_tokens'] ?? null,
+            'ai_cost_usd' => $preview['cost'] ?? null,
+            'match_score' => $score,
+            'match_reasons' => $preview['reasons'] ?? [],
+            'status' => $sent ? 'sent' : 'failed',
+            'error_message' => $sent ? 'On-demand VIP application sent by admin.' : 'SMTP delivery failed',
+            'sent_at' => now(),
+        ]);
+
+        return [
+            'status' => $sent ? 'sent' : 'failed',
+            'job_id' => $job->id,
+            'message' => $sent
+                ? 'Application sent on demand. The cover letter was generated from the customer CV and submitted to the job application email.'
+                : 'The application email could not be delivered.',
+            'score' => $score,
+        ];
+    }
+
     private function notifySendFailureByWhatsApp(Account $account, Job $job, string $toEmail, ?string $attachmentFilename, bool $attachmentExists, string $error): void
     {
         $adminNumber = '+260970766123';
@@ -650,7 +770,7 @@ PROMPT;
      */
     public function resolveCandidateWhatsAppNumber(Account $account): string
     {
-        $direct = trim((string) ($account->whatsapp_number ?: $account->phone));
+        $direct = trim((string) (($account->whatsapp_numbers[0] ?? null) ?: ($account->call_numbers[0] ?? null) ?: ($account->whatsapp_number ?: $account->phone)));
         if ($direct !== '') {
             return $direct;
         }
@@ -680,41 +800,132 @@ PROMPT;
             ->value('candidate_phone'));
     }
 
-    /**
-     * Send a WhatsApp manual-apply notice for a job that has no application email,
-     * then write an AutoApplyLog entry. Returns true if the WhatsApp was sent.
-     */
-    public function sendManualApplyNotice(Account $account, Job $job, int $score): bool
+    public function resolvePreviewForJob(Account $account, Job $job, ?string $aiModel = null): ?array
     {
-        $phone = $this->resolveCandidateWhatsAppNumber($account);
-        if ($phone === '') {
-            Log::warning('AutoApply: Manual-apply notice skipped — no WhatsApp number', [
-                'account_id' => $account->id,
-                'job_id'     => $job->id,
-            ]);
+        $model = $aiModel ?: AutoApplyOrder::globalAiModel();
+        $profileSyncedAt = $account->profile_updated_at ?? $account->updated_at;
 
-            return false;
+        $cached = AutoApplyPreview::query()
+            ->where('account_id', $account->id)
+            ->where('job_id', $job->id)
+            ->where('ai_model', $model)
+            ->first();
+
+        if (
+            $cached
+            && $cached->account_profile_synced_at
+            && $profileSyncedAt
+            && $cached->account_profile_synced_at->gte($profileSyncedAt)
+        ) {
+            return [
+                'score' => $cached->score,
+                'reasons' => $cached->reasons ?? [],
+                'subject' => $cached->subject,
+                'body' => $cached->body,
+                'ai_model' => $cached->ai_model,
+                'prompt_tokens' => $cached->prompt_tokens,
+                'completion_tokens' => $cached->completion_tokens,
+                'total_tokens' => $cached->total_tokens,
+                'cost' => $cached->cost_usd,
+                'cached' => true,
+            ];
         }
 
-        $jobUrl = url('/jobs/' . ($job->slugable?->key ?? $job->id));
-        $company = trim((string) $job->company?->name);
-        $candidateName = trim((string) ($account->first_name ?: $account->name ?: 'there'));
-        $message = "Hi {$candidateName},\n\n"
-            . "I found a matching job for you: *{$job->name}*" . ($company !== '' ? " at {$company}" : '') . ".\n\n"
-            . "This job does not include an application email, so I could not auto-apply on your behalf.\n"
-            . "Please apply manually using this Wakanda Jobs link:\n{$jobUrl}\n\n"
-            . "_Nakia_";
+        $cvText = $this->extractCvText($account);
+        $profile = $this->buildCandidateProfile($account, $cvText);
+        $result = $this->generateApplicationEmail($account, $job, $profile, $model);
 
-        $errorMessage = null;
-        $sent = app(WhapiSenderService::class)->sendText($phone, $message, $errorMessage);
+        if (! $result) {
+            return null;
+        }
 
-        if (! $sent) {
-            Log::error('AutoApply: Manual-apply WhatsApp notice failed', [
-                'account_id' => $account->id,
-                'job_id'     => $job->id,
-                'phone'      => $phone,
-                'error'      => $errorMessage ?: 'Unknown WhatsApp send failure',
-            ]);
+        AutoApplyPreview::updateOrCreate(
+            ['account_id' => $account->id, 'job_id' => $job->id, 'ai_model' => $model],
+            [
+                'score' => $result['score'],
+                'reasons' => $result['reasons'],
+                'subject' => $result['subject'],
+                'body' => $result['body'],
+                'prompt_tokens' => $result['prompt_tokens'] ?? null,
+                'completion_tokens' => $result['completion_tokens'] ?? null,
+                'total_tokens' => $result['total_tokens'] ?? null,
+                'cost_usd' => $result['cost'] ?? null,
+                'account_profile_synced_at' => $profileSyncedAt,
+            ]
+        );
+
+        $result['cached'] = false;
+
+        return $result;
+    }
+
+    public function resolveAutoApplyScore(Account $account, Job $job): ?int
+    {
+        $log = AutoApplyLog::query()
+            ->where('account_id', $account->id)
+            ->where('job_id', $job->id)
+            ->latest('id')
+            ->first();
+
+        if ($log && $log->match_score !== null) {
+            return (int) $log->match_score;
+        }
+
+        $profileSyncedAt = $account->profile_updated_at ?? $account->updated_at;
+        $aiModel = AutoApplyOrder::globalAiModel();
+
+        $cached = AutoApplyPreview::query()
+            ->where('account_id', $account->id)
+            ->where('job_id', $job->id)
+            ->where('ai_model', $aiModel)
+            ->first();
+
+        if (
+            $cached
+            && $cached->score !== null
+            && $cached->account_profile_synced_at
+            && $profileSyncedAt
+            && $cached->account_profile_synced_at->gte($profileSyncedAt)
+        ) {
+            return (int) $cached->score;
+        }
+
+        $result = $this->resolvePreviewForJob($account, $job, $aiModel);
+
+        if (! $result || ! isset($result['score'])) {
+            return null;
+        }
+
+        return (int) $result['score'];
+    }
+
+    public function queueAutoApplyJob(Account $account, Job $job, int $threshold, bool $alreadyProcessed = false): array
+    {
+        if ($alreadyProcessed) {
+            return [
+                'status' => 'already_processed',
+                'job_id' => $job->id,
+            ];
+        }
+
+        $score = $this->resolveAutoApplyScore($account, $job);
+
+        if ($score === null) {
+            return [
+                'status' => 'scoring_failed',
+                'job_id' => $job->id,
+            ];
+        }
+
+        if ($score < $threshold) {
+            return [
+                'status' => 'below_threshold',
+                'job_id' => $job->id,
+            ];
+        }
+
+        if ($this->resolveJobApplyEmail($job) === '') {
+            return $this->sendManualApplyPackage($account, $job, $score);
         }
 
         $preview = AutoApplyPreview::query()
@@ -724,34 +935,368 @@ PROMPT;
             ->latest('id')
             ->first();
 
-        try {
-            AutoApplyLog::create([
-                'account_id'       => $account->id,
-                'job_id'           => $job->id,
-                'email_sent_to'    => 'manual-apply-notice',
-                'ai_email_subject' => 'Manual apply notice sent to candidate',
-                'ai_email_body'    => $message,
-                'ai_model_used'    => AutoApplyOrder::globalAiModel(),
-                'prompt_tokens'    => $preview?->prompt_tokens,
-                'completion_tokens'=> $preview?->completion_tokens,
-                'total_tokens'     => $preview?->total_tokens,
-                'ai_cost_usd'      => $preview?->cost_usd,
-                'match_score'      => $score,
-                'match_reasons'    => $preview?->reasons ?? [],
-                'status'           => $sent ? 'sent' : 'failed',
-                'error_message'    => $sent
-                    ? 'Candidate notified to apply manually because the job has no application email.'
-                    : ($errorMessage ?: 'WhatsApp send failed'),
-                'sent_at'          => now(),
-            ]);
-        } catch (Throwable $e) {
-            Log::error('AutoApply: Failed to write manual-apply-notice log', [
-                'account_id' => $account->id,
-                'job_id'     => $job->id,
-                'error'      => $e->getMessage(),
-            ]);
+        AutoApplyLog::create([
+            'account_id' => $account->id,
+            'job_id' => $job->id,
+            'email_sent_to' => $this->resolveJobApplyEmail($job),
+            'ai_email_subject' => $preview?->subject ?: 'Queued for auto apply send',
+            'ai_email_body' => $preview?->body ?: '',
+            'ai_model_used' => $preview?->ai_model ?: AutoApplyOrder::globalAiModel(),
+            'prompt_tokens' => $preview?->prompt_tokens,
+            'completion_tokens' => $preview?->completion_tokens,
+            'total_tokens' => $preview?->total_tokens,
+            'ai_cost_usd' => $preview?->cost_usd,
+            'match_score' => $score,
+            'match_reasons' => $preview?->reasons ?? [],
+            'status' => 'queued',
+            'error_message' => 'Application queued for sending.',
+            'sent_at' => now(),
+        ]);
+
+        \Botble\JobBoard\Jobs\ProcessAutoApplySendJob::dispatch($account->id, $job->id)->onQueue('emails');
+
+        return [
+            'status' => 'queued',
+            'job_id' => $job->id,
+        ];
+    }
+
+    private function sendCandidateEmailMessage(Account $account, string $subject, string $body, ?string &$errorMessage = null): bool
+    {
+        $email = trim((string) $account->email);
+
+        if ($email === '') {
+            $errorMessage = 'Candidate has no email address.';
+
+            return false;
         }
 
-        return $sent;
+        try {
+            Mail::raw($body, function ($message) use ($email, $subject): void {
+                $message->to($email)->subject($subject);
+            });
+
+            return true;
+        } catch (Throwable $exception) {
+            $errorMessage = 'Candidate email send failed: ' . $exception->getMessage();
+
+            return false;
+        }
+    }
+
+    private function buildCandidateJobNotice(Account $account, Job $job): string
+    {
+        $jobUrl = url('/jobs/' . ($job->slugable?->key ?? $job->id));
+        $company = trim((string) $job->company?->name);
+        $candidateName = trim((string) ($account->first_name ?: $account->name ?: 'there'));
+        $applyEmail = $this->resolveJobApplyEmail($job);
+
+        $message = "Hi {$candidateName},\n\n"
+            . "I found a matching job for you: *{$job->name}*" . ($company !== '' ? " at {$company}" : '') . ".\n\n";
+
+        if ($applyEmail === '') {
+            $message .= "This job does not include an application email, so I could not auto-apply on your behalf.\n"
+                . "Please apply manually using this Wakanda Jobs link:\n{$jobUrl}\n\n"
+                . "The cover letter to use is included below.\n\n"
+                . "Nakia";
+        } else {
+            $message .= "I have sent your cover letter in the next message so you can copy and paste it if needed.\n\n"
+                . "Wakanda Jobs link:\n{$jobUrl}\n\n"
+                . "Nakia";
+        }
+
+        return $message;
+    }
+
+    private function buildManualCandidatePackageMessage(Account $account, Job $job, string $coverLetter): string
+    {
+        $notice = $this->buildCandidateJobNotice($account, $job);
+
+        return trim($notice)
+            . "\n\n---\n*Cover letter to copy and paste:*\n\n"
+            . trim($coverLetter);
+    }
+
+    private function runCandidateMessageSequence(Account $account, callable $callback): mixed
+    {
+        $lockKey = 'job_board:auto_apply:candidate_message_sequence:' . $account->id;
+        $lockWaitSeconds = 600;
+        $lockAcquired = false;
+
+        try {
+            $row = DB::selectOne('SELECT GET_LOCK(?, ?) AS lock_acquired', [$lockKey, $lockWaitSeconds]);
+            $lockAcquired = (int) ($row->lock_acquired ?? 0) === 1;
+
+            if (! $lockAcquired) {
+                throw new \RuntimeException('Timed out waiting for candidate message sequence lock.');
+            }
+
+            return $callback();
+        } finally {
+            try {
+                if ($lockAcquired) {
+                    DB::selectOne('SELECT RELEASE_LOCK(?) AS lock_released', [$lockKey]);
+                }
+            } catch (Throwable) {
+            }
+        }
+    }
+
+    public function sendCandidateJobNoticeAndCover(Account $account, Job $job, ?array $preview = null): array
+    {
+        return $this->runCandidateMessageSequence($account, function () use ($account, $job, $preview) {
+            $preview = $preview ?: $this->resolvePreviewForJob($account, $job);
+            $coverLetter = trim((string) ($preview['body'] ?? ''));
+
+            if ($coverLetter === '') {
+                return [
+                    'success' => false,
+                    'notice_whatsapp_sent' => false,
+                    'notice_email_sent' => false,
+                    'cover_whatsapp_sent' => false,
+                    'cover_email_sent' => false,
+                    'message' => 'No cover letter was available for this candidate and job yet.',
+                ];
+            }
+
+            $packageMessage = $this->buildManualCandidatePackageMessage($account, $job, $coverLetter);
+            $phone = $this->resolveCandidateWhatsAppNumber($account);
+            $whatsAppError = null;
+            $emailError = null;
+            $whatsappSent = false;
+            $emailSent = false;
+
+            if ($phone !== '') {
+                $whatsappSent = app(WhapiSenderService::class)->sendText($phone, $packageMessage, $whatsAppError);
+            } else {
+                $whatsAppError = 'Candidate has no WhatsApp number.';
+            }
+
+            $emailSent = $this->sendCandidateEmailMessage(
+                $account,
+                'Job match found: ' . $job->name,
+                $packageMessage,
+                $emailError
+            );
+
+            if ($whatsappSent) {
+                usleep(1500000);
+            }
+
+            return [
+                'success' => $whatsappSent || $emailSent,
+                'notice_whatsapp_sent' => $whatsappSent,
+                'notice_email_sent' => $emailSent,
+                'cover_whatsapp_sent' => $whatsappSent,
+                'cover_email_sent' => $emailSent,
+                'message' => ($whatsappSent || $emailSent)
+                    ? 'Candidate job notice and cover letter package sent.'
+                    : trim(implode(' | ', array_filter([$whatsAppError, $emailError]))),
+            ];
+        });
+    }
+
+    public function sendCoverLetterToCandidate(Account $account, Job $job, ?array $preview = null): array
+    {
+        $preview = $preview ?: $this->resolvePreviewForJob($account, $job);
+        $coverLetter = trim((string) ($preview['body'] ?? ''));
+
+        if ($coverLetter === '') {
+            return [
+                'success' => false,
+                'whatsapp_sent' => false,
+                'email_sent' => false,
+                'message' => 'No cover letter was available for this candidate and job yet.',
+            ];
+        }
+
+        $phone = $this->resolveCandidateWhatsAppNumber($account);
+        $whatsAppError = null;
+        $emailError = null;
+        $whatsappSent = false;
+        $emailSent = false;
+
+        if ($phone !== '') {
+            $whatsappSent = app(WhapiSenderService::class)->sendText($phone, $coverLetter, $whatsAppError);
+        } else {
+            $whatsAppError = 'Candidate has no WhatsApp number.';
+        }
+
+        $emailSent = $this->sendCandidateEmailMessage(
+            $account,
+            'Cover letter for ' . $job->name,
+            $coverLetter,
+            $emailError
+        );
+
+        $success = $whatsappSent || $emailSent;
+
+        return [
+            'success' => $success,
+            'whatsapp_sent' => $whatsappSent,
+            'email_sent' => $emailSent,
+            'cover_letter' => $coverLetter,
+            'message' => $success
+                ? 'Cover letter sent to the candidate' . ($whatsappSent && $emailSent ? ' by WhatsApp and email.' : ($whatsappSent ? ' by WhatsApp.' : ' by email.'))
+                : trim(implode(' | ', array_filter([$whatsAppError, $emailError]))),
+            'whatsapp_error' => $whatsAppError,
+            'email_error' => $emailError,
+        ];
+    }
+
+    public function sendAutoApplySuccessToCandidate(
+        Account $account,
+        Job $job,
+        ?string $coverLetterSubject = null,
+        ?string $coverLetterBody = null,
+    ): array {
+        return $this->runCandidateMessageSequence($account, function () use ($account, $job, $coverLetterSubject, $coverLetterBody) {
+            $jobUrl = url('/jobs/' . ($job->slugable?->key ?? $job->id));
+            $company = trim((string) $job->company?->name);
+            $candidateName = trim((string) ($account->first_name ?: $account->name ?: 'there'));
+
+            $message = "Hi {$candidateName},\n\n"
+                . "I have just applied for *{$job->name}*" . ($company !== '' ? " at {$company}" : '') . ".\n"
+                . "{$jobUrl}\n\n"
+                . '_Nakia_';
+
+            if ($coverLetterBody) {
+                $message .= "\n\n---\n*Here's exactly what we sent on your behalf:*\n\n"
+                    . ($coverLetterSubject ? "*Subject:* {$coverLetterSubject}\n\n" : '')
+                    . $coverLetterBody;
+            }
+
+            $phone = $this->resolveCandidateWhatsAppNumber($account);
+            $whatsAppError = null;
+            $emailError = null;
+            $whatsappSent = false;
+            $emailSent = false;
+
+            if ($phone !== '') {
+                $whatsappSent = app(WhapiSenderService::class)->sendText($phone, $message, $whatsAppError);
+            } else {
+                $whatsAppError = 'Candidate has no WhatsApp number.';
+            }
+
+            $emailBody = "Hi {$candidateName},\n\n"
+                . "I have just applied for:\n\n"
+                . $job->name . ($company !== '' ? " at {$company}" : '') . "\n{$jobUrl}\n\n"
+                . "No action is needed from you. I will keep applying to new matching jobs for you for the rest of your plan.\n\n"
+                . 'Nakia';
+
+            if ($coverLetterBody) {
+                $emailBody .= "\n\n---\nHere's exactly what we sent on your behalf:\n\n"
+                    . ($coverLetterSubject ? "Subject: {$coverLetterSubject}\n\n" : '')
+                    . $coverLetterBody;
+            }
+
+            $emailSent = $this->sendCandidateEmailMessage(
+                $account,
+                'I applied for "' . $job->name . '"',
+                $emailBody,
+                $emailError
+            );
+
+            if ($whatsappSent) {
+                usleep(1500000);
+            }
+
+            return [
+                'success' => $whatsappSent || $emailSent,
+                'whatsapp_sent' => $whatsappSent,
+                'email_sent' => $emailSent,
+                'message' => ($whatsappSent || $emailSent)
+                    ? 'Candidate auto-apply success notification sent.'
+                    : trim(implode(' | ', array_filter([$whatsAppError, $emailError]))),
+            ];
+        });
+    }
+
+    /**
+     * Send a manual-apply notice plus a separate cover-letter-only message.
+     */
+    public function sendManualApplyNotice(Account $account, Job $job, int $score): bool
+    {
+        return ($this->sendManualApplyPackage($account, $job, $score)['status'] ?? null) === 'manual_notified';
+    }
+
+    public function sendManualApplyPackage(Account $account, Job $job, int $score, ?array $preview = null): array
+    {
+        return $this->runCandidateMessageSequence($account, function () use ($account, $job, $score, $preview) {
+            $preview = $preview ?: $this->resolvePreviewForJob($account, $job);
+            $coverLetter = trim((string) ($preview['body'] ?? ''));
+
+            if ($coverLetter === '') {
+                return [
+                    'status' => 'manual_notify_failed',
+                    'job_id' => $job->id,
+                    'message' => 'No cover letter was available for this candidate and job yet.',
+                    'cover_sent' => false,
+                ];
+            }
+
+            $packageMessage = $this->buildManualCandidatePackageMessage($account, $job, $coverLetter);
+
+            $phone = $this->resolveCandidateWhatsAppNumber($account);
+            $whatsAppError = null;
+            $emailError = null;
+            $whatsappSent = false;
+            $emailSent = false;
+
+            if ($phone !== '') {
+                $whatsappSent = app(WhapiSenderService::class)->sendText($phone, $packageMessage, $whatsAppError);
+            } else {
+                $whatsAppError = 'Candidate has no WhatsApp number.';
+            }
+
+            $emailSent = $this->sendCandidateEmailMessage(
+                $account,
+                'Manual application needed: ' . $job->name,
+                $packageMessage,
+                $emailError
+            );
+
+            if ($whatsappSent) {
+                usleep(1500000);
+            }
+            $notified = $whatsappSent || $emailSent;
+
+            try {
+                AutoApplyLog::create([
+                    'account_id' => $account->id,
+                    'job_id' => $job->id,
+                    'email_sent_to' => 'manual-apply-notice',
+                    'ai_email_subject' => 'Manual apply notice sent to candidate',
+                    'ai_email_body' => $packageMessage,
+                    'ai_model_used' => $preview['ai_model'] ?? AutoApplyOrder::globalAiModel(),
+                    'prompt_tokens' => $preview['prompt_tokens'] ?? null,
+                    'completion_tokens' => $preview['completion_tokens'] ?? null,
+                    'total_tokens' => $preview['total_tokens'] ?? null,
+                    'ai_cost_usd' => $preview['cost'] ?? null,
+                    'match_score' => $score,
+                    'match_reasons' => $preview['reasons'] ?? [],
+                    'status' => $notified ? 'sent' : 'failed',
+                    'error_message' => $notified
+                        ? 'Candidate notified to apply manually because the job has no application email. Cover letter included in the same candidate message.'
+                        : trim(implode(' | ', array_filter([$whatsAppError, $emailError]))),
+                    'sent_at' => now(),
+                ]);
+            } catch (Throwable $e) {
+                Log::error('AutoApply: Failed to write manual-apply-notice log', [
+                    'account_id' => $account->id,
+                    'job_id' => $job->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            return [
+                'status' => $notified ? 'manual_notified' : 'manual_notify_failed',
+                'job_id' => $job->id,
+                'message' => $notified
+                    ? 'Candidate was notified to apply manually, with the cover letter included in the same message for easy copy/paste.'
+                    : trim(implode(' | ', array_filter([$whatsAppError, $emailError]))),
+                'cover_sent' => $notified,
+            ];
+        });
     }
 }

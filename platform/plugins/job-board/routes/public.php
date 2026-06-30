@@ -131,6 +131,10 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middlew
 
         Route::get('advertise', 'AdOrderCheckoutController@publicIndex')->name('public.advertise');
 
+        Route::get('donate', function () {
+            return Theme::scope('job-board.donate')->render();
+        })->name('public.donate');
+
         Route::group(['prefix' => 'career-services', 'as' => 'public.career-service.'], function (): void {
             Route::get('/', 'CareerServiceController@getListing')->name('listing');
             Route::get('book/{service}', 'CareerServiceController@bookRedirect')->name('book');
@@ -165,6 +169,12 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers\Fronts', 'middlew
         Route::get('pay/{order}', 'AutoApplyCheckoutController@pay')->name('pay')->middleware('account');
         Route::get('callback/{order}', 'AutoApplyCheckoutController@callback')->name('callback')->middleware('account');
         Route::get('thanks/{order}', 'AutoApplyCheckoutController@thanks')->name('thanks')->middleware('account');
+    });
+
+    Route::group(['prefix' => 'agent-offers', 'as' => 'public.sales-agent-campaigns.'], function (): void {
+        Route::get('thanks/{token}', 'SalesAgentCampaignLeadController@thanks')->name('thanks');
+        Route::get('{agentCode}/{salesAgentCampaign}', 'SalesAgentCampaignLeadController@show')->name('show');
+        Route::post('{agentCode}/{salesAgentCampaign}', 'SalesAgentCampaignLeadController@store')->name('store');
     });
 });
 

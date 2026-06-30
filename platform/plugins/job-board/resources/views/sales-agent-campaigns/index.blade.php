@@ -10,6 +10,7 @@
         :initial-samples='@json($samples)'
         :default-commission-rate='@json($defaultCommissionRate)'
         :global-discount-rate='@json($globalDiscountRate)'
+        :initial-active-states='@json($campaigns->getCollection()->mapWithKeys(fn ($c) => [$c->getKey() => $c->is_active])->all())'
     ></sales-agent-campaigns>
 @stop
 
@@ -114,9 +115,11 @@
                                 <tr>
                                     <th style="width:86px;">Sample</th>
                                     <th>Name</th>
+                                    <th>Product</th>
                                     <th>Aspect Ratio</th>
                                     <th>Promo Price</th>
                                     <th>Ends</th>
+                                    <th>Clicks</th>
                                     <th>Active</th>
                                     <th class="text-end">Actions</th>
                                 </tr>
@@ -179,11 +182,33 @@
                                             @endif
                                         </td>
                                         <td>{{ $campaign->name }}</td>
+                                        <td>{{ $campaign->resolvedProductLabel() }}</td>
                                         <td>{{ str_replace('_', ' ', $campaign->aspect_ratio) }}</td>
                                         <td>{{ $campaign->promo_price ?: '—' }}</td>
                                         <td>{{ $campaign->promo_end_date?->format('Y-m-d') ?: '—' }}</td>
+                                        <td>{{ number_format($campaign->clicks_count ?? 0) }}</td>
                                         <td>
-                                            <span class="badge bg-{{ $campaign->is_active ? 'success' : 'secondary' }} text-white">{{ $campaign->is_active ? 'Active' : 'Inactive' }}</span>
+                                            <div class="form-check form-switch mb-0 d-flex align-items-center gap-2">
+                                                <input
+                                                    class="form-check-input"
+                                                    type="checkbox"
+                                                    role="switch"
+                                                    :checked="activeStates[{{ $campaign->getKey() }}]"
+                                                    :disabled="toggleLoading[{{ $campaign->getKey() }}]"
+                                                    style="width:2.5em;height:1.25em;cursor:pointer;"
+                                                    @change="toggleActive({{ $campaign->getKey() }}, @js(route('sales-agent-campaigns.toggle-active', $campaign->getKey())), @js($campaign->name))"
+                                                >
+                                                <span
+                                                    v-if="toggleLoading[{{ $campaign->getKey() }}]"
+                                                    class="spinner-border spinner-border-sm text-secondary"
+                                                    style="width:.75rem;height:.75rem;"
+                                                ></span>
+                                                <small
+                                                    v-else
+                                                    :class="activeStates[{{ $campaign->getKey() }}] ? 'text-success fw-semibold' : 'text-muted'"
+                                                    v-text="activeStates[{{ $campaign->getKey() }}] ? 'Active' : 'Inactive'"
+                                                ></small>
+                                            </div>
                                         </td>
                                         <td class="text-end">
                                             <button
@@ -200,11 +225,25 @@
                                             <a href="{{ route('sales-agent-campaigns.edit', $campaign->getKey()) }}" class="btn btn-sm btn-outline-dark">
                                                 <x-core::icon name="ti ti-edit" />
                                             </a>
+                                            <a href="{{ route('sales-agent-campaigns.links', $campaign->getKey()) }}" class="btn btn-sm btn-outline-success" title="Manage campaign links">
+                                                <x-core::icon name="ti ti-link" />
+                                            </a>
+                                            <button
+                                                type="button"
+                                                class="btn btn-sm btn-danger"
+                                                title="Delete campaign"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#deleteCampaignModal"
+                                                data-action="{{ route('sales-agent-campaigns.destroy', $campaign->getKey()) }}"
+                                                data-label="{{ $campaign->name }}"
+                                            >
+                                                <x-core::icon name="ti ti-trash" />
+                                            </button>
                                         </td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="7" class="text-center text-muted py-4">No campaigns yet.</td>
+                                        <td colspan="9" class="text-center text-muted py-4">No campaigns yet.</td>
                                     </tr>
                                 @endforelse
                             </tbody>
@@ -225,6 +264,14 @@
                             </div>
                             <h6 class="fw-semibold mb-1">Generate sample image?</h6>
                             <p class="text-muted small mb-4" v-text="generateSampleText"></p>
+                            <div class="mb-4 text-start">
+                                <label class="form-label small fw-semibold">Person Source</label>
+                                <select class="form-select form-select-sm" v-model="generateSample.subjectMode">
+                                    <option value="nakia">Nakia</option>
+                                    <option value="agent">Agent photo</option>
+                                    <option value="both">Nakia + Agent</option>
+                                </select>
+                            </div>
                             <div class="d-flex gap-2 justify-content-center">
                                 <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Cancel</button>
                                 <button type="button" class="btn btn-primary px-4" :disabled="isGenerateSampleDisabled" @click="submitGenerateSample">
@@ -233,6 +280,30 @@
                                 </button>
                             </div>
                             <div class="small mt-3" :class="generateSample.statusClass" v-text="generateSample.status"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal fade" id="deleteCampaignModal" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered modal-sm">
+                    <div class="modal-content">
+                        <div class="modal-body text-center py-4 px-4">
+                            <div class="mb-3">
+                                <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger bg-opacity-10" style="width:52px;height:52px;">
+                                    <x-core::icon name="ti ti-trash" class="text-danger fs-3" />
+                                </span>
+                            </div>
+                            <h6 class="fw-semibold mb-1">Delete this campaign?</h6>
+                            <p class="text-muted small mb-4" id="deleteCampaignModalLabel">This cannot be undone.</p>
+                            <div class="d-flex gap-2 justify-content-center">
+                                <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Cancel</button>
+                                <form id="deleteCampaignForm" method="POST">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="btn btn-danger px-4">Delete</button>
+                                </form>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -321,6 +392,12 @@
                                 return {};
                             },
                         },
+                        initialActiveStates: {
+                            type: Object,
+                            default: function () {
+                                return {};
+                            },
+                        },
                         defaultCommissionRate: {
                             type: Number,
                             default: 10,
@@ -337,6 +414,8 @@
                             settingsSaveTimer: null,
                             samples: this.initialSamples || {},
                             samplePollTimers: {},
+                            activeStates: Object.assign({}, this.initialActiveStates || {}),
+                            toggleLoading: {},
                             images: {
                                 nakia: {
                                     url: this.nakiaImageUrl,
@@ -365,6 +444,7 @@
                                 action: '',
                                 label: '',
                                 campaignId: null,
+                                subjectMode: 'nakia',
                                 loading: false,
                                 status: '',
                                 statusClass: 'text-muted',
@@ -385,7 +465,11 @@
                     },
                     computed: {
                         generateSampleText: function () {
-                            return 'This will queue a sample poster for "' + (this.generateSample.label || 'this campaign') + '" using Nakia sample details.';
+                            var label = this.generateSample.subjectMode === 'both'
+                                ? 'Nakia + Agent'
+                                : (this.generateSample.subjectMode === 'agent' ? 'Agent photo' : 'Nakia');
+
+                            return 'This will queue a sample poster for "' + (this.generateSample.label || 'this campaign') + '" using ' + label + '.';
                         },
                         isCurrentSampleGenerating: function () {
                             return this.isSampleGenerating(this.generateSample.campaignId);
@@ -523,9 +607,11 @@
                             return !!(sample && sample.status === 'generating');
                         },
                         openGenerateSample: function (campaignId, action, label) {
+                            var sample = this.sampleFor(campaignId);
                             this.generateSample.action = action;
                             this.generateSample.label = label;
                             this.generateSample.campaignId = campaignId;
+                            this.generateSample.subjectMode = sample && sample.subject_mode ? sample.subject_mode : 'nakia';
                             this.generateSample.loading = false;
                             this.generateSample.status = this.isCurrentSampleGenerating
                                 ? 'A sample image for this campaign is already queued.'
@@ -543,12 +629,16 @@
                             this.generateSample.status = 'Queueing sample image...';
                             this.generateSample.statusClass = 'text-primary';
 
+                            var formData = new FormData();
+                            formData.append('subject_mode', this.generateSample.subjectMode);
+
                             fetch(this.generateSample.action, {
                                 method: 'POST',
                                 headers: {
                                     'X-CSRF-TOKEN': this.csrfToken,
                                     'Accept': 'application/json',
                                 },
+                                body: formData,
                             })
                                 .then(function (response) {
                                     return response.json().then(function (payload) {
@@ -742,6 +832,50 @@
 
                             this.copySampleErrorFallback(message);
                         },
+                        toggleActive: function (campaignId, url, campaignName) {
+                            var self = this;
+
+                            if (this.toggleLoading[campaignId]) {
+                                return;
+                            }
+
+                            self.toggleLoading[campaignId] = true;
+
+                            fetch(url, {
+                                method: 'POST',
+                                headers: {
+                                    'X-CSRF-TOKEN': this.csrfToken,
+                                    'Accept': 'application/json',
+                                },
+                            })
+                                .then(function (response) {
+                                    return response.json().then(function (payload) {
+                                        return { ok: response.ok, payload: payload };
+                                    });
+                                })
+                                .then(function (result) {
+                                    self.toggleLoading[campaignId] = false;
+
+                                    if (!result.ok) {
+                                        throw result.payload;
+                                    }
+
+                                    var isActive = result.payload.data.is_active;
+                                    self.activeStates[campaignId] = isActive;
+
+                                    if (window.Botble) {
+                                        var label = campaignName ? '"' + campaignName + '"' : 'Campaign';
+                                        Botble.showSuccess(label + (isActive ? ' activated.' : ' deactivated.'));
+                                    }
+                                })
+                                .catch(function (payload) {
+                                    self.toggleLoading[campaignId] = false;
+
+                                    if (window.Botble) {
+                                        Botble.showError((payload && payload.message) || 'Could not update campaign.');
+                                    }
+                                });
+                        },
                         copySampleErrorFallback: function (message) {
                             var textarea = document.createElement('textarea');
 
@@ -767,5 +901,16 @@
                 });
             });
         }
+
+        document.getElementById('deleteCampaignModal')?.addEventListener('show.bs.modal', function (event) {
+            var button = event.relatedTarget;
+
+            if (!button) {
+                return;
+            }
+
+            document.getElementById('deleteCampaignForm').action = button.dataset.action;
+            document.getElementById('deleteCampaignModalLabel').textContent = 'Delete "' + button.dataset.label + '"? This cannot be undone.';
+        });
     </script>
 @endpush

@@ -14,13 +14,16 @@ use Botble\JobBoard\Models\Job;
 use Botble\JobBoard\Models\JobExperience;
 use Botble\JobBoard\Models\JobType;
 use Botble\JobBoard\Models\SocialAutomation;
+use Botble\JobBoard\Services\AutoApplyService;
 use Botble\JobBoard\Services\CandidateAlertAccountSyncService;
+use Botble\JobBoard\Services\CvProfileAnalyzerService;
 use Botble\JobBoard\Services\CandidateCvBuilderService;
 use Botble\JobBoard\Services\CvFilterAnalyzerService;
 use Botble\JobBoard\Services\CvScoringService;
 use Botble\JobBoard\Tables\CandidateAlertTable;
 use Botble\Media\Facades\RvMedia;
 use Botble\Newsletter\Jobs\DispatchNewsletterBatchJob;
+use Botble\Slug\Facades\SlugHelper;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -147,6 +150,15 @@ class CandidateAlertController
         $accountSync = app(CandidateAlertAccountSyncService::class);
         $account = $this->resolveRequestedAccount($request, $accountSync);
 
+        $generatedPassword = null;
+        if (! $account) {
+            [$account, $generatedPassword] = $accountSync->createAccountForAlert(
+                $data['candidate_name'],
+                $data['candidate_email'] ?? null,
+                $data['candidate_phone']
+            );
+        }
+
         $cvPath = null;
         if ($request->hasFile('cv_file') && ! $account) {
             $cvPath = $request->file('cv_file')->store('candidate-cvs', 'local');
@@ -183,6 +195,10 @@ class CandidateAlertController
 
         if ($account) {
             $accountSync->syncAlertWithAccount($alert, $account);
+
+            if ($generatedPassword) {
+                $accountSync->sendAccountCreatedEmail($account, $alert, $generatedPassword);
+            }
         } else {
             $accountSync->sendRegistrationPromptEmail($alert);
         }
@@ -190,13 +206,27 @@ class CandidateAlertController
         $welcomeError = null;
         $welcomeSent = $this->sendWelcomeMessage($alert, $welcomeError);
 
+        $matchingJobs = $this->getMatchingJobs($alert)->take(20);
+        $matchError = null;
+        $matchSentCount = $matchingJobs->isNotEmpty()
+            ? $this->sendMatchingJobsDigest($alert, $matchingJobs, $matchError)
+            : 0;
+
+        $message = $welcomeSent
+            ? "Alert for {$alert->candidate_name} created. Welcome message sent via WhatsApp."
+            : "Alert for {$alert->candidate_name} created, but the welcome message failed: " . ($welcomeError ?: 'Unknown WhatsApp error.');
+
+        if ($matchSentCount > 0) {
+            $message .= " Sent {$matchSentCount} currently matching job(s).";
+        } elseif ($matchingJobs->isNotEmpty()) {
+            $message .= ' Could not send the matching jobs digest: ' . ($matchError ?: 'Unknown WhatsApp error.');
+        }
+
         return redirect()->route('job-board.candidate-alerts.index')
-            ->with('success_message', $welcomeSent
-                ? "Alert for {$alert->candidate_name} created. Welcome message sent via WhatsApp."
-                : "Alert for {$alert->candidate_name} created, but the welcome message failed: " . ($welcomeError ?: 'Unknown WhatsApp error.'));
+            ->with('success_message', $message);
     }
 
-    public function update(CandidateAlert $candidateAlert, Request $request): RedirectResponse
+    public function update(CandidateAlert $candidateAlert, Request $request): JsonResponse|RedirectResponse
     {
         $data = $request->validate([
             'candidate_name'    => ['required', 'string', 'max:100'],
@@ -293,6 +323,20 @@ class CandidateAlertController
             ? "Alert updated and package renewed to {$data['duration_days']} days successfully."
             : 'Alert updated successfully.';
 
+        if ($request->expectsJson()) {
+            $freshAlert = $candidateAlert->fresh();
+
+            return response()->json([
+                'message' => $msg,
+                'data' => [
+                    'id' => $freshAlert?->getKey(),
+                    'candidate_name' => $freshAlert?->candidate_name,
+                    'preview_url' => $freshAlert ? route('job-board.candidate-alerts.preview', $freshAlert) : null,
+                    'send_url' => $freshAlert ? route('job-board.candidate-alerts.send-now', $freshAlert) : null,
+                ],
+            ]);
+        }
+
         return redirect()->route('job-board.candidate-alerts.index')
             ->with('success_message', $msg);
     }
@@ -302,6 +346,49 @@ class CandidateAlertController
         $candidateAlert->delete();
 
         return response()->json(['message' => 'Alert deleted.']);
+    }
+
+    public function sendApplication(CandidateAlert $candidateAlert, Request $request): RedirectResponse
+    {
+        if ($candidateAlert->status !== 'active') {
+            return redirect()
+                ->route('job-board.candidate-alerts.index')
+                ->with('error_message', 'Only active candidate alerts can send on-demand applications.');
+        }
+
+        $data = $request->validate([
+            'job_url' => ['required', 'string', 'max:500'],
+        ]);
+
+        $job = $this->resolveJobFromInput($data['job_url']);
+
+        if (! $job) {
+            return redirect()
+                ->route('job-board.candidate-alerts.index')
+                ->with('error_message', 'Could not find an active Wakanda Jobs posting from that URL or slug.');
+        }
+
+        $account = $this->resolveApplicationAccountForAlert($candidateAlert);
+
+        if (! $account) {
+            return redirect()
+                ->route('job-board.candidate-alerts.index')
+                ->with('error_message', 'This candidate alert has no linked account yet, and Wakanda Jobs could not create one automatically. Add a valid candidate email or link the account first.');
+        }
+
+        if (trim((string) $account->resume) === '') {
+            return redirect()
+                ->route('job-board.candidate-alerts.index')
+                ->with('error_message', 'This candidate has no CV on the linked account or alert, so the application could not be prepared.');
+        }
+
+        $result = app(AutoApplyService::class)->sendOnDemandApplication($account, $job);
+        $status = $result['status'] ?? 'failed';
+        $message = $result['message'] ?? 'Application send failed.';
+
+        return redirect()
+            ->route('job-board.candidate-alerts.index')
+            ->with(in_array($status, ['sent', 'queued', 'manual_notified'], true) ? 'success_message' : 'error_message', $message);
     }
 
     public function checkPhone(Request $request): JsonResponse
@@ -442,7 +529,7 @@ class CandidateAlertController
     public function analyzeCv(Request $request): JsonResponse
     {
         $request->validate([
-            'cv_file' => ['required', 'file', 'mimes:pdf,doc,docx,txt', 'max:10240'],
+            'cv_file' => ['required', 'file', 'mimes:pdf,doc,docx,txt,jpg,jpeg,png', 'max:10240'],
         ]);
 
         $file      = $request->file('cv_file');
@@ -463,11 +550,35 @@ class CandidateAlertController
 
         $analyzer = app(CvFilterAnalyzerService::class);
         $result   = $analyzer->analyzeFromText($cvText, $jobTypes, $categories, $experiences, $countries);
+        $profile  = app(CvProfileAnalyzerService::class)->analyzeFromText($cvText);
 
         if (! $result) {
             $this->logCvAnalysis($request, null, $cvText, null, 'failed', 'OpenAI CV analysis failed or OPENAI_API_KEY is not configured.');
 
             return response()->json(['error' => 'CV analysis failed. Check that OpenAI is configured and try again.'], 422);
+        }
+
+        if ($profile) {
+            $result['profile'] = $profile;
+        }
+
+        // Auto-match an existing account by email so the frontend can select it instead of creating a new one
+        $candidateEmail = trim((string) ($result['candidate_email'] ?? ''));
+        if ($candidateEmail !== '') {
+            $matched = \Botble\JobBoard\Models\Account::query()
+                ->where('email', $candidateEmail)
+                ->select(['id', 'first_name', 'last_name', 'email', 'phone', 'dob'])
+                ->first();
+
+            if ($matched) {
+                $result['existing_account'] = [
+                    'id'    => $matched->getKey(),
+                    'name'  => trim($matched->first_name . ' ' . $matched->last_name) ?: $matched->email,
+                    'email' => $matched->email,
+                    'phone' => $matched->phone,
+                    'has_cv' => (bool) $matched->resume,
+                ];
+            }
         }
 
         $this->logCvAnalysis($request, null, $cvText, $result);
@@ -514,6 +625,7 @@ class CandidateAlertController
 
         $analyzer = app(CvFilterAnalyzerService::class);
         $result = $analyzer->analyzeFromText($cvText, $jobTypes, $categories, $experiences, $countries);
+        $profile = app(CvProfileAnalyzerService::class)->analyzeFromText($cvText);
 
         if (! $result) {
             $this->logCvAnalysis($request, null, $cvText, null, 'failed', 'OpenAI linked-account CV analysis failed.', [
@@ -528,6 +640,10 @@ class CandidateAlertController
         $result['candidate_name'] = $result['candidate_name'] ?: trim((string) $account->name);
         $result['candidate_phone'] = $result['candidate_phone'] ?: ($account->whatsapp_number ?: $account->phone);
         $result['candidate_email'] = $result['candidate_email'] ?: $account->email;
+
+        if ($profile) {
+            $result['profile'] = $profile;
+        }
 
         $this->logCvAnalysis($request, null, $cvText, $result, 'success', null, [
             'original_filename' => $account->resume_name ?: basename($account->resume),
@@ -1353,6 +1469,72 @@ class CandidateAlertController
         return $sentToAny;
     }
 
+    /** Sends a single digest WhatsApp message listing all currently matching jobs, right after the alert is created. */
+    private function sendMatchingJobsDigest(CandidateAlert $alert, $jobs, ?string &$errorMessage = null): int
+    {
+        [$token, $gatewayUrl] = $this->getWhapiCredentials();
+
+        if (! $token || $jobs->isEmpty()) {
+            return 0;
+        }
+
+        $filters = $alert->filters ?? [];
+
+        $message = "Hi {$alert->candidate_name},\n\n";
+        $message .= "Here are the jobs currently matching your new VIP alert *\"{$alert->label}\"*:\n\n";
+
+        foreach ($jobs as $index => $job) {
+            $jobUrl   = url('/jobs/' . ($job->slugable?->key ?? $job->id));
+            $company  = $job->company?->name;
+            $location = $this->jobLocation($job);
+
+            $message .= ($index + 1) . ". *{$job->name}*\n";
+            if ($company)  $message .= "{$company}\n";
+            if ($location) $message .= "{$location}\n";
+            $message .= "{$jobUrl}\n";
+            if ($matchedKeyword = $this->matchedKeywordFor($job, $filters)) {
+                $message .= "_🔎 Matched: \"{$matchedKeyword}\"_\n";
+            }
+            $message .= "\n";
+        }
+
+        $message .= "_Wakanda Jobs VIP Alert — wakandajobs.com_";
+
+        $sentToAny = false;
+        $lastError = null;
+
+        foreach ($alert->recipientJids() as $jid) {
+            try {
+                $response = Http::timeout(20)->withToken($token)->post("{$gatewayUrl}/messages/text", [
+                    'to'   => $jid,
+                    'body' => $message,
+                ]);
+
+                if ($response->successful()) {
+                    $sentToAny = true;
+                } else {
+                    $lastError = 'Matching jobs digest failed for ' . $jid . ': HTTP ' . $response->status() . ' ' . str($response->body())->limit(250, '')->toString();
+                }
+            } catch (Throwable $exception) {
+                $lastError = 'Matching jobs digest exception for ' . $jid . ': ' . $exception->getMessage();
+            }
+        }
+
+        foreach ($jobs as $job) {
+            CandidateAlertLog::create([
+                'candidate_alert_id' => $alert->id,
+                'job_id'             => $job->id,
+                'status'             => $sentToAny ? 'sent' : 'failed',
+                'error_message'      => $sentToAny ? null : ($lastError ?: 'Initial matching jobs digest failed'),
+                'sent_at'            => now(),
+            ]);
+        }
+
+        $errorMessage = $lastError;
+
+        return $sentToAny ? $jobs->count() : 0;
+    }
+
     private function sendAccountInviteWhatsApp(CandidateAlert $alert, ?string &$errorMessage = null): bool
     {
         [$token, $gatewayUrl] = $this->getWhapiCredentials();
@@ -1569,6 +1751,87 @@ class CandidateAlertController
             $request->input('candidate_email'),
             $request->input('candidate_phone')
         );
+    }
+
+    private function resolveApplicationAccountForAlert(CandidateAlert $alert): ?Account
+    {
+        $alert->loadMissing('account');
+
+        $syncService = app(CandidateAlertAccountSyncService::class);
+        $account = $alert->account ?: $syncService->resolveAccount($alert->candidate_email, $alert->candidate_phone);
+
+        if (! $account && $alert->cv_path) {
+            [$account] = $syncService->createAccountForAlert(
+                $alert->candidate_name,
+                $alert->candidate_email,
+                $alert->candidate_phone
+            );
+
+            if ($account) {
+                $syncService->syncStoredAlertCvToAccount($account, $alert->cv_path);
+                $syncService->syncAlertWithAccount($alert, $account, true);
+            }
+        }
+
+        if ($account && trim((string) $account->resume) === '' && $alert->cv_path) {
+            $syncService->syncStoredAlertCvToAccount($account, $alert->cv_path);
+        }
+
+        if ($account && (int) $alert->account_id !== (int) $account->getKey()) {
+            $syncService->syncAlertWithAccount($alert, $account, true);
+        }
+
+        return $account;
+    }
+
+    private function resolveJobFromInput(string $value): ?Job
+    {
+        $value = trim($value);
+
+        if ($value === '') {
+            return null;
+        }
+
+        $candidate = trim(Str::afterLast($value, '/'));
+
+        if (filter_var($value, FILTER_VALIDATE_URL)) {
+            $path = parse_url($value, PHP_URL_PATH) ?: '';
+            $candidate = trim((string) Str::afterLast($path, '/'));
+        } elseif (str_starts_with($value, '/')) {
+            $candidate = trim((string) Str::afterLast($value, '/'));
+        }
+
+        $candidate = trim(Str::before($candidate, '?'));
+        $candidate = trim(Str::before($candidate, '#'));
+
+        if ($candidate === '') {
+            return null;
+        }
+
+        $jobQuery = Job::query()
+            ->with(['slugable', 'company'])
+            ->where('status', JobStatusEnum::PUBLISHED)
+            ->notExpired()
+            ->notClosed();
+
+        $numericId = ltrim($candidate, '#');
+
+        if (ctype_digit($numericId)) {
+            return (clone $jobQuery)->whereKey((int) $numericId)->first();
+        }
+
+        $jobPrefix = SlugHelper::getPrefix(Job::class, 'jobs');
+        $slug = SlugHelper::getSlug($candidate, $jobPrefix);
+
+        if ($slug && (int) $slug->reference_id > 0) {
+            return (clone $jobQuery)->whereKey((int) $slug->reference_id)->first();
+        }
+
+        return $jobQuery
+            ->whereHas('slugable', function ($query) use ($candidate): void {
+                $query->where('key', $candidate);
+            })
+            ->first();
     }
 
     private function analyzeStoredCvPath(

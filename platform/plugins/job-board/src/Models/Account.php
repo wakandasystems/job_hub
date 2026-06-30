@@ -53,7 +53,9 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
         'avatar_id',
         'dob',
         'phone',
+        'call_numbers',
         'description',
+        'linkedin',
         'gender',
         'package_id',
         'type',
@@ -72,6 +74,7 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
         'cover_letter',
         'unique_id',
         'whatsapp_number',
+        'whatsapp_numbers',
         'telegram_chat_id',
         'cv_score',
         'cv_score_data',
@@ -98,6 +101,8 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
         'dob'                => 'datetime',
         'cv_score_data'      => 'array',
         'cv_score_history'   => 'array',
+        'call_numbers'       => 'array',
+        'whatsapp_numbers'   => 'array',
         'talent_hub_consent'  => 'boolean',
         'profile_updated_at'  => 'datetime',
         'wakanda_verified'        => 'boolean',
@@ -457,6 +462,16 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
 
     protected static function booted(): void
     {
+        static::saving(function (Account $account): void {
+            $callNumbers = $account->call_numbers ?? [];
+            $whatsAppNumbers = $account->whatsapp_numbers ?? [];
+
+            $account->call_numbers = $account->normalizeContactNumbers($callNumbers, $account->phone);
+            $account->whatsapp_numbers = $account->normalizeContactNumbers($whatsAppNumbers, $account->whatsapp_number ?: $account->phone);
+            $account->phone = $account->call_numbers[0] ?? null;
+            $account->whatsapp_number = $account->whatsapp_numbers[0] ?? ($account->phone ?: null);
+        });
+
         static::deleting(function (Account $account): void {
             $account->companies()->detach();
             $account->activityLogs()->delete();
@@ -474,5 +489,34 @@ class Account extends BaseModel implements AuthenticatableContract, Authorizable
                 File::deleteDirectory($folder);
             }
         });
+    }
+
+    protected function normalizeContactNumbers(mixed $values, ?string $fallback = null): array
+    {
+        $values = is_array($values) ? $values : (array) $values;
+
+        if ($fallback !== null && trim($fallback) !== '') {
+            $values[] = $fallback;
+        }
+
+        $unique = [];
+        $normalized = [];
+
+        foreach ($values as $value) {
+            $value = trim((string) $value);
+            if ($value === '') {
+                continue;
+            }
+
+            $key = preg_replace('/\D+/', '', $value) ?: mb_strtolower($value);
+            if (isset($unique[$key])) {
+                continue;
+            }
+
+            $unique[$key] = true;
+            $normalized[] = $value;
+        }
+
+        return array_values($normalized);
     }
 }

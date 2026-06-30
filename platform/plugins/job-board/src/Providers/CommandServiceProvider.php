@@ -29,7 +29,10 @@ use Botble\JobBoard\Console\Commands\ProcessDueSocialBroadcastsCommand;
 use Botble\JobBoard\Console\Commands\SendCandidateFilterTipsCommand;
 use Botble\JobBoard\Console\Commands\CompleteAutoCvFinalConfirmationsCommand;
 use Botble\JobBoard\Console\Commands\BackfillImageVariantsCommand;
+use Botble\JobBoard\Console\Commands\CloseRemovedCrawledJobsCommand;
 use Botble\JobBoard\Console\Commands\ForwardEmployerRepliesCommand;
+use Botble\JobBoard\Console\Commands\BackfillAutoApplyOrderCommand;
+use Botble\JobBoard\Console\Commands\ReconcileMissedAutoApplyCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
 
@@ -70,6 +73,9 @@ class CommandServiceProvider extends ServiceProvider
             CompleteAutoCvFinalConfirmationsCommand::class,
             BackfillImageVariantsCommand::class,
             ForwardEmployerRepliesCommand::class,
+            CloseRemovedCrawledJobsCommand::class,
+            BackfillAutoApplyOrderCommand::class,
+            ReconcileMissedAutoApplyCommand::class,
         ]);
 
         $this->app->afterResolving(Schedule::class, function (Schedule $schedule): void {
@@ -92,13 +98,19 @@ class CommandServiceProvider extends ServiceProvider
             $schedule->command(ArchiveOldCrawledJobsCommand::class)
                 ->dailyAt('01:30')
                 ->withoutOverlapping();
-            $schedule->command(SendAutoApplyDigestCommand::class)->weeklyOn(1, '09:30');
+            $schedule->command(SendAutoApplyDigestCommand::class)->weeklyOn(5, '15:00'); // Friday 17:00 +2 GMT
             $schedule->command('horizon:snapshot')->everyFiveMinutes();
             $schedule->command(CheckAutoCvBotStallCommand::class)->everyFifteenMinutes()->withoutOverlapping();
             $schedule->command(ProcessDueSocialBroadcastsCommand::class)->everyFiveMinutes()->withoutOverlapping();
             $schedule->command(SendCandidateFilterTipsCommand::class)->everyThirtyMinutes()->withoutOverlapping();
             $schedule->command(CompleteAutoCvFinalConfirmationsCommand::class)->everyMinute()->withoutOverlapping();
             $schedule->command(ForwardEmployerRepliesCommand::class)->everyFiveMinutes()->withoutOverlapping();
+            $schedule->command(ReconcileMissedAutoApplyCommand::class)
+                ->everyTenMinutes()
+                ->withoutOverlapping();
+            // 08:00 CAT = start of business day (catches overnight removals)
+            // 15:00 CAT = mid-afternoon (catches jobs filled/closed during the day)
+            $schedule->command(CloseRemovedCrawledJobsCommand::class)->twiceDaily(8, 15)->withoutOverlapping();
         });
     }
 }

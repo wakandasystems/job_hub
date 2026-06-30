@@ -64,6 +64,13 @@ class AccountForm extends FormAbstract
                 );
             })
             ->add('description', TextareaField::class, DescriptionFieldOption::make())
+            ->add('linkedin', 'text', [
+                'label' => 'LinkedIn URL',
+                'attr' => [
+                    'placeholder' => 'https://linkedin.com/in/username',
+                    'data-counter' => 250,
+                ],
+            ])
             ->add('bio', 'editor', [
                 'label' => trans('plugins/job-board::forms.bio'),
             ])
@@ -80,11 +87,27 @@ class AccountForm extends FormAbstract
                     'data-counter' => 120,
                 ],
             ])
-            ->add('phone', 'text', [
-                'label' => trans('plugins/job-board::account.form.phone'),
-                'attr' => [
-                    'data-counter' => 20,
-                ],
+            ->add('call_numbers', 'html', [
+                'html' => $this->repeatableContactField(
+                    'call_numbers',
+                    'Call Numbers',
+                    $this->getModel()->call_numbers ?? [],
+                    'text',
+                    '+260 97 000 0000',
+                    'Add number',
+                    'Add one call number per row. The first number becomes the primary call number used by older integrations.'
+                ),
+            ])
+            ->add('whatsapp_numbers', 'html', [
+                'html' => $this->repeatableContactField(
+                    'whatsapp_numbers',
+                    'WhatsApp Numbers',
+                    $this->getModel()->whatsapp_numbers ?? [],
+                    'text',
+                    '+260 97 000 0000',
+                    'Add number',
+                    'Add one WhatsApp number per row. The first number becomes the primary WhatsApp number used by existing automations.'
+                ),
             ])
             ->add('dob', 'datePicker', [
                 'label' => trans('plugins/job-board::account.form.date_of_birth'),
@@ -171,6 +194,11 @@ class AccountForm extends FormAbstract
             ->add('resume', 'mediaFile', [
                 'label' => trans('plugins/job-board::account.form.resume'),
                 'value' => $this->getModel()->resume,
+            ])
+            ->add('resume_actions', 'html', [
+                'html' => view('plugins/job-board::accounts.resume-manager', [
+                    'account' => $this->getModel(),
+                ])->render(),
             ]);
 
         /**
@@ -180,6 +208,57 @@ class AccountForm extends FormAbstract
 
         if ($account->getKey() && $account->isJobSeeker()) {
             $this
+                ->add('career_preferences_heading', 'html', [
+                    'html' => '<h5 class="mb-3">Career Preferences</h5>',
+                ])
+                ->add('career_preferences_row_open', 'html', [
+                    'html' => '<div class="row">',
+                ])
+                ->add('experience_years', 'customSelect', [
+                    'label' => 'Years of Experience',
+                    'choices' => Account::experienceYearsOptions(),
+                    'wrapper' => [
+                        'class' => $this->formHelper->getConfig('defaults.wrapper_class') . ' col-md-4',
+                    ],
+                ])
+                ->add('education_level', 'customSelect', [
+                    'label' => 'Highest Education Level',
+                    'choices' => Account::educationLevelOptions(),
+                    'wrapper' => [
+                        'class' => $this->formHelper->getConfig('defaults.wrapper_class') . ' col-md-4',
+                    ],
+                ])
+                ->add('availability', 'customSelect', [
+                    'label' => 'Availability',
+                    'choices' => Account::availabilityOptions(),
+                    'wrapper' => [
+                        'class' => $this->formHelper->getConfig('defaults.wrapper_class') . ' col-md-4',
+                    ],
+                ])
+                ->add('career_preferences_row_close', 'html', [
+                    'html' => '</div>',
+                ])
+                ->add('salary_row_open', 'html', [
+                    'html' => '<div class="row">',
+                ])
+                ->add('desired_salary_from', TextField::class, TextFieldOption::make()
+                    ->label('Desired Salary (From)')
+                    ->placeholder('e.g. 1500')
+                    ->wrapperAttributes(['class' => $this->formHelper->getConfig('defaults.wrapper_class') . ' col-md-6']))
+                ->add('desired_salary_to', TextField::class, TextFieldOption::make()
+                    ->label('Desired Salary (To)')
+                    ->placeholder('e.g. 3000')
+                    ->wrapperAttributes(['class' => $this->formHelper->getConfig('defaults.wrapper_class') . ' col-md-6']))
+                ->add('salary_row_close', 'html', [
+                    'html' => '</div>',
+                ])
+                ->add('telegram_chat_id', 'text', [
+                    'label' => 'Telegram Chat ID',
+                    'attr' => [
+                        'placeholder' => 'e.g. 123456789',
+                        'data-counter' => 100,
+                    ],
+                ])
                 ->addMetaBoxes([
                     'educations' => [
                         'title' => trans('plugins/job-board::forms.educations'),
@@ -251,5 +330,89 @@ class AccountForm extends FormAbstract
                 ],
             ]);
         }
+    }
+
+    protected function repeatableContactField(
+        string $name,
+        string $label,
+        array $values,
+        string $inputType,
+        string $placeholder,
+        string $addLabel,
+        string $help
+    ): string {
+        $values = array_values(array_filter(array_map('trim', $values)));
+        if (empty($values)) {
+            $values = [''];
+        }
+
+        $ph = e($placeholder);
+        $rows = '';
+        foreach ($values as $value) {
+            $rows .= '<div class="input-group input-group-sm mb-2 contact-row">'
+                . '<input type="' . e($inputType) . '" name="' . e($name) . '[]" class="form-control" '
+                . 'value="' . e($value) . '" placeholder="' . $ph . '">'
+                . '<button type="button" class="btn btn-outline-danger js-contact-remove" title="Remove">'
+                . '<i class="fa fa-times"></i></button>'
+                . '</div>';
+        }
+
+        $script = <<<'JS'
+<script>
+(function () {
+    if (window.__contactListInit) { return; }
+    window.__contactListInit = true;
+
+    function rowHtml(name, type, placeholder) {
+        var span = document.createElement('span');
+        span.textContent = placeholder || '';
+        return '<div class="input-group input-group-sm mb-2 contact-row">'
+            + '<input type="' + type + '" name="' + name + '[]" class="form-control" placeholder="' + span.innerHTML + '">'
+            + '<button type="button" class="btn btn-outline-danger js-contact-remove" title="Remove"><i class="fa fa-times"></i></button>'
+            + '</div>';
+    }
+
+    document.addEventListener('click', function (e) {
+        var add = e.target.closest('.js-contact-add');
+        if (add) {
+            e.preventDefault();
+            var name = add.getAttribute('data-name');
+            var list = document.querySelector('.contact-list[data-name="' + name + '"]');
+            if (!list) { return; }
+            list.insertAdjacentHTML('beforeend', rowHtml(name, add.getAttribute('data-type') || 'text', add.getAttribute('data-placeholder') || ''));
+            var inputs = list.querySelectorAll('input');
+            if (inputs.length) { inputs[inputs.length - 1].focus(); }
+            return;
+        }
+
+        var rm = e.target.closest('.js-contact-remove');
+        if (rm) {
+            e.preventDefault();
+            var row = rm.closest('.contact-row');
+            var list = row ? row.parentNode : null;
+            if (row) { row.remove(); }
+            if (list && list.querySelectorAll('.contact-row').length === 0) {
+                var addBtn = document.querySelector('.js-contact-add[data-name="' + list.getAttribute('data-name') + '"]');
+                list.insertAdjacentHTML('beforeend', rowHtml(
+                    list.getAttribute('data-name'),
+                    addBtn ? (addBtn.getAttribute('data-type') || 'text') : 'text',
+                    addBtn ? (addBtn.getAttribute('data-placeholder') || '') : ''
+                ));
+            }
+        }
+    });
+})();
+</script>
+JS;
+
+        return '<div class="mb-3 position-relative">'
+            . '<label class="form-label d-block">' . e($label) . '</label>'
+            . '<div class="contact-list" data-name="' . e($name) . '">' . $rows . '</div>'
+            . '<button type="button" class="btn btn-sm btn-outline-secondary js-contact-add" '
+            . 'data-name="' . e($name) . '" data-type="' . e($inputType) . '" data-placeholder="' . $ph . '">'
+            . '<i class="fa fa-plus me-1"></i> ' . e($addLabel) . '</button>'
+            . '<small class="form-hint d-block mt-2 text-muted">' . e($help) . '</small>'
+            . $script
+            . '</div>';
     }
 }

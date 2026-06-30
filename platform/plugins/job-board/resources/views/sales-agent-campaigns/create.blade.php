@@ -1,7 +1,7 @@
 @extends(BaseHelper::getAdminMasterLayoutTemplate())
 
 @section('content')
-    <x-core::form :url="route('sales-agent-campaigns.store')" method="post">
+    <x-core::form :url="route('sales-agent-campaigns.store')" method="post" enctype="multipart/form-data">
         @csrf
 
         @include('plugins/job-board::sales-agent-campaigns.partials.form')

@@ -59,4 +59,31 @@ class AutoApplyPreference extends BaseModel
     {
         return $this->account && trim((string) $this->account->resume) !== '';
     }
+
+    public function locationKeywords(): array
+    {
+        return array_values(array_filter(array_map(
+            static fn ($value) => trim((string) $value),
+            preg_split('/\s*,\s*/', (string) ($this->location_keyword ?? '')) ?: []
+        )));
+    }
+
+    public function matchesLocation(?string $address): bool
+    {
+        $keywords = $this->locationKeywords();
+
+        if (! $keywords) {
+            return true;
+        }
+
+        $address = (string) $address;
+
+        foreach ($keywords as $keyword) {
+            if ($keyword !== '' && stripos($address, $keyword) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

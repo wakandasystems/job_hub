@@ -251,6 +251,13 @@
                                                     data-name="{{ $alert->candidate_name }}">
                                                     <i class="fab fa-whatsapp"></i>
                                                 </button>
+                                                <button type="button"
+                                                    class="btn btn-outline-primary btn-send-application"
+                                                    title="Send one application on demand"
+                                                    data-action="{{ route('job-board.candidate-alerts.send-application', $alert->id) }}"
+                                                    data-name="{{ $alert->candidate_name }}">
+                                                    <i class="ti ti-send"></i>
+                                                </button>
                                                 @if(! $alert->account_id && ($alert->candidate_email || $alert->candidate_phone))
                                                 <button type="button"
                                                     class="btn btn-outline-dark btn-send-account-invite"
@@ -597,6 +604,39 @@ wakandajobs.com';
     </div>
 </div>
 
+<div class="modal fade" id="modal-send-application" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="POST" id="sendApplicationForm">
+                @csrf
+                <div class="modal-header">
+                    <h5 class="modal-title d-flex align-items-center gap-2">
+                        <i class="ti ti-send text-primary"></i>
+                        <span>Send Application On Demand</span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3" id="sendApplicationLabel">
+                        Paste a Wakanda Jobs URL or slug. Wakanda Jobs will generate the best cover letter from the candidate CV and either send the application automatically or send a manual-apply package if the job has no application email.
+                    </p>
+                    <div class="mb-0">
+                        <label class="form-label fw-semibold">Wakanda Jobs URL or slug</label>
+                        <input type="text" class="form-control" name="job_url" id="sendApplicationJobUrl" required
+                            placeholder="https://www.wakandajobs.com/jobs/... or the job slug">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="ti ti-send me-1"></i> Send Application
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 @endsection
 
 @push('header')
@@ -631,6 +671,7 @@ $(function () {
 
     const alertActionModalEl = document.getElementById('modal-alert-action-confirm');
     const alertActionModal = alertActionModalEl ? new bootstrap.Modal(alertActionModalEl) : null;
+    const sendApplicationModal = new bootstrap.Modal(document.getElementById('modal-send-application'));
     let pendingAlertAction = null;
 
     function showAlertActionConfirm(options) {
@@ -697,6 +738,19 @@ $(function () {
 
     $(document).on('click', '.btn-remove-quick-add-preset', function () {
         $(this).closest('.quick-add-preset-row').remove();
+    });
+
+    $(document).on('click', '.btn-send-application', function () {
+        $('#sendApplicationForm').attr('action', $(this).data('action'));
+        $('#sendApplicationLabel').text(
+            ($(this).data('name') || 'This candidate')
+            + ' will receive an AI-generated application based on the CV on file. If the job has no application email, Wakanda Jobs will send a manual-apply package instead.'
+        );
+        $('#sendApplicationJobUrl').val('');
+        sendApplicationModal.show();
+        setTimeout(function () {
+            $('#sendApplicationJobUrl').trigger('focus');
+        }, 200);
     });
 
     // ── Phone number duplicate check ─────────────────────────────────────────

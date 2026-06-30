@@ -8,14 +8,22 @@ use Botble\Base\Http\Controllers\BaseController;
 use Botble\Base\Http\Responses\BaseHttpResponse;
 use Botble\Base\Supports\Breadcrumb;
 use Botble\JobBoard\Jobs\GenerateSalesAgentPosterJob;
+use Botble\JobBoard\Jobs\SendSalesAgentCampaignLinkJob;
 use Botble\JobBoard\Models\SalesAgent;
 use Botble\JobBoard\Models\SalesAgentCampaign;
+use Botble\JobBoard\Models\SalesAgentCampaignVersion;
 use Botble\JobBoard\Models\SalesAgentMarketingImage;
+use Botble\JobBoard\Services\OpenAiImageService;
 use Botble\Media\Facades\RvMedia;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SalesAgentCampaignController extends BaseController
 {
@@ -34,6 +42,8 @@ class SalesAgentCampaignController extends BaseController
 
         $campaigns = SalesAgentCampaign::query()
             ->with('latestMarketingImage')
+            ->withCount('clicks')
+            ->orderByDesc('is_active')
             ->latest()
             ->paginate(20);
 
@@ -152,6 +162,7 @@ class SalesAgentCampaignController extends BaseController
     public function store(Request $request): BaseHttpResponse
     {
         $campaign = SalesAgentCampaign::query()->create($this->validatedData($request));
+        $this->recordVersion($campaign, 'Initial version');
 
         return $this
             ->httpResponse()
@@ -166,13 +177,72 @@ class SalesAgentCampaignController extends BaseController
         $this->pageTitle('Edit Campaign — ' . $salesAgentCampaign->name);
 
         $campaign = $salesAgentCampaign;
+        $versions = Schema::hasTable('jb_sales_agent_campaign_versions')
+            ? $campaign->versions()->with(['creator', 'restoredFrom'])->limit(30)->get()
+            : collect();
+        $activeTab = request('tab', 'details');
 
-        return view('plugins/job-board::sales-agent-campaigns.edit', compact('campaign'));
+        return view('plugins/job-board::sales-agent-campaigns.edit', compact('campaign', 'versions', 'activeTab'));
+    }
+
+    public function analyzeInspiration(Request $request, OpenAiImageService $imageService): JsonResponse
+    {
+        $request->validate([
+            'inspiration_image_file' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:12288'],
+        ]);
+
+        $result = $imageService->analyzeSalesAgentInspiration($request->file('inspiration_image_file'));
+
+        if (! ($result['ok'] ?? false)) {
+            return response()->json([
+                'error' => $result['message'] ?? 'Could not analyze the inspiration image.',
+            ], 422);
+        }
+
+        return response()->json([
+            'data' => [
+                'prompt_template' => $result['prompt_template'],
+                'summary' => $result['summary'],
+                'editable_regions' => $result['editable_regions'] ?? [],
+            ],
+        ]);
+    }
+
+    public function links(SalesAgentCampaign $salesAgentCampaign, Request $request)
+    {
+        $this->pageTitle('Campaign Links - ' . $salesAgentCampaign->name);
+
+        $agents = SalesAgent::query()
+            ->when($request->boolean('active_only', true), fn ($query) => $query->where('status', 'active'))
+            ->when($request->filled('q'), function ($query) use ($request): void {
+                $keyword = trim((string) $request->input('q'));
+                $query->where(function ($builder) use ($keyword): void {
+                    $builder->where('name', 'LIKE', '%' . $keyword . '%')
+                        ->orWhere('phone', 'LIKE', '%' . $keyword . '%')
+                        ->orWhere('code', 'LIKE', '%' . $keyword . '%');
+                });
+            })
+            ->withCount([
+                'campaignClicks as campaign_clicks_count' => fn ($query) => $query->where('campaign_id', $salesAgentCampaign->getKey()),
+            ])
+            ->orderBy('name')
+            ->paginate(50)
+            ->withQueryString();
+
+        $campaign = $salesAgentCampaign;
+
+        return view('plugins/job-board::sales-agent-campaigns.links', compact('campaign', 'agents'));
     }
 
     public function update(SalesAgentCampaign $salesAgentCampaign, Request $request): BaseHttpResponse
     {
-        $salesAgentCampaign->update($this->validatedData($request));
+        $salesAgentCampaign->fill($this->validatedData($request, $salesAgentCampaign));
+        $hasChanges = $salesAgentCampaign->isDirty();
+        $salesAgentCampaign->save();
+
+        if ($hasChanges) {
+            $this->recordVersion($salesAgentCampaign, 'Saved changes');
+        }
 
         return $this
             ->httpResponse()
@@ -180,46 +250,180 @@ class SalesAgentCampaignController extends BaseController
             ->setNextUrl(route('sales-agent-campaigns.index'));
     }
 
-    public function destroy(SalesAgentCampaign $salesAgentCampaign): BaseHttpResponse
-    {
-        $salesAgentCampaign->delete();
+    public function restoreVersion(
+        SalesAgentCampaign $salesAgentCampaign,
+        SalesAgentCampaignVersion $salesAgentCampaignVersion
+    ): BaseHttpResponse {
+        abort_unless((int) $salesAgentCampaignVersion->campaign_id === (int) $salesAgentCampaign->getKey(), 404);
+
+        $versionNumber = $salesAgentCampaignVersion->getKey();
+
+        $this->recordVersion($salesAgentCampaign, 'Before restore from version #' . $versionNumber);
+        $salesAgentCampaign->applySnapshot($salesAgentCampaignVersion->snapshot ?? []);
+        $this->recordVersion($salesAgentCampaign, 'Restored from version #' . $versionNumber, $salesAgentCampaignVersion->getKey());
 
         return $this
             ->httpResponse()
-            ->setMessage('Campaign deleted.');
+            ->setMessage('Campaign restored from version #' . $versionNumber . '.')
+            ->setNextUrl(route('sales-agent-campaigns.edit', [$salesAgentCampaign->getKey(), 'tab' => 'history']));
     }
 
-    public function generateSample(SalesAgentCampaign $salesAgentCampaign): BaseHttpResponse
+    public function toggleActive(SalesAgentCampaign $salesAgentCampaign): BaseHttpResponse
     {
-        $agent = SalesAgent::query()->firstOrCreate(
-            ['code' => 'NAKIA-SAMPLE'],
-            [
-                'name' => 'Nakia Banda',
-                'phone' => '+260970766123',
-                'email' => 'nakia@wakandajobs.com',
-                'commission_rate' => (float) setting('sales_agent_default_commission_rate', 10),
-                'status' => 'inactive',
-                'notes' => 'Internal sample agent used for campaign preview images.',
-            ]
-        );
+        $salesAgentCampaign->update(['is_active' => ! $salesAgentCampaign->is_active]);
 
-        if (! $agent->photo) {
-            $nakiaPath = trim((string) setting('sales_agent_nakia_image', ''))
-                ?: trim((string) setting('auto_cv_bot_persona_image', ''));
+        return $this
+            ->httpResponse()
+            ->setData(['is_active' => $salesAgentCampaign->is_active])
+            ->setMessage($salesAgentCampaign->is_active ? 'Campaign activated.' : 'Campaign deactivated.');
+    }
 
-            if ($nakiaPath !== '') {
-                $agent->update(['photo' => $nakiaPath]);
-            }
+    public function destroy(SalesAgentCampaign $salesAgentCampaign, Request $request): BaseHttpResponse|RedirectResponse
+    {
+        $imagePaths = SalesAgentMarketingImage::query()
+            ->where('campaign_id', $salesAgentCampaign->getKey())
+            ->whereNotNull('image_path')
+            ->pluck('image_path')
+            ->filter()
+            ->values()
+            ->all();
+
+        if ($imagePaths !== []) {
+            Storage::disk('public')->delete($imagePaths);
         }
 
-        $lockKey = sprintf('sales-agent-campaign:%d:sample-generate', $salesAgentCampaign->getKey());
+        SalesAgentMarketingImage::query()
+            ->where('campaign_id', $salesAgentCampaign->getKey())
+            ->delete();
+
+        $salesAgentCampaign->delete();
+
+        if (! $request->expectsJson()) {
+            return redirect()
+                ->route('sales-agent-campaigns.index')
+                ->with('success_msg', 'Campaign deleted.');
+        }
+
+        return $this
+            ->httpResponse()
+            ->setMessage('Campaign deleted.')
+            ->setNextUrl(route('sales-agent-campaigns.index'));
+    }
+
+    public function exportLinks(SalesAgentCampaign $salesAgentCampaign, Request $request): StreamedResponse
+    {
+        $filename = 'sales-agent-links-' . $salesAgentCampaign->getKey() . '.csv';
+        $activeOnly = $request->boolean('active_only', true);
+        $keyword = trim((string) $request->input('q', ''));
+
+        return response()->streamDownload(function () use ($salesAgentCampaign, $activeOnly, $keyword): void {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, ['agent_id', 'agent_name', 'phone', 'code', 'campaign', 'product', 'clicks', 'share_link']);
+
+            SalesAgent::query()
+                ->when($activeOnly, fn ($query) => $query->where('status', 'active'))
+                ->when($keyword !== '', function ($query) use ($keyword): void {
+                    $query->where(function ($builder) use ($keyword): void {
+                        $builder->where('name', 'LIKE', '%' . $keyword . '%')
+                            ->orWhere('phone', 'LIKE', '%' . $keyword . '%')
+                            ->orWhere('code', 'LIKE', '%' . $keyword . '%');
+                    });
+                })
+                ->withCount([
+                    'campaignClicks as campaign_clicks_count' => fn ($query) => $query->where('campaign_id', $salesAgentCampaign->getKey()),
+                ])
+                ->orderBy('name')
+                ->chunkById(200, function ($agents) use ($handle, $salesAgentCampaign): void {
+                    foreach ($agents as $agent) {
+                        fputcsv($handle, [
+                            $agent->getKey(),
+                            $agent->name,
+                            $agent->phone,
+                            $agent->code,
+                            $salesAgentCampaign->name,
+                            $salesAgentCampaign->resolvedProductLabel(),
+                            $agent->campaign_clicks_count,
+                            $salesAgentCampaign->shareUrlForAgent($agent),
+                        ]);
+                    }
+                });
+
+            fclose($handle);
+        }, $filename, ['Content-Type' => 'text/csv']);
+    }
+
+    public function sendLink(SalesAgentCampaign $salesAgentCampaign, SalesAgent $salesAgent): BaseHttpResponse
+    {
+        if ($salesAgent->status !== 'active') {
+            return $this->httpResponse()->setError()->setMessage('Only active agents can receive share links.');
+        }
+
+        SendSalesAgentCampaignLinkJob::dispatch($salesAgent->getKey(), $salesAgentCampaign->getKey());
+
+        return $this->httpResponse()->setMessage('Campaign link queued for WhatsApp send to ' . $salesAgent->name . '.');
+    }
+
+    public function sendLinksBulk(SalesAgentCampaign $salesAgentCampaign, Request $request): BaseHttpResponse
+    {
+        $data = $request->validate([
+            'agent_ids' => ['nullable', 'array'],
+            'agent_ids.*' => ['integer', 'exists:jb_sales_agents,id'],
+            'active_only' => ['nullable', 'boolean'],
+            'q' => ['nullable', 'string', 'max:150'],
+        ]);
+
+        $activeOnly = array_key_exists('active_only', $data)
+            ? (bool) $data['active_only']
+            : true;
+
+        $query = SalesAgent::query()
+            ->when(empty($data['agent_ids']) && $activeOnly, fn ($builder) => $builder->where('status', 'active'))
+            ->when(! empty($data['agent_ids']), fn ($builder) => $builder->whereIn('id', $data['agent_ids']))
+            ->when(empty($data['agent_ids']) && ! empty($data['q']), function ($builder) use ($data): void {
+                $keyword = trim((string) $data['q']);
+                $builder->where(function ($inner) use ($keyword): void {
+                    $inner->where('name', 'LIKE', '%' . $keyword . '%')
+                        ->orWhere('phone', 'LIKE', '%' . $keyword . '%')
+                        ->orWhere('code', 'LIKE', '%' . $keyword . '%');
+                });
+            });
+
+        $count = 0;
+
+        $query->orderBy('id')->chunkById(200, function ($agents) use ($salesAgentCampaign, &$count): void {
+            foreach ($agents as $agent) {
+                SendSalesAgentCampaignLinkJob::dispatch($agent->getKey(), $salesAgentCampaign->getKey());
+                $count++;
+            }
+        });
+
+        return $this->httpResponse()->setMessage("Queued {$count} campaign link message(s) for WhatsApp send.");
+    }
+
+    public function generateSample(SalesAgentCampaign $salesAgentCampaign, Request $request): BaseHttpResponse
+    {
+        $data = $request->validate([
+            'subject_mode' => ['nullable', Rule::in(array_keys(SalesAgentMarketingImage::subjectModes()))],
+        ]);
+
+        $subjectMode = $data['subject_mode'] ?? 'nakia';
+        $agent = $this->sampleAgentForSubjectMode($subjectMode);
+
+        if (! $agent) {
+            return $this
+                ->httpResponse()
+                ->setError()
+                ->setMessage('No sales agent with a saved marketing photo is available for that subject selection.');
+        }
+
+        $lockKey = sprintf('sales-agent-campaign:%d:sample-generate:%s', $salesAgentCampaign->getKey(), $subjectMode);
         $queued = false;
 
-        $image = Cache::lock($lockKey, 10)->block(3, function () use ($agent, $salesAgentCampaign, &$queued) {
+        $image = Cache::lock($lockKey, 10)->block(3, function () use ($agent, $salesAgentCampaign, $subjectMode, &$queued) {
             $image = SalesAgentMarketingImage::query()
                 ->where('sales_agent_id', $agent->getKey())
                 ->where('campaign_id', $salesAgentCampaign->getKey())
-                ->where('subject_mode', 'nakia')
+                ->where('subject_mode', $subjectMode)
                 ->where('status', 'generating')
                 ->latest('id')
                 ->first();
@@ -231,7 +435,7 @@ class SalesAgentCampaignController extends BaseController
             $image = SalesAgentMarketingImage::query()->create([
                 'sales_agent_id' => $agent->getKey(),
                 'campaign_id' => $salesAgentCampaign->getKey(),
-                'subject_mode' => 'nakia',
+                'subject_mode' => $subjectMode,
                 'status' => 'generating',
             ]);
 
@@ -337,6 +541,8 @@ class SalesAgentCampaignController extends BaseController
             'campaign_id' => $campaign->getKey(),
             'image_id' => $image->getKey(),
             'status' => $image->status,
+            'subject_mode' => $image->subject_mode,
+            'subject_label' => SalesAgentMarketingImage::subjectModes()[$image->subject_mode] ?? $image->subject_mode,
             'error_message' => $image->error_message,
             'image_url' => $imageUrl,
             'download_url' => $imageUrl ? route('sales-agents.marketing-images.download', [$image->sales_agent_id, $image->getKey()]) : null,
@@ -344,11 +550,20 @@ class SalesAgentCampaignController extends BaseController
         ];
     }
 
-    private function validatedData(Request $request): array
+    private function validatedData(Request $request, ?SalesAgentCampaign $campaign = null): array
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:150'],
+            'product_type' => ['required', 'in:' . implode(',', array_keys(SalesAgentCampaign::productTypeOptions()))],
+            'product_label' => ['nullable', 'string', 'max:120'],
+            'landing_headline' => ['nullable', 'string', 'max:190'],
+            'landing_body' => ['nullable', 'string', 'max:5000'],
+            'landing_cta_text' => ['nullable', 'string', 'max:120'],
+            'share_message_template' => ['nullable', 'string', 'max:5000'],
             'prompt_template' => ['required', 'string'],
+            'reconstruction_layout' => ['nullable', 'string', 'max:20000'],
+            'inspiration_image_file' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:12288'],
+            'remove_inspiration_image' => ['nullable', 'boolean'],
             'aspect_ratio' => ['required', 'in:portrait_4_5,square_1_1,landscape_16_9'],
             'promo_price' => ['nullable', 'string', 'max:30'],
             'promo_original_price' => ['nullable', 'string', 'max:30'],
@@ -358,8 +573,109 @@ class SalesAgentCampaignController extends BaseController
         ]);
 
         $data['promo_end_date'] = BaseHelper::parseDate($data['promo_end_date'] ?? null)?->toDateString();
+        $data['product_label'] = trim((string) ($data['product_label'] ?? '')) ?: null;
+        $data['landing_headline'] = trim((string) ($data['landing_headline'] ?? '')) ?: null;
+        $data['landing_body'] = trim((string) ($data['landing_body'] ?? '')) ?: null;
+        $data['landing_cta_text'] = trim((string) ($data['landing_cta_text'] ?? '')) ?: null;
+        $data['share_message_template'] = trim((string) ($data['share_message_template'] ?? '')) ?: null;
+        $data['prompt_template'] = trim((string) $data['prompt_template']);
+        $data['reconstruction_layout'] = $this->decodeReconstructionLayout($data['reconstruction_layout'] ?? null);
+        $data['promo_price'] = trim((string) ($data['promo_price'] ?? '')) ?: null;
+        $data['promo_original_price'] = trim((string) ($data['promo_original_price'] ?? '')) ?: null;
+        $data['inspiration_images'] = $campaign?->inspirationImages() ?? [];
+
+        if ($request->boolean('remove_inspiration_image')) {
+            $data['inspiration_images'] = [];
+        }
+
+        if ($request->hasFile('inspiration_image_file')) {
+            $result = RvMedia::handleUpload($request->file('inspiration_image_file'), 0, 'sales-agents/inspirations');
+
+            if ($result['error']) {
+                abort(422, $result['message'] ?? 'Could not upload the inspiration image.');
+            }
+
+            $storedPath = $result['data']->url ?? null;
+
+            if ($storedPath) {
+                $data['inspiration_images'] = [$storedPath];
+            }
+        }
+
+        $isPromo = filled($data['promo_price']) && filled($data['promo_original_price']) && filled($data['promo_end_date']);
+
+        if (! $isPromo) {
+            $data['promo_original_price'] = null;
+            $data['promo_end_date'] = null;
+        }
+
         $data['is_active'] = $request->boolean('is_active');
 
         return $data;
+    }
+
+    private function decodeReconstructionLayout(?string $raw): ?array
+    {
+        $raw = trim((string) $raw);
+
+        if ($raw === '') {
+            return null;
+        }
+
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    private function recordVersion(
+        SalesAgentCampaign $campaign,
+        string $label,
+        ?int $restoredFromVersionId = null
+    ): SalesAgentCampaignVersion {
+        if (! Schema::hasTable('jb_sales_agent_campaign_versions')) {
+            return new SalesAgentCampaignVersion();
+        }
+
+        return $campaign->versions()->create([
+            'created_by' => auth()->id(),
+            'restored_from_version_id' => $restoredFromVersionId,
+            'label' => $label,
+            'snapshot' => $campaign->snapshotData(),
+        ]);
+    }
+
+    private function sampleAgentForSubjectMode(string $subjectMode): ?SalesAgent
+    {
+        if ($subjectMode === 'nakia') {
+            $agent = SalesAgent::query()->firstOrCreate(
+                ['code' => 'NAKIA-SAMPLE'],
+                [
+                    'name' => 'Nakia Banda',
+                    'phone' => '+260970766123',
+                    'email' => 'nakia@wakandajobs.com',
+                    'commission_rate' => (float) setting('sales_agent_default_commission_rate', 10),
+                    'status' => 'inactive',
+                    'notes' => 'Internal sample agent used for campaign preview images.',
+                ]
+            );
+
+            if (! $agent->photo) {
+                $nakiaPath = trim((string) setting('sales_agent_nakia_image', ''))
+                    ?: trim((string) setting('auto_cv_bot_persona_image', ''));
+
+                if ($nakiaPath !== '') {
+                    $agent->update(['photo' => $nakiaPath]);
+                }
+            }
+
+            return $agent;
+        }
+
+        return SalesAgent::query()
+            ->where('status', 'active')
+            ->whereNotNull('photo')
+            ->where('photo', '!=', '')
+            ->orderByDesc('updated_at')
+            ->first();
     }
 }

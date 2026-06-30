@@ -40,8 +40,7 @@ class SendSalesAgentMarketingImageJob implements ShouldQueue
         }
 
         $path = Storage::disk('public')->path($image->image_path);
-        $caption = "Hi {$image->salesAgent->name}, here is your Wakanda Jobs campaign poster.\n\n"
-            . "Your referral code: *{$image->salesAgent->code}*";
+        $caption = $image->campaign->buildShareMessage($image->salesAgent);
 
         $errorMessage = null;
 

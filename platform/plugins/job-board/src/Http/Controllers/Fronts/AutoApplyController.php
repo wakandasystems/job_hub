@@ -17,6 +17,7 @@ use Botble\JobBoard\Services\AutoApplyService;
 use Botble\SeoHelper\Facades\SeoHelper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class AutoApplyController extends BaseController
 {
@@ -69,9 +70,12 @@ class AutoApplyController extends BaseController
             'keywords'                => ['nullable', 'string', 'max:1000'],
             'category_ids'            => ['nullable', 'array'],
             'country_ids'             => ['nullable', 'array'],
-            'location_keyword'        => ['nullable', 'string', 'max:200'],
+            'location_keyword'        => ['nullable', 'string', 'max:5000'],
             'job_experience_id'       => ['nullable', 'integer'],
+            'whitelisted_company_ids' => ['nullable', 'array'],
+            'whitelisted_company_keywords' => ['nullable', 'string', 'max:1000'],
             'blacklisted_company_ids' => ['nullable', 'array'],
+            'blacklisted_company_keywords' => ['nullable', 'string', 'max:1000'],
             'match_score_threshold'   => ['nullable', 'integer', 'min:0', 'max:100'],
             'is_active'               => ['nullable'],
         ]);
@@ -88,6 +92,9 @@ class AutoApplyController extends BaseController
 
         // Parse comma-separated keywords into array
         $keywords = array_values(array_filter(array_map('trim', explode(',', $data['keywords'] ?? ''))));
+        $locationKeywords = $this->parseCommaSeparatedKeywords($data['location_keyword'] ?? '');
+        $whitelistedCompanyKeywords = $this->parseCommaSeparatedKeywords($data['whitelisted_company_keywords'] ?? '');
+        $blacklistedCompanyKeywords = $this->parseCommaSeparatedKeywords($data['blacklisted_company_keywords'] ?? '');
 
         AutoApplyPreference::updateOrCreate(
             ['account_id' => $account->id],
@@ -95,9 +102,12 @@ class AutoApplyController extends BaseController
                 'keywords'                => $keywords,
                 'category_ids'            => $data['category_ids'] ?? [],
                 'country_ids'             => $data['country_ids'] ?? [],
-                'location_keyword'        => $data['location_keyword'] ?? null,
+                'location_keyword'        => implode(', ', $locationKeywords),
                 'job_experience_id'       => $data['job_experience_id'] ?? null,
+                'whitelisted_company_ids' => $data['whitelisted_company_ids'] ?? [],
+                'whitelisted_company_keywords' => $whitelistedCompanyKeywords,
                 'blacklisted_company_ids' => $data['blacklisted_company_ids'] ?? [],
+                'blacklisted_company_keywords' => $blacklistedCompanyKeywords,
                 'match_score_threshold'   => $data['match_score_threshold'] ?? AutoApplyOrder::globalMatchThreshold(),
                 'is_active'               => ! empty($data['is_active']),
             ]
@@ -141,12 +151,6 @@ class AutoApplyController extends BaseController
                 return false;
             }
             if (\Botble\JobBoard\Models\JobApplication::where('account_id', $account->id)->where('job_id', $job->id)->exists()) {
-                return false;
-            }
-
-            // Blacklisted company
-            $blacklisted = $preference->blacklisted_company_ids ?? [];
-            if ($job->company_id && in_array($job->company_id, $blacklisted)) {
                 return false;
             }
 
@@ -227,13 +231,75 @@ class AutoApplyController extends BaseController
             }
         }
 
-        if ($preference->location_keyword) {
-            $loc = trim($preference->location_keyword);
-            if ($loc !== '' && stripos((string) ($job->address ?? ''), $loc) === false) {
-                return false;
-            }
+        if (! $preference->matchesLocation($job->address)) {
+            return false;
+        }
+
+        if (! $this->companyMatchesPreference($job, $preference)) {
+            return false;
         }
 
         return true;
+    }
+
+    private function companyMatchesPreference(Job $job, AutoApplyPreference $preference): bool
+    {
+        $companyId = (int) $job->company_id;
+        $companyName = mb_strtolower(trim((string) $job->company?->name));
+        $whitelistedIds = array_values(array_filter(array_map('intval', (array) ($preference->whitelisted_company_ids ?? []))));
+        $blacklistedIds = array_values(array_filter(array_map('intval', (array) ($preference->blacklisted_company_ids ?? []))));
+        $whitelistedKeywords = $this->normalizeKeywordArray($preference->whitelisted_company_keywords ?? []);
+        $blacklistedKeywords = $this->normalizeKeywordArray($preference->blacklisted_company_keywords ?? []);
+
+        $isWhitelisted = ! $whitelistedIds && ! $whitelistedKeywords;
+
+        if (! $isWhitelisted) {
+            if ($companyId > 0 && in_array($companyId, $whitelistedIds, true)) {
+                $isWhitelisted = true;
+            } elseif ($companyName !== '' && $this->matchesAnyCompanyKeyword($companyName, $whitelistedKeywords)) {
+                $isWhitelisted = true;
+            }
+        }
+
+        if (! $isWhitelisted) {
+            return false;
+        }
+
+        if ($companyId > 0 && in_array($companyId, $blacklistedIds, true)) {
+            return false;
+        }
+
+        if ($companyName !== '' && $this->matchesAnyCompanyKeyword($companyName, $blacklistedKeywords)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function matchesAnyCompanyKeyword(string $companyName, array $keywords): bool
+    {
+        foreach ($keywords as $keyword) {
+            if ($keyword !== '' && str_contains($companyName, mb_strtolower($keyword))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function parseCommaSeparatedKeywords(string $value, int $limit = 120): array
+    {
+        return $this->normalizeKeywordArray(array_map(
+            static fn ($keyword) => Str::limit(trim((string) $keyword), $limit, ''),
+            explode(',', $value)
+        ));
+    }
+
+    private function normalizeKeywordArray(array $keywords): array
+    {
+        return array_values(array_unique(array_filter(array_map(
+            static fn ($keyword) => trim((string) $keyword),
+            $keywords
+        ))));
     }
 }

@@ -26,10 +26,77 @@ class CvScoringService
         }
 
         if ($extension === 'pdf') {
-            return $this->extractPdfText($realPath);
+            $text = $this->extractPdfText($realPath);
+            if (strlen(trim($text)) >= 50) {
+                return $text;
+            }
+            // Scanned/image PDF — try vision AI
+            return $this->extractScannedPdfViaVision($realPath) ?: $text;
+        }
+
+        if (in_array($extension, ['jpg', 'jpeg', 'png', 'webp'])) {
+            $mimeMap = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'];
+            return $this->extractImageTextViaVision($realPath, $mimeMap[$extension] ?? 'image/jpeg');
         }
 
         return '';
+    }
+
+    protected function extractImageTextViaVision(string $path, string $mime): string
+    {
+        $apiKey = (string) (setting('openai_api_key') ?: config('services.openai.key') ?: env('OPENAI_API_KEY'));
+        if ($apiKey === '' || ! is_file($path)) {
+            return '';
+        }
+
+        try {
+            $response = \Illuminate\Support\Facades\Http::timeout(90)->withToken($apiKey)->acceptJson()
+                ->post('https://api.openai.com/v1/chat/completions', [
+                    'model' => 'gpt-4o',
+                    'response_format' => ['type' => 'json_object'],
+                    'messages' => [[
+                        'role' => 'user',
+                        'content' => [
+                            ['type' => 'text', 'text' => 'This is a CV or résumé image. Extract ALL text visible on it and return as JSON: {"text": "...full extracted text..."}. Include name, contact details, work history, education, skills — everything. If unreadable, return {"text": ""}.'],
+                            ['type' => 'image_url', 'image_url' => ['url' => 'data:' . $mime . ';base64,' . base64_encode((string) file_get_contents($path))]],
+                        ],
+                    ]],
+                ]);
+
+            if (! $response->successful()) {
+                return '';
+            }
+
+            $decoded = json_decode((string) $response->json('choices.0.message.content', '{}'), true);
+            return is_array($decoded) ? trim((string) ($decoded['text'] ?? '')) : '';
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    protected function extractScannedPdfViaVision(string $path): string
+    {
+        // Convert first page of PDF to PNG, then read via vision AI
+        $imagePrefix = tempnam(sys_get_temp_dir(), 'cv-pdf-page-');
+        if (! $imagePrefix) {
+            return '';
+        }
+
+        @unlink($imagePrefix);
+        $imagePath = $imagePrefix . '.png';
+
+        @shell_exec(implode(' ', array_map('escapeshellarg', [
+            'pdftoppm', '-singlefile', '-png', '-r', '150', '-f', '1', $path, $imagePrefix,
+        ])) . ' 2>/dev/null');
+
+        if (! is_file($imagePath) || filesize($imagePath) < 500) {
+            @unlink($imagePath);
+            return '';
+        }
+
+        $text = $this->extractImageTextViaVision($imagePath, 'image/png');
+        @unlink($imagePath);
+        return $text;
     }
 
     protected function extractDocxText(string $path): string

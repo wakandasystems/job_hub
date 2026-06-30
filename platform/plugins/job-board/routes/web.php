@@ -35,6 +35,7 @@ use Botble\JobBoard\Http\Controllers\SalaryApiKeyController;
 use Botble\JobBoard\Http\Controllers\SalaryReportController;
 use Botble\JobBoard\Http\Controllers\SalesAgentController;
 use Botble\JobBoard\Http\Controllers\SalesAgentCampaignController;
+use Botble\JobBoard\Http\Controllers\SalesAgentCampaignLeadController;
 use Botble\JobBoard\Http\Controllers\SalesAgentCommissionController;
 use Illuminate\Support\Facades\Route;
 
@@ -127,6 +128,7 @@ AdminHelper::registerRoutes(function (): void {
         Route::get('{candidateAlert}/preview', [CandidateAlertController::class, 'preview'])->name('preview')->wherePrimaryKey('candidateAlert');
         Route::post('{candidateAlert}/send-account-invite', [CandidateAlertController::class, 'sendAccountInvite'])->name('send-account-invite')->wherePrimaryKey('candidateAlert');
         Route::post('{candidateAlert}/analyze-existing-cv', [CandidateAlertController::class, 'analyzeExistingCv'])->name('analyze-existing-cv')->wherePrimaryKey('candidateAlert');
+        Route::post('{candidateAlert}/send-application', [CandidateAlertController::class, 'sendApplication'])->name('send-application')->wherePrimaryKey('candidateAlert');
         Route::post('{candidateAlert}/send-now', [CandidateAlertController::class, 'sendNow'])->name('send-now')->wherePrimaryKey('candidateAlert');
         Route::post('{candidateAlert}/send-welcome', [CandidateAlertController::class, 'sendWelcome'])->name('send-welcome')->wherePrimaryKey('candidateAlert');
         Route::get('{candidateAlert}/cv-builder', [CandidateAlertController::class, 'cvBuilderSessions'])->name('cv-builder.sessions')->wherePrimaryKey('candidateAlert');
@@ -154,6 +156,7 @@ AdminHelper::registerRoutes(function (): void {
         Route::get('', [VipAlertOrderController::class, 'index'])->name('index');
         Route::post('{vipAlertOrder}/approve', [VipAlertOrderController::class, 'approve'])->name('approve');
         Route::post('{vipAlertOrder}/reject', [VipAlertOrderController::class, 'reject'])->name('reject');
+        Route::post('{vipAlertOrder}/send-application', [VipAlertOrderController::class, 'sendApplication'])->name('send-application')->whereNumber('vipAlertOrder');
     });
 
     Route::group(['prefix' => 'auto-apply-orders', 'as' => 'auto-apply-orders.', 'middleware' => 'auth'], function (): void {
@@ -169,7 +172,9 @@ AdminHelper::registerRoutes(function (): void {
         Route::post('{autoApplyOrder}/remove-keyword', [AutoApplyOrderController::class, 'removeKeyword'])->name('remove-keyword');
         Route::post('{autoApplyOrder}/send-all-active-jobs', [AutoApplyOrderController::class, 'sendAllActiveJobs'])->name('send-all-active-jobs');
         Route::post('send-job', [AutoApplyOrderController::class, 'sendJob'])->name('send-job');
+        Route::post('send-cover', [AutoApplyOrderController::class, 'sendCover'])->name('send-cover');
         Route::delete('{autoApplyOrder}', [AutoApplyOrderController::class, 'destroy'])->name('destroy');
+        Route::post('send-weekly-digest', [AutoApplyOrderController::class, 'sendWeeklyDigest'])->name('send-weekly-digest');
         Route::post('preview', [AutoApplyOrderController::class, 'preview'])->name('preview');
         Route::post('preview-setup-jobs', [AutoApplyOrderController::class, 'previewSetupJobs'])->name('preview-setup-jobs');
         Route::post('analyze-cv', [CandidateAlertController::class, 'analyzeCv'])->name('analyze-cv');
@@ -191,6 +196,9 @@ AdminHelper::registerRoutes(function (): void {
         Route::post('', [SalesAgentController::class, 'store'])->name('store');
         Route::get('search-candidates', [SalesAgentController::class, 'searchCandidates'])->name('search-candidates');
         Route::post('{salesAgent}/send-welcome', [SalesAgentController::class, 'sendWelcome'])->name('send-welcome')->whereNumber('salesAgent');
+        Route::post('{salesAgent}/link-client', [SalesAgentController::class, 'linkClient'])->name('link-client')->whereNumber('salesAgent');
+        Route::post('{salesAgent}/create-client', [SalesAgentController::class, 'createClient'])->name('create-client')->whereNumber('salesAgent');
+        Route::delete('{salesAgent}/unlink-client/{referral}', [SalesAgentController::class, 'unlinkClient'])->name('unlink-client')->whereNumber('salesAgent')->whereNumber('referral');
         Route::post('{salesAgent}/assign-order', [SalesAgentController::class, 'assignOrder'])->name('assign-order')->whereNumber('salesAgent');
         Route::post('{salesAgent}/marketing-images/preview', [SalesAgentController::class, 'previewMarketingImage'])->name('marketing-images.preview')->whereNumber('salesAgent');
         Route::post('{salesAgent}/marketing-images', [SalesAgentController::class, 'generateMarketingImage'])->name('marketing-images.generate')->whereNumber('salesAgent');
@@ -200,6 +208,7 @@ AdminHelper::registerRoutes(function (): void {
         Route::get('{salesAgent}/marketing-images/{salesAgentMarketingImage}/download', [SalesAgentController::class, 'downloadMarketingImage'])->name('marketing-images.download')->whereNumber('salesAgent')->whereNumber('salesAgentMarketingImage');
         Route::delete('{salesAgent}/marketing-images/{salesAgentMarketingImage}', [SalesAgentController::class, 'destroyMarketingImage'])->name('marketing-images.destroy')->whereNumber('salesAgent')->whereNumber('salesAgentMarketingImage');
         Route::delete('{salesAgent}/marketing-images/bulk-destroy', [SalesAgentController::class, 'bulkDestroyMarketingImages'])->name('marketing-images.bulk-destroy')->whereNumber('salesAgent');
+        Route::post('{salesAgent}/marketing-images/bulk-send', [SalesAgentController::class, 'bulkSendMarketingImages'])->name('marketing-images.bulk-send')->whereNumber('salesAgent');
         Route::get('{salesAgent}', [SalesAgentController::class, 'show'])->name('show')->whereNumber('salesAgent');
         Route::get('{salesAgent}/edit', [SalesAgentController::class, 'edit'])->name('edit')->whereNumber('salesAgent');
         Route::put('{salesAgent}', [SalesAgentController::class, 'update'])->name('update')->whereNumber('salesAgent');
@@ -213,12 +222,25 @@ AdminHelper::registerRoutes(function (): void {
         Route::delete('generated-images/{salesAgentMarketingImage}', [SalesAgentCampaignController::class, 'destroyGeneratedImage'])->name('generated-images.destroy')->whereNumber('salesAgentMarketingImage');
         Route::put('settings', [SalesAgentCampaignController::class, 'updateSettings'])->name('settings.update');
         Route::get('create', [SalesAgentCampaignController::class, 'create'])->name('create');
+        Route::post('analyze-inspiration', [SalesAgentCampaignController::class, 'analyzeInspiration'])->name('analyze-inspiration');
         Route::post('', [SalesAgentCampaignController::class, 'store'])->name('store');
+        Route::get('{salesAgentCampaign}/links', [SalesAgentCampaignController::class, 'links'])->name('links')->whereNumber('salesAgentCampaign');
+        Route::get('{salesAgentCampaign}/links/export', [SalesAgentCampaignController::class, 'exportLinks'])->name('links.export')->whereNumber('salesAgentCampaign');
+        Route::post('{salesAgentCampaign}/links/send-bulk', [SalesAgentCampaignController::class, 'sendLinksBulk'])->name('links.send-bulk')->whereNumber('salesAgentCampaign');
+        Route::post('{salesAgentCampaign}/links/send/{salesAgent}', [SalesAgentCampaignController::class, 'sendLink'])->name('links.send')->whereNumber('salesAgentCampaign')->whereNumber('salesAgent');
         Route::post('{salesAgentCampaign}/generate-sample', [SalesAgentCampaignController::class, 'generateSample'])->name('generate-sample')->whereNumber('salesAgentCampaign');
         Route::get('{salesAgentCampaign}/sample-status/{salesAgentMarketingImage}', [SalesAgentCampaignController::class, 'sampleStatus'])->name('sample-status')->whereNumber('salesAgentCampaign')->whereNumber('salesAgentMarketingImage');
+        Route::post('{salesAgentCampaign}/toggle-active', [SalesAgentCampaignController::class, 'toggleActive'])->name('toggle-active')->whereNumber('salesAgentCampaign');
+        Route::post('{salesAgentCampaign}/versions/{salesAgentCampaignVersion}/restore', [SalesAgentCampaignController::class, 'restoreVersion'])->name('versions.restore')->whereNumber('salesAgentCampaign')->whereNumber('salesAgentCampaignVersion');
         Route::get('{salesAgentCampaign}/edit', [SalesAgentCampaignController::class, 'edit'])->name('edit')->whereNumber('salesAgentCampaign');
         Route::put('{salesAgentCampaign}', [SalesAgentCampaignController::class, 'update'])->name('update')->whereNumber('salesAgentCampaign');
         Route::delete('{salesAgentCampaign}', [SalesAgentCampaignController::class, 'destroy'])->name('destroy')->whereNumber('salesAgentCampaign');
+    });
+
+    Route::group(['prefix' => 'sales-agent-leads', 'as' => 'sales-agent-leads.', 'middleware' => 'auth'], function (): void {
+        Route::get('', [SalesAgentCampaignLeadController::class, 'index'])->name('index');
+        Route::get('{salesAgentLead}', [SalesAgentCampaignLeadController::class, 'show'])->name('show')->whereNumber('salesAgentLead');
+        Route::put('{salesAgentLead}', [SalesAgentCampaignLeadController::class, 'update'])->name('update')->whereNumber('salesAgentLead');
     });
 
     Route::group(['prefix' => 'sales-agent-commissions', 'as' => 'sales-agent-commissions.', 'middleware' => 'auth'], function (): void {
@@ -242,12 +264,16 @@ AdminHelper::registerRoutes(function (): void {
         Route::post('persona-image', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'uploadPersonaImage'])->name('persona-image');
         Route::post('confirmation-image', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'uploadConfirmationImage'])->name('confirmation-image');
         Route::post('ai-model', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'updateAiModel'])->name('ai-model');
+        Route::post('style-template', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'uploadStyleTemplate'])->name('style-template');
         Route::get('sessions/poll', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'pollSessions'])->name('sessions.poll');
         Route::get('{autoCvSession}', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'show'])->name('show')->whereNumber('autoCvSession');
         Route::get('{autoCvSession}/poll', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'poll'])->name('poll')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/pause', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'pause'])->name('pause')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/resume', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'resume'])->name('resume')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/update-cv-field', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'updateCvField'])->name('update-cv-field')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/add-cv-item', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'addCvItem'])->name('add-cv-item')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/remove-cv-array-item', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'removeCvArrayItem'])->name('remove-cv-array-item')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/reorder-cv-section', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'reorderCvSection'])->name('reorder-cv-section')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/clear-cv-section', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'clearCvSection'])->name('clear-cv-section')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/toggle-references-available-on-request', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'toggleReferencesAvailableOnRequest'])->name('toggle-references-available-on-request')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/resend-question', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'resendQuestion'])->name('resend-question')->whereNumber('autoCvSession');
@@ -262,8 +288,14 @@ AdminHelper::registerRoutes(function (): void {
         Route::post('{autoCvSession}/request-final-confirmation', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'requestFinalConfirmation'])->name('request-final-confirmation')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/end-conversation', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'endConversation'])->name('end-conversation')->whereNumber('autoCvSession');
         Route::post('{autoCvSession}/send-documents', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'sendDocuments'])->name('send-documents')->whereNumber('autoCvSession');
-        Route::get('{autoCvSession}/download/{format}/{design?}', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'download'])->name('download')->whereNumber('autoCvSession')->whereIn('format', ['docx', 'pdf'])->whereIn('design', ['premium', 'academic', 'creative', 'ats']);
-        Route::get('{autoCvSession}/preview/{design?}', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'preview'])->name('preview')->whereNumber('autoCvSession')->whereIn('design', ['premium', 'academic', 'creative', 'ats']);
+        Route::get('{autoCvSession}/download/{format}/{design?}', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'download'])->name('download')->whereNumber('autoCvSession')->whereIn('format', ['docx', 'pdf'])->whereIn('design', ['premium', 'academic', 'creative', 'ats', 'executive']);
+        Route::get('{autoCvSession}/preview/{design?}', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'preview'])->name('preview')->whereNumber('autoCvSession')->whereIn('design', ['premium', 'academic', 'creative', 'ats', 'executive']);
+        Route::get('{autoCvSession}/uploaded-cv', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'serveUploadedCv'])->name('uploaded-cv')->whereNumber('autoCvSession');
+        Route::get('{autoCvSession}/photo', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'servePhoto'])->name('photo')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/save-cropped-photo', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'saveCroppedPhoto'])->name('save-cropped-photo')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/inject-admin-reply', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'injectAdminReply'])->name('inject-admin-reply')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/update-topics', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'updateTopics'])->name('update-topics')->whereNumber('autoCvSession');
+        Route::post('{autoCvSession}/link-account', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'linkAccount'])->name('link-account')->whereNumber('autoCvSession');
         Route::delete('{autoCvSession}', [\Botble\JobBoard\Http\Controllers\AutoCvBotController::class, 'destroy'])->name('destroy')->whereNumber('autoCvSession');
     });
 
@@ -537,6 +569,11 @@ AdminHelper::registerRoutes(function (): void {
                 'uses'       => 'SocialBroadcastController@destroy',
                 'permission' => 'job-board.automations.index',
             ])->wherePrimaryKey();
+            Route::post('broadcast/bulk-action', [
+                'as'         => 'broadcast-bulk-action',
+                'uses'       => 'SocialBroadcastController@bulkAction',
+                'permission' => 'job-board.automations.index',
+            ]);
         });
 
         Route::group(['prefix' => 'publer', 'as' => 'job-board.publer.'], function (): void {
@@ -748,6 +785,11 @@ AdminHelper::registerRoutes(function (): void {
 
         Route::group(['prefix' => 'accounts', 'as' => 'accounts.'], function (): void {
             Route::resource('', 'AccountController')->parameters(['' => 'account']);
+            Route::post('{account}/sync-cv-profile', [
+                'as' => 'sync-cv-profile',
+                'uses' => 'AccountController@syncCvProfile',
+                'permission' => 'accounts.edit',
+            ])->wherePrimaryKey('account');
 
             Route::group(['prefix' => 'educations', 'as' => 'educations.'], function (): void {
                 Route::resource('', AccountEducationController::class)->parameters(['' => 'education']);

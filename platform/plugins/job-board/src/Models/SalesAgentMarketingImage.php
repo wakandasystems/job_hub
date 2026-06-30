@@ -71,8 +71,8 @@ class SalesAgentMarketingImage extends BaseModel
     public static function subjectModes(): array
     {
         return [
-            'nakia' => 'Nakia (default)',
-            'agent' => "Agent's photo",
+            'nakia' => 'Nakia',
+            'agent' => "Agent's photo (default)",
             'both' => 'Nakia + Agent',
         ];
     }

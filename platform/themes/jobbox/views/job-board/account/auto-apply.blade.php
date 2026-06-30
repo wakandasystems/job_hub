@@ -111,10 +111,13 @@
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label fw-semibold">{{ __('Location Keyword') }}</label>
-                        <input type="text" name="location_keyword" class="form-control"
-                               value="{{ $preference->location_keyword ?? '' }}"
-                               placeholder="e.g. Johannesburg, Cape Town">
+                        <label class="form-label fw-semibold">{{ __('Location Keywords') }}</label>
+                        <input type="text" id="locationKeywordInput" class="form-control"
+                               placeholder="Type a location and press comma or Enter">
+                        <input type="hidden" name="location_keyword" id="locationKeywordHidden"
+                               value="{{ $preference->location_keyword ?? '' }}">
+                        <div id="locationKeywordChips" class="d-flex flex-wrap gap-2 mt-2"></div>
+                        <div class="form-text">Add multiple towns or districts. Each one will match separately.</div>
                     </div>
 
                     <div class="col-md-6">
@@ -129,11 +132,31 @@
                     </div>
 
                     <div class="col-md-12">
-                        <label class="form-label fw-semibold">{{ __('Blacklisted Companies') }}</label>
-                        <select name="blacklisted_company_ids[]" class="form-select" multiple size="3">
+                        <label class="form-label fw-semibold">{{ __('Whitelisted Companies') }}</label>
+                        <select name="whitelisted_company_ids[]" class="form-select" multiple size="3">
                             @php
                                 $companies = \Botble\JobBoard\Models\Company::query()->orderBy('name')->pluck('name', 'id');
                             @endphp
+                            @foreach($companies as $id => $name)
+                                <option value="{{ $id }}" {{ in_array($id, $preference->whitelisted_company_ids ?? []) ? 'selected' : '' }}>
+                                    {{ $name }}
+                                </option>
+                            @endforeach
+                        </select>
+                        <div class="form-text">Best for exact targets. If you select at least one company or whitelist keyword, Auto Apply will only target matching companies.</div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">{{ __('Whitelist Company Keywords') }}</label>
+                        <input type="text" name="whitelisted_company_keywords" class="form-control"
+                               value="{{ implode(', ', $preference->whitelisted_company_keywords ?? []) }}"
+                               placeholder="e.g. bank, unicef, standard chartered">
+                        <div class="form-text">Use company name fragments when the exact company record may vary.</div>
+                    </div>
+
+                    <div class="col-md-12">
+                        <label class="form-label fw-semibold">{{ __('Blacklisted Companies') }}</label>
+                        <select name="blacklisted_company_ids[]" class="form-select" multiple size="3">
                             @foreach($companies as $id => $name)
                                 <option value="{{ $id }}" {{ in_array($id, $preference->blacklisted_company_ids ?? []) ? 'selected' : '' }}>
                                     {{ $name }}
@@ -141,6 +164,14 @@
                             @endforeach
                         </select>
                         <div class="form-text">Auto Apply will never apply to jobs from these companies.</div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">{{ __('Blacklist Company Keywords') }}</label>
+                        <input type="text" name="blacklisted_company_keywords" class="form-control"
+                               value="{{ implode(', ', $preference->blacklisted_company_keywords ?? []) }}"
+                               placeholder="e.g. betting, agency, company name">
+                        <div class="form-text">Blocks company-name matches even when the exact company record differs.</div>
                     </div>
 
                     <div class="col-md-12">
@@ -261,6 +292,96 @@
 
 @push('scripts')
 <script>
+    (function () {
+        var input = document.getElementById('locationKeywordInput');
+        var hidden = document.getElementById('locationKeywordHidden');
+        var chips = document.getElementById('locationKeywordChips');
+        var values = [];
+
+        if (!input || !hidden || !chips) {
+            return;
+        }
+
+        function escapeHtml(value) {
+            return String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function normalize(list) {
+            var seen = {};
+
+            return (Array.isArray(list) ? list : String(list || '').split(','))
+                .map(function (item) { return String(item || '').trim(); })
+                .filter(Boolean)
+                .filter(function (item) {
+                    var key = item.toLowerCase();
+                    if (seen[key]) {
+                        return false;
+                    }
+
+                    seen[key] = true;
+                    return true;
+                });
+        }
+
+        function syncHidden() {
+            hidden.value = values.join(', ');
+        }
+
+        function render() {
+            chips.innerHTML = '';
+
+            values.forEach(function (value, index) {
+                var badge = document.createElement('span');
+                badge.className = 'badge bg-light text-dark border d-inline-flex align-items-center gap-1 px-2 py-1';
+                badge.style.fontSize = '.8rem';
+                badge.innerHTML = '<span>' + escapeHtml(value) + '</span>'
+                    + '<button type="button" class="btn btn-link text-danger p-0 ms-1 lh-1" aria-label="Remove" title="Remove" style="font-size:1rem;text-decoration:none;">&times;</button>';
+                badge.querySelector('button').addEventListener('click', function () {
+                    values.splice(index, 1);
+                    syncHidden();
+                    render();
+                });
+                chips.appendChild(badge);
+            });
+        }
+
+        function commitInputValue() {
+            var pending = input.value.trim();
+
+            if (!pending) {
+                input.value = '';
+                return;
+            }
+
+            values = normalize(values.concat(pending.split(',')));
+            input.value = '';
+            syncHidden();
+            render();
+        }
+
+        input.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' || event.key === ',') {
+                event.preventDefault();
+                commitInputValue();
+            }
+        });
+
+        input.addEventListener('blur', commitInputValue);
+
+        if (hidden.form) {
+            hidden.form.addEventListener('submit', commitInputValue);
+        }
+
+        values = normalize(hidden.value);
+        syncHidden();
+        render();
+    })();
+
     document.querySelectorAll('.email-preview-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
             document.getElementById('previewSubject').textContent = this.dataset.subject || '(none)';

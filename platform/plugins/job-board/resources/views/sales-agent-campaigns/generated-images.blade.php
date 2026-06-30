@@ -44,6 +44,14 @@
             <form method="POST" action="{{ route('sales-agent-campaigns.generated-images.bulk-destroy') }}" id="generatedImagesBulkDeleteForm">
                 @csrf
                 @method('DELETE')
+                <div class="mb-2 d-flex flex-wrap align-items-center gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="generatedImagesSelectAllButton">
+                        <x-core::icon name="ti ti-checklist" class="me-1" /> Select All On Page
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="generatedImagesClearSelectionButton">
+                        <x-core::icon name="ti ti-square-x" class="me-1" /> Clear Selection
+                    </button>
+                </div>
                 <div class="mb-2 d-none" id="generatedImagesBulkBar">
                     <button type="button" class="btn btn-sm btn-outline-danger" id="generatedImagesBulkDeleteButton" data-confirm-submit data-confirm-title="Delete selected images?" data-confirm-text="This permanently deletes the selected records and image files. This cannot be undone.">
                         <x-core::icon name="ti ti-trash" class="me-1" /> Delete Selected (<span id="generatedImagesBulkCount">0</span>)
@@ -139,13 +147,25 @@
                 var bulkBar = document.getElementById('generatedImagesBulkBar');
                 var bulkCount = document.getElementById('generatedImagesBulkCount');
                 var bulkForm = document.getElementById('generatedImagesBulkDeleteForm');
+                var selectAllButton = document.getElementById('generatedImagesSelectAllButton');
+                var clearSelectionButton = document.getElementById('generatedImagesClearSelectionButton');
+
+                function checkboxes() {
+                    if (!grid) {
+                        return [];
+                    }
+
+                    return Array.prototype.slice.call(grid.querySelectorAll('[data-image-checkbox]'));
+                }
 
                 function updateBulkBar() {
                     if (!grid || !bulkBar || !bulkCount || !bulkForm) {
                         return;
                     }
 
-                    var checked = Array.prototype.slice.call(grid.querySelectorAll('[data-image-checkbox]:checked'));
+                    var checked = checkboxes().filter(function (checkbox) {
+                        return checkbox.checked;
+                    });
 
                     bulkForm.querySelectorAll('input[name="ids[]"]').forEach(function (input) {
                         input.remove();
@@ -161,12 +181,29 @@
 
                     bulkCount.textContent = checked.length;
                     bulkBar.classList.toggle('d-none', checked.length === 0);
+                    clearSelectionButton?.classList.toggle('d-none', checked.length === 0);
                 }
 
                 grid?.addEventListener('change', function (event) {
                     if (event.target.matches('[data-image-checkbox]')) {
                         updateBulkBar();
                     }
+                });
+
+                selectAllButton?.addEventListener('click', function () {
+                    checkboxes().forEach(function (checkbox) {
+                        checkbox.checked = true;
+                    });
+
+                    updateBulkBar();
+                });
+
+                clearSelectionButton?.addEventListener('click', function () {
+                    checkboxes().forEach(function (checkbox) {
+                        checkbox.checked = false;
+                    });
+
+                    updateBulkBar();
                 });
 
                 document.addEventListener('click', function (event) {
@@ -190,6 +227,8 @@
                     this.disabled = true;
                     pendingForm.submit();
                 });
+
+                updateBulkBar();
             })();
         </script>
     @endpush

@@ -82,14 +82,31 @@
 
     @case('style-3')
         <section class="section-box">
-            <div class="banner-hero hero-2 hero-3" @if($shortcode->background_image) style="background-image: url({{ RvMedia::getImageUrl($shortcode->background_image) }}) !important;" @endif>
+            @php
+                $countryName = isset($selectedCountry) && $selectedCountry ? $selectedCountry->name : null;
+                $highlight   = $countryName ? $countryName . ' Jobs' : $shortcode->highlight_text;
+                $title       = str_replace($shortcode->highlight_text, $highlight, $shortcode->title);
+                $description = $countryName
+                    ? str_replace(
+                        ['across Africa', 'Africa'],
+                        ['in ' . $countryName, $countryName],
+                        $shortcode->description
+                    )
+                    : $shortcode->description;
+            @endphp
+            @php
+                $bannerBg = $countryBannerSrc
+                    ? "background-image:url('{$countryBannerSrc}');background-repeat:repeat;background-size:200px auto;"
+                    : ($shortcode->background_image ? "background-image:url('" . RvMedia::getImageUrl($shortcode->background_image) . "');" : '');
+            @endphp
+            <div class="banner-hero hero-2 hero-3 @if($countryBannerSrc) has-country-bg @endif" @if($bannerBg) style="{{ $bannerBg }}" @endif>
                 <div class="banner-inner">
                     <div class="block-banner">
                         <h1 class="text-42 color-white wow animate__animated animate__fadeInUp">
-                            {!! BaseHelper::clean(str_replace($shortcode->highlight_text, '<span class="color-green">'. $shortcode->highlight_text .'</span>', $shortcode->title)) !!}
+                            {!! BaseHelper::clean(str_replace($highlight, '<span class="color-green">' . $highlight . '</span>', $title)) !!}
                         </h1>
                         <div class="font-lg font-regular color-white mt-20 wow animate__animated animate__fadeInUp" data-wow-delay=".1s">
-                            {!! BaseHelper::clean($shortcode->description) !!}
+                            {!! BaseHelper::clean($description) !!}
                         </div>
 
                         {!! Theme::partial('job-search-box', ['trendingKeywords' => $shortcode->trending_keywords]) !!}
@@ -97,20 +114,16 @@
                 </div>
                 <div class="container mt-60">
                     <div class="box-swiper mt-50">
-                        <div class="swiper-container swiper-group-5 swiper">
+                        <div class="swiper-container swiper-group-4 swiper">
                             <div class="swiper-wrapper pb-25 pt-5">
-                                @foreach($categories->where('jobs_count', '>', 0) as $category)
+                                @foreach($categories->filter(fn($c) => $c->job_cover_image) as $category)
                                     <div class="swiper-slide hover-up">
                                         <a href="{{ $category->url }}">
-                                            <div class="item-logo">
-                                                <div class="image-left">
-                                                    @if ($iconImage = $category->getMetaData('icon_image', true))
-                                                        <img src="{{ RvMedia::getImageUrl($iconImage) }}" alt="{{ $category->name }}">
-                                                    @elseif ($icon = $category->getMetaData('icon', true))
-                                                        <i class="{{ $icon }}"></i>
-                                                    @endif
+                                            <div class="item-logo cat-cover-card">
+                                                <div class="cat-cover-img">
+                                                    <img src="{{ RvMedia::getImageUrl($category->job_cover_image) }}" alt="{{ $category->name }}" loading="lazy" decoding="async">
                                                 </div>
-                                                <div class="text-info-right">
+                                                <div class="cat-cover-info">
                                                     <h4>{!! BaseHelper::clean($category->name) !!}</h4>
                                                     <p class="font-xs">
                                                         {!! BaseHelper::clean(__(':count <span>Jobs Available</span>', ['count' => $category->jobs_count])) !!}
@@ -121,8 +134,8 @@
                                     </div>
                                 @endforeach
                             </div>
-                            <div class="swiper-button-next"></div>
-                            <div class="swiper-button-prev"></div>
+                            <div class="swiper-button-next-4"></div>
+                            <div class="swiper-button-prev-4"></div>
                         </div>
                     </div>
                 </div>

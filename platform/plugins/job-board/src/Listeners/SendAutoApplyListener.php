@@ -70,7 +70,7 @@ class SendAutoApplyListener implements ShouldQueue
 
                 if ($isManualApply) {
                     // Score first to check threshold, then send WhatsApp notice
-                    $result    = $service->generateApplicationEmail($account, $job, $profile);
+                    $result = $service->resolvePreviewForJob($account, $job);
                     if (! $result || ! isset($result['score'])) {
                         continue;
                     }
@@ -78,7 +78,7 @@ class SendAutoApplyListener implements ShouldQueue
                     if ($result['score'] < $threshold) {
                         continue;
                     }
-                    $service->sendManualApplyNotice($account, $job, (int) $result['score']);
+                    $service->sendManualApplyPackage($account, $job, (int) $result['score'], $result);
                 } else {
                     // Full auto-apply: AI email generation + send
                     $service->processAutoApply($account, $job, $profile);
@@ -135,8 +135,7 @@ class SendAutoApplyListener implements ShouldQueue
         }
 
         // Location keyword — substring match on address
-        $locationKeyword = trim((string) ($preference->location_keyword ?? ''));
-        if ($locationKeyword !== '' && stripos((string) ($job->address ?? ''), $locationKeyword) === false) {
+        if (! $preference->matchesLocation($job->address)) {
             return false;
         }
 

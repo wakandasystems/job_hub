@@ -3,6 +3,7 @@
 namespace Botble\JobBoard\Models;
 
 use Botble\Base\Models\BaseModel;
+use Botble\JobBoard\Jobs\BackfillAutoApplyOrderJob;
 use Botble\JobBoard\Services\SalesAgentService;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -142,6 +143,8 @@ class AutoApplyOrder extends BaseModel
         );
 
         AutoApplyQuota::syncForAccount($this->account_id);
+
+        BackfillAutoApplyOrderJob::dispatch($this->getKey())->onQueue('default');
     }
 
     public function scopeApproved($query)

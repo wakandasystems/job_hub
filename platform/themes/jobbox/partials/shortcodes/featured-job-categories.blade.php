@@ -307,6 +307,11 @@
                                                     <div class="col-12 salary-information">
                                                         {!! Theme::partial('salary', compact('job')) !!}
                                                     </div>
+                                                    @if($job->applicants_count > 0)
+                                                        <div class="col-12" style="font-size:10px;line-height:14px;color:#6c757d;margin-top:2px;">
+                                                            <i class="fi-rr-user"></i> {{ $job->applicants_count }} {{ Str::plural('applicant', $job->applicants_count) }}
+                                                        </div>
+                                                    @endif
                                                     <div class="col-12 mt-3">
                                                         <div class="job-card-actions">
                                                             <a class="btn btn-view-details" href="{{ $job->url }}" aria-label="{{ __('View details for :job', ['job' => $job->name]) }}">

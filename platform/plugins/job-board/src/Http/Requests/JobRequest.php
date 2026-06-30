@@ -29,7 +29,7 @@ class JobRequest extends Request
             'custom_fields.*.name' => ['required', 'string', 'max:255'],
             'custom_fields.*.value' => ['required', 'string', 'max:255'],
             'number_of_positions' => ['required', 'integer', 'max:10000'],
-            'apply_url' => ['nullable', 'url', 'max:2048'],
+            'apply_url' => ['nullable', 'string', 'max:2048'],
             'external_apply_behavior' => ['nullable', 'in:,disabled,new_tab,current_tab'],
             'application_closing_date' => ['nullable', 'date'],
             'unique_id' => $this->getUniqueIdRules(),

@@ -1,4 +1,10 @@
-<form method="POST" action="{{ route('job-board.candidate-alerts.update', $alert->id) }}" enctype="multipart/form-data">
+<form method="POST"
+    action="{{ route('job-board.candidate-alerts.update', $alert->id) }}"
+    enctype="multipart/form-data"
+    class="candidate-alert-edit-form"
+    data-name="{{ $alert->candidate_name }}"
+    data-preview-url="{{ route('job-board.candidate-alerts.preview', $alert->id) }}"
+    data-send-url="{{ route('job-board.candidate-alerts.send-now', $alert->id) }}">
     @csrf
     @method('PUT')
     <div class="modal-header">

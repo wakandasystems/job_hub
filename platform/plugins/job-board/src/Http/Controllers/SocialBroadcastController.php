@@ -38,8 +38,7 @@ class SocialBroadcastController extends BaseController
 
         $broadcasts = SocialBroadcast::query()
             ->orderByDesc('id')
-            ->limit(5)
-            ->get();
+            ->paginate(10);
 
         $employerPhoneCount = $audience->phones()->count();
         $hasWhapi = $channels->contains('platform', 'whapi');
@@ -178,5 +177,37 @@ class SocialBroadcastController extends BaseController
         $broadcast->delete();
 
         return $this->httpResponse()->setMessage('Broadcast removed from history.');
+    }
+
+    public function bulkAction(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'action' => ['required', 'in:delete,cancel'],
+            'ids'    => ['required', 'array', 'min:1', 'max:200'],
+            'ids.*'  => ['integer', 'min:1'],
+        ]);
+
+        $broadcasts = SocialBroadcast::query()->whereIn('id', $data['ids'])->get();
+
+        $affected = 0;
+        if ($data['action'] === 'delete') {
+            foreach ($broadcasts as $b) {
+                $b->delete();
+                $affected++;
+            }
+            return response()->json(['message' => "{$affected} broadcast(s) deleted."]);
+        }
+
+        // cancel — only scheduled/recurring can be cancelled
+        foreach ($broadcasts as $b) {
+            if (in_array($b->status, ['scheduled', 'recurring'], true)) {
+                $b->update(['status' => 'cancelled', 'next_run_at' => null]);
+                $affected++;
+            }
+        }
+        $skipped = $broadcasts->count() - $affected;
+        $msg = "{$affected} broadcast(s) cancelled.";
+        if ($skipped > 0) $msg .= " {$skipped} already sent/cancelled and were skipped.";
+        return response()->json(['message' => $msg]);
     }
 }

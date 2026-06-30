@@ -61,6 +61,52 @@ class WhapiSenderService
         return true;
     }
 
+    public function sendDocument(string $whatsappNumber, string $filePath, string $filename, string $caption = '', ?string &$errorMessage = null): bool
+    {
+        [$token, $gatewayUrl] = $this->getCredentials();
+
+        if (! $token) {
+            $errorMessage = 'No active Whapi automation configured.';
+
+            return false;
+        }
+
+        if (! is_file($filePath)) {
+            $errorMessage = 'Document file not found.';
+
+            return false;
+        }
+
+        $jid = preg_replace('/\D/', '', $whatsappNumber) . '@s.whatsapp.net';
+        $mime = mime_content_type($filePath) ?: 'application/pdf';
+
+        try {
+            $payload = [
+                'to'       => $jid,
+                'media'    => 'data:' . $mime . ';base64,' . base64_encode((string) file_get_contents($filePath)),
+                'filename' => $filename,
+            ];
+
+            if ($caption !== '') {
+                $payload['caption'] = $caption;
+            }
+
+            $response = Http::timeout(60)->withToken($token)->post("{$gatewayUrl}/messages/document", $payload);
+        } catch (Throwable $exception) {
+            $errorMessage = 'WhatsApp document send exception: ' . $exception->getMessage();
+
+            return false;
+        }
+
+        if (! $response->successful()) {
+            $errorMessage = 'WhatsApp document send failed: HTTP ' . $response->status() . ' ' . Str::limit($response->body(), 250, '');
+
+            return false;
+        }
+
+        return true;
+    }
+
     public function sendImage(string $whatsappNumber, string $imagePath, string $caption, ?string &$errorMessage = null): bool
     {
         [$token, $gatewayUrl] = $this->getCredentials();

@@ -21,6 +21,7 @@
                             <th>Code</th>
                             <th>Status</th>
                             <th>Referrals</th>
+                            <th>Clicks</th>
                             <th>Revenue</th>
                             <th>Commission Owed</th>
                             <th class="text-end">Action</th>
@@ -49,6 +50,7 @@
                                     <span class="badge bg-{{ $agent->status === 'active' ? 'success' : 'secondary' }} text-white">{{ ucfirst($agent->status) }}</span>
                                 </td>
                                 <td>{{ $agent->referralCount() }}</td>
+                                <td>{{ number_format($agent->campaign_clicks_count ?? 0) }}</td>
                                 <td>{{ number_format($agent->totalRevenue(), 2) }}</td>
                                 <td>{{ number_format($agent->totalCommissionOwed(), 2) }}</td>
                                 <td class="text-end">
@@ -76,7 +78,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="text-center text-muted py-4">No sales agents yet.</td>
+                                <td colspan="10" class="text-center text-muted py-4">No sales agents yet.</td>
                             </tr>
                         @endforelse
                     </tbody>

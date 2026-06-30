@@ -61,6 +61,15 @@
                 <button type="button" class="btn btn-link btn-sm p-0 ms-1" id="btnCopyWebhookUrl">copy</button>
             </div>
 
+            <div class="d-flex align-items-center gap-2 mt-3">
+                <span class="small text-muted mb-0">CV style reference:</span>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="jsStyleTemplateBtn">
+                    <i class="ti ti-upload me-1"></i> Upload style template (.docx / .pdf)
+                </button>
+                <input type="file" id="jsStyleTemplateInput" class="d-none" accept=".docx,.pdf">
+                <span class="small text-success d-none" id="jsStyleTemplateSaved"><i class="ti ti-check"></i> Uploaded</span>
+            </div>
+
             <div class="d-flex align-items-center gap-2 mt-3" id="jsAiModelBlock" data-url="{{ route('job-board.auto-cv-bot.ai-model') }}">
                 <label for="jsAiModelSelect" class="small text-muted mb-0">AI model used for the interview:</label>
                 <select id="jsAiModelSelect" class="form-select form-select-sm" style="width:auto;">
@@ -193,7 +202,29 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">WhatsApp Number</label>
-                        <input type="text" id="startCvBotWhatsapp" class="form-control" placeholder="e.g. +260970766123">
+                        <div class="input-group">
+                            <select id="startCvBotPrefix" class="form-select" style="max-width:140px">
+                                <option value="+260" selected>🇿🇲 +260</option>
+                                <option value="+27">🇿🇦 +27</option>
+                                <option value="+263">🇿🇼 +263</option>
+                                <option value="+265">🇲🇼 +265</option>
+                                <option value="+255">🇹🇿 +255</option>
+                                <option value="+254">🇰🇪 +254</option>
+                                <option value="+256">🇺🇬 +256</option>
+                                <option value="+258">🇲🇿 +258</option>
+                                <option value="+267">🇧🇼 +267</option>
+                                <option value="+264">🇳🇦 +264</option>
+                                <option value="+234">🇳🇬 +234</option>
+                                <option value="+233">🇬🇭 +233</option>
+                                <option value="+251">🇪🇹 +251</option>
+                                <option value="+243">🇨🇩 +243</option>
+                                <option value="+44">🇬🇧 +44</option>
+                                <option value="+1">🇺🇸 +1</option>
+                                <option value="+61">🇦🇺 +61</option>
+                            </select>
+                            <input type="tel" id="startCvBotWhatsapp" class="form-control" placeholder="970766123" inputmode="numeric" pattern="[0-9]*">
+                        </div>
+                        <div class="form-text">Digits only — no leading zero needed.</div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Referred By Agent</label>
@@ -314,6 +345,30 @@
                     .catch(function () {
                         Botble.showError('Network error — please try again.');
                     });
+            });
+
+            document.getElementById('jsStyleTemplateBtn')?.addEventListener('click', function () {
+                document.getElementById('jsStyleTemplateInput').click();
+            });
+
+            document.getElementById('jsStyleTemplateInput')?.addEventListener('change', function () {
+                var file = this.files[0];
+                if (!file) return;
+                var btn = document.getElementById('jsStyleTemplateBtn');
+                var saved = document.getElementById('jsStyleTemplateSaved');
+                var fd = new FormData();
+                fd.append('file', file);
+                fd.append('_token', $('meta[name="csrf-token"]').attr('content'));
+                btn.disabled = true;
+                fetch('{{ route('job-board.auto-cv-bot.style-template') }}', { method: 'POST', body: fd })
+                    .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+                    .then(function (result) {
+                        if (!result.ok) { Botble.showError(result.data.message || 'Upload failed.'); return; }
+                        saved.classList.remove('d-none');
+                        setTimeout(function () { saved.classList.add('d-none'); }, 3000);
+                    })
+                    .catch(function () { Botble.showError('Network error — please try again.'); })
+                    .finally(function () { btn.disabled = false; this.value = ''; }.bind(this));
             });
 
             (function () {
@@ -733,7 +788,7 @@
                     },
                     body: JSON.stringify({
                         candidate_name: document.getElementById('startCvBotName').value,
-                        whatsapp_number: document.getElementById('startCvBotWhatsapp').value,
+                        whatsapp_number: (document.getElementById('startCvBotPrefix')?.value || '+260') + document.getElementById('startCvBotWhatsapp').value.replace(/\D/g, '').replace(/^0+/, ''),
                         sales_agent_code: document.getElementById('startCvBotSalesAgentCode').value,
                     }),
                 })

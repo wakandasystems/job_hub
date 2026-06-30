@@ -11,7 +11,7 @@
                 {{ __('Closed') }}
             </button>
         @elseif ($job->apply_url)
-            @php($isMailto = str_starts_with($job->apply_url, 'mailto:'))
+            @php($isMailto = $job->apply_email || str_starts_with($job->apply_url, 'mailto:'))
             @if (!$isMailto && $job->getMetaData('is_direct_redirect', true))
                 <a href="{{ $job->apply_url }}" target="_blank">
                     <div class="{{ $classButtonApply }}">{{ __('Apply Now') }}</div>

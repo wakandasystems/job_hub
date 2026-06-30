@@ -14,34 +14,30 @@
             </div>
 
             <div class="row job-categories">
-                @foreach($categories as $category)
-                    <div class="col-sm-3">
+                @foreach($categories->filter(fn($c) => $c->job_cover_image) as $category)
+                    <div class="col-sm-3 mb-3">
                         <a href="{{ $category->url }}">
-                            <div class="item-logo">
-                                <div class="image-left">
-                                    @if ($iconImage = $category->getMetaData('icon_image', true))
-                                        <img src="{{ RvMedia::getImageUrl($iconImage) }}" alt="{{ $category->name }}">
-                                    @elseif ($icon = $category->getMetaData('icon', true))
-                                        <i class="{{ $icon }}"></i>
-                                    @endif
-                                        </div>
-                                        <div class="text-info-right">
-                                            <h4>{!! BaseHelper::clean($category->name) !!}</h4>
-                                            <p class="font-xs">
-                                                @if($category->jobs_count > 1)
-                                                    {!! BaseHelper::clean(__(':number <span> Jobs Available </span>', ['number' => $category->jobs_count ])) !!}
-                                                @elseif($category->jobs_count == 1)
-                                                    {!! BaseHelper::clean(__(':number <span> Job Available </span>', ['number' => $category->jobs_count ])) !!}
-                                                @else
-                                                    {!! BaseHelper::clean(__('No <span> Job Available </span>')) !!}
-                                                @endif
-                                            </p>
-                                        </div>
-                                    </div>
-                                </a>
+                            <div class="item-logo cat-cover-card">
+                                <div class="cat-cover-img">
+                                    <img src="{{ RvMedia::getImageUrl($category->job_cover_image) }}" alt="{{ $category->name }}" loading="lazy" decoding="async">
+                                </div>
+                                <div class="cat-cover-info">
+                                    <h4>{!! BaseHelper::clean($category->name) !!}</h4>
+                                    <p class="font-xs">
+                                        @if($category->jobs_count > 1)
+                                            {!! BaseHelper::clean(__(':number <span> Jobs Available </span>', ['number' => $category->jobs_count ])) !!}
+                                        @elseif($category->jobs_count == 1)
+                                            {!! BaseHelper::clean(__(':number <span> Job Available </span>', ['number' => $category->jobs_count ])) !!}
+                                        @else
+                                            {!! BaseHelper::clean(__('No <span> Job Available </span>')) !!}
+                                        @endif
+                                    </p>
+                                </div>
                             </div>
-                        @endforeach
+                        </a>
                     </div>
+                @endforeach
+            </div>
                     {!! $categories->withQueryString()->links(Theme::getThemeNamespace('partials.pagination')) !!}
             </div>
         </div>

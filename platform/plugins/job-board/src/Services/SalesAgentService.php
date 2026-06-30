@@ -70,6 +70,7 @@ class SalesAgentService
         ?int $accountId = null
     ): void {
         $phone = $this->normalizePhone($phone);
+        $source = substr(trim($source), 0, 20);
 
         if ($phone === '') {
             return;

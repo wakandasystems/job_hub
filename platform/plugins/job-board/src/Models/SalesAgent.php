@@ -49,6 +49,11 @@ class SalesAgent extends BaseModel
         return $this->hasMany(SalesAgentMarketingImage::class, 'sales_agent_id');
     }
 
+    public function campaignClicks(): HasMany
+    {
+        return $this->hasMany(SalesAgentCampaignClick::class, 'sales_agent_id');
+    }
+
     public function totalRevenue(): float
     {
         return (float) $this->commissions()->sum('amount');
@@ -89,6 +94,6 @@ class SalesAgent extends BaseModel
             return 'both';
         }
 
-        return 'nakia';
+        return 'agent';
     }
 }

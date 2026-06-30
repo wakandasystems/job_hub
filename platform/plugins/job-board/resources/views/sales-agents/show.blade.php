@@ -29,12 +29,22 @@
     @endpush
 
     <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
-        <div>
-            <h4 class="mb-1 fw-bolder">{{ $salesAgent->name }}</h4>
-            <div class="text-muted small">
-                <x-core::icon name="ti ti-phone" class="me-1" />{{ $salesAgent->phone }}
-                &middot; Code: <code>{{ $salesAgent->code }}</code>
-                <span class="badge bg-{{ $salesAgent->status === 'active' ? 'success' : 'secondary' }} text-white ms-2">{{ ucfirst($salesAgent->status) }}</span>
+        <div class="d-flex align-items-center gap-3">
+            @if ($salesAgent->photoUrl())
+                <img
+                    src="{{ $salesAgent->photoUrl() }}"
+                    alt="{{ $salesAgent->name }}"
+                    class="rounded-circle border flex-shrink-0"
+                    style="width:104px;height:104px;object-fit:cover;"
+                >
+            @endif
+            <div>
+                <h4 class="mb-1 fw-bolder">{{ $salesAgent->name }}</h4>
+                <div class="text-muted small">
+                    <x-core::icon name="ti ti-phone" class="me-1" />{{ $salesAgent->phone }}
+                    &middot; Code: <code>{{ $salesAgent->code }}</code>
+                    <span class="badge bg-{{ $salesAgent->status === 'active' ? 'success' : 'secondary' }} text-white ms-2">{{ ucfirst($salesAgent->status) }}</span>
+                </div>
             </div>
         </div>
         <div class="d-flex flex-wrap gap-2">
@@ -84,6 +94,68 @@
 
     <x-core::card class="mb-3">
         <x-core::card.header>
+            <button type="button"
+                class="d-flex align-items-center justify-content-between w-100 border-0 bg-transparent p-0 text-start"
+                data-bs-toggle="collapse"
+                data-bs-target="#shareLinksCollapse"
+                aria-expanded="false"
+                aria-controls="shareLinksCollapse">
+                <x-core::card.title class="mb-0">Share Links</x-core::card.title>
+                <x-core::icon name="ti ti-chevron-down" class="text-muted share-links-chevron" style="transition:transform .2s;" />
+            </button>
+        </x-core::card.header>
+        <div id="shareLinksCollapse" class="collapse">
+            <x-core::card.body>
+                @if ($campaigns->isEmpty())
+                    <div class="alert alert-warning mb-0">Create and activate at least one marketing campaign first.</div>
+                @else
+                    <div class="row g-3">
+                        @foreach ($campaigns as $campaign)
+                            @php
+                                $shareUrl = route('public.sales-agent-campaigns.show', [$salesAgent->code, $campaign->getKey()]);
+                            @endphp
+                            <div class="col-md-6">
+                                <div class="border rounded p-3 h-100">
+                                    <div class="fw-semibold">{{ $campaign->name }}</div>
+                                    <div class="text-muted small mb-2">{{ $campaign->resolvedProductLabel() }}@if($campaign->promo_price) · {{ $campaign->promo_price }}@endif</div>
+                                    <div class="input-group input-group-sm mb-2">
+                                        <input type="text" class="form-control" value="{{ $shareUrl }}" readonly>
+                                        <button type="button" class="btn btn-outline-primary js-copy-share-link" data-link="{{ $shareUrl }}">
+                                            <x-core::icon name="ti ti-copy" />
+                                        </button>
+                                    </div>
+                                    <form method="POST" action="{{ route('sales-agent-campaigns.links.send', [$campaign->getKey(), $salesAgent->getKey()]) }}">
+                                        @csrf
+                                        <button type="button" class="btn btn-sm btn-success w-100" data-confirm-submit data-confirm-title="Send link to {{ $salesAgent->name }}?" data-confirm-text="This will send the {{ $campaign->name }} share link to {{ $salesAgent->name }} on WhatsApp ({{ $salesAgent->phone }}).">
+                                            <x-core::icon name="ti ti-brand-whatsapp" class="me-1" /> Send via WhatsApp
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+            </x-core::card.body>
+        </div>
+    </x-core::card>
+    @push('footer')
+        <script>
+            (function () {
+                var el = document.getElementById('shareLinksCollapse');
+                if (!el) { return; }
+                var chevron = document.querySelector('.share-links-chevron');
+                el.addEventListener('show.bs.collapse', function () {
+                    if (chevron) { chevron.style.transform = 'rotate(180deg)'; }
+                });
+                el.addEventListener('hide.bs.collapse', function () {
+                    if (chevron) { chevron.style.transform = 'rotate(0deg)'; }
+                });
+            })();
+        </script>
+    @endpush
+
+    <x-core::card class="mb-3">
+        <x-core::card.header>
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <x-core::card.title>Marketing Images</x-core::card.title>
                 <form method="POST" action="{{ route('sales-agents.marketing-images.generate', $salesAgent->getKey()) }}" class="d-flex flex-wrap gap-2 align-items-center" id="marketingImageGenerateForm" data-ajax-submit="generate-marketing-image">
@@ -109,15 +181,23 @@
             @if ($campaigns->isEmpty())
                 <div class="alert alert-warning mb-0">Create an active marketing campaign before generating images.</div>
             @else
-                <form method="POST" action="{{ route('sales-agents.marketing-images.bulk-destroy', $salesAgent->getKey()) }}" id="marketingImagesBulkDeleteForm">
-                    @csrf
-                    @method('DELETE')
-                    <div class="mb-2 d-none" id="marketingImagesBulkBar">
-                        <button type="button" class="btn btn-sm btn-outline-danger" id="marketingImagesBulkDeleteButton" data-confirm-submit data-confirm-title="Delete selected images?" data-confirm-text="This permanently deletes the selected records and image files. This cannot be undone.">
-                            <x-core::icon name="ti ti-trash" class="me-1" /> Delete Selected (<span id="marketingImagesBulkCount">0</span>)
-                        </button>
+                <div class="mb-2 d-none" id="marketingImagesBulkBar">
+                    <div class="d-flex flex-wrap gap-2 align-items-center">
+                        <form method="POST" action="{{ route('sales-agents.marketing-images.bulk-send', $salesAgent->getKey()) }}" id="marketingImagesBulkSendForm">
+                            @csrf
+                            <button type="button" class="btn btn-sm btn-success" id="marketingImagesBulkSendButton" data-confirm-submit data-confirm-title="Send selected images?" data-confirm-text="This will queue WhatsApp delivery for all selected completed images.">
+                                <x-core::icon name="ti ti-brand-whatsapp" class="me-1" /> Send Selected (<span id="marketingImagesBulkCount">0</span>)
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ route('sales-agents.marketing-images.bulk-destroy', $salesAgent->getKey()) }}" id="marketingImagesBulkDeleteForm">
+                            @csrf
+                            @method('DELETE')
+                            <button type="button" class="btn btn-sm btn-outline-danger" id="marketingImagesBulkDeleteButton" data-confirm-submit data-confirm-title="Delete selected images?" data-confirm-text="This permanently deletes the selected records and image files. This cannot be undone.">
+                                <x-core::icon name="ti ti-trash" class="me-1" /> Delete Selected (<span id="marketingImagesBulkDeleteCount">0</span>)
+                            </button>
+                        </form>
                     </div>
-                </form>
+                </div>
                 <div class="row g-3" id="marketingImagesGrid">
                     @forelse ($marketingImages as $image)
                         <div class="col-md-4 col-xl-3" data-marketing-image-card data-image-id="{{ $image->getKey() }}" data-status-url="{{ route('sales-agents.marketing-images.status', [$salesAgent->getKey(), $image->getKey()]) }}">
@@ -408,28 +488,34 @@
                 var approvedGenerateForm = null;
                 var bulkBar = document.getElementById('marketingImagesBulkBar');
                 var bulkCount = document.getElementById('marketingImagesBulkCount');
-                var bulkForm = document.getElementById('marketingImagesBulkDeleteForm');
+                var bulkDeleteCount = document.getElementById('marketingImagesBulkDeleteCount');
+                var bulkSendForm = document.getElementById('marketingImagesBulkSendForm');
+                var bulkDeleteForm = document.getElementById('marketingImagesBulkDeleteForm');
 
-                function updateBulkBar() {
-                    if (!imageGrid || !bulkBar || !bulkCount || !bulkForm) {
-                        return;
-                    }
-
-                    var checked = Array.prototype.slice.call(imageGrid.querySelectorAll('[data-image-checkbox]:checked'));
-
-                    bulkForm.querySelectorAll('input[name="ids[]"]').forEach(function (input) {
-                        input.remove();
-                    });
-
+                function syncIdsToForm(form, checked) {
+                    if (!form) { return; }
+                    form.querySelectorAll('input[name="ids[]"]').forEach(function (input) { input.remove(); });
                     checked.forEach(function (checkbox) {
                         var input = document.createElement('input');
                         input.type = 'hidden';
                         input.name = 'ids[]';
                         input.value = checkbox.value;
-                        bulkForm.appendChild(input);
+                        form.appendChild(input);
                     });
+                }
 
-                    bulkCount.textContent = checked.length;
+                function updateBulkBar() {
+                    if (!imageGrid || !bulkBar) {
+                        return;
+                    }
+
+                    var checked = Array.prototype.slice.call(imageGrid.querySelectorAll('[data-image-checkbox]:checked'));
+
+                    syncIdsToForm(bulkSendForm, checked);
+                    syncIdsToForm(bulkDeleteForm, checked);
+
+                    if (bulkCount) { bulkCount.textContent = checked.length; }
+                    if (bulkDeleteCount) { bulkDeleteCount.textContent = checked.length; }
                     bulkBar.classList.toggle('d-none', checked.length === 0);
                 }
 
@@ -868,6 +954,23 @@
                     if (event.target.matches('[data-image-checkbox]')) {
                         updateBulkBar();
                     }
+                });
+
+                document.querySelectorAll('.js-copy-share-link').forEach(function (button) {
+                    button.addEventListener('click', function () {
+                        var link = button.getAttribute('data-link') || '';
+
+                        if (!link) {
+                            Botble.showError('No share link found.');
+                            return;
+                        }
+
+                        navigator.clipboard.writeText(link).then(function () {
+                            Botble.showSuccess('Share link copied.');
+                        }).catch(function () {
+                            Botble.showError('Could not copy the link automatically.');
+                        });
+                    });
                 });
             })();
         </script>

@@ -17,6 +17,7 @@ use Illuminate\Session\TokenMismatchException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\Exception as PhpSpreadsheetException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
@@ -132,6 +133,26 @@ class Handler extends ExceptionHandler
                             ->toResponse($request),
                     };
                 }
+        }
+
+        if (
+            ! $request->expectsJson()
+            && ! $request->wantsJson()
+            && is_in_admin(true)
+            && auth()->check()
+            && ! app()->runningInConsole()
+            && ! $e instanceof HttpExceptionInterface
+        ) {
+            return response()->view('core/base::errors.500', [
+                'adminErrorDetails' => [
+                    'message' => $e->getMessage(),
+                    'exception' => $e::class,
+                    'file' => $this->getErrorFilePath($e),
+                    'url' => $request->fullUrl(),
+                    'method' => $request->method(),
+                    'trace' => Str::limit($e->getTraceAsString(), 12000, ''),
+                ],
+            ], 500);
         }
 
         return parent::render($request, $e);

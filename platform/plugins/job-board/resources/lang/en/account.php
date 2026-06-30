@@ -20,7 +20,7 @@ return [
         'hide_cv' => 'Hide your CV?',
         'avatar_image' => 'Avatar image',
         'gender' => 'Gender',
-        'resume' => 'Resume',
+        'resume' => 'CV / Resume',
         'available_for_hiring' => 'Available for hiring?',
         'company' => 'Company',
         'position' => 'Position',
