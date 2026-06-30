@@ -1,1 +1,1073 @@
-(()=>{function e(t,a){return e=Object.setPrototypeOf?Object.setPrototypeOf.bind():function(e,t){return e.__proto__=t,e},e(t,a)}function t(){try{var e=!Boolean.prototype.valueOf.call(Reflect.construct(Boolean,[],function(){}))}catch(e){}return(t=function(){return!!e})()}$(document).ready(function(){"use strict";var a=this,o=function(e){window.showAlert("alert-danger",window.alertTranslations.errors,e)},n=function(e){window.showAlert("alert-success",window.alertTranslations.success,e)};Number.prototype.format_price=function(e,t){var a=window.currencies||{};e||(e=void 0!==window.currencies.number_after_dot?window.currencies.number_after_dot:2);var o="\\d(?=(\\d{"+(t||3)+"})+$)",n="",r=this;return window.currencies.show_symbol_or_title&&(n=window.currencies.symbol||window.currencies.title),window.currencies.display_big_money&&(r>=1e6&&r<1e9?(r/=1e6,n=window.currencies.million+(n?" "+n:"")):r>=1e9&&(r/=1e9,n=window.currencies.billion+(n?" "+n:""))),r=(r=(r=r.toFixed(Math.max(0,~~e))).toString().split("."))[0].toString().replace(new RegExp(o,"g"),"$&"+window.currencies.thousands_separator)+(r[1]?a.decimal_separator+r[1]:""),a.show_symbol_or_title&&(a.is_prefix_symbol?r=n+r:r+=n),r};var r=function(e){void 0!==e.errors&&e.errors.length?i(e.errors):void 0!==e.responseJSON?void 0!==e.responseJSON.errors?422===e.status&&i(e.responseJSON.errors):void 0!==e.responseJSON.message?o(e.responseJSON.message):$.each(e.responseJSON,function(e,t){$.each(t,function(e,t){o(t)})}):o(e.statusText)},i=function(e){var t="";$.each(e,function(e,a){""!==t&&(t+="<br />"),t+=a}),o(t)};window.showAlert=function(e,t,a){if(e&&""!==a){var o=Math.floor(1e3*Math.random()),n=null,r=null;switch(t=t||"Alert",e){case"alert-success":case"status":n='<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="45px">\n                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />\n                            </svg>',r="success";break;case"alert-danger":n='<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="45px">\n                              <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />\n                            </svg>',r="error"}var i='\n                <div class="toast '.concat(r,'" id="').concat(o,'">\n                    <div class="outer-container">\n                        ').concat(n,'\n                    </div>\n                    <div class="inner-container">\n                        <p>').concat(t,"</p>\n                        <p>").concat(a,'</p>\n                    </div>\n                    <a class="close-toast" >&times;</a>\n                </div>\n            ');$("#alert-container").append(i).ready(function(){window.setTimeout(function(){$("#alert-container #".concat(o)).remove()},6e3)}),$("#alert-container").on("click",".close-toast",function(e){e.preventDefault(),$(this).closest(".toast").remove()})}},$(".newsletter-form button[type=submit]").on("click",function(e){e.preventDefault(),e.stopPropagation();var t=$(this);$.ajax({type:"POST",cache:!1,url:t.closest("form").prop("action"),data:new FormData(t.closest("form")[0]),contentType:!1,processData:!1,beforeSend:function(){t.addClass("button-loading"),t.attr("disabled")},success:function(e){e.error?o(e.message):(t.closest("form").find("input[type=email]").val(""),n(e.message))},error:function(e){r(e)},complete:function(){"undefined"!=typeof refreshRecaptcha&&refreshRecaptcha(),t.removeClass("button-loading"),t.removeAttr("disabled"),t.closest("form").find(".input-newsletter").val("")}})});var s=$(".loading-ring");s.hide();var c=function(e){e.select2({minimumInputLength:0,placeholder:e.data("placeholder"),tags:!0,ajax:{url:$(a).data("url")||"".concat(window.siteUrl,"/ajax/locations"),dataType:"json",delay:500,type:"GET",data:function(e){return{k:e.term,page:e.page||1,type:$(this).data("location-type")}},processResults:function(e,t){return{results:$.map(e.data[0],function(e){return{text:e.name,id:e.name,data:e}}),pagination:{more:10*t.page<e.total}}}}})};function l(){var e=arguments.length>0&&void 0!==arguments[0]?arguments[0]:1,t=$("input[name=reviewable_type]").val(),a=$("input[name=reviewable_id]").val();$(".half-circle-spinner").toggle(),$(".spinner-overflow").toggle(),$(".review-listing").show(),$.ajax({url:"/review/load-more?page=".concat(e,"&reviewable_type=").concat(t,"&reviewable_id=").concat(a),success:function(e){$(".review-list").html(e),$(".half-circle-spinner").toggle(),$(".spinner-overflow").toggle()}})}var d=function(e){var t=parseInt(e.data("maxSalaryRange"));if(e.length>0){var a=wNumb({decimals:window.currencies.number_after_dot,thousand:window.currencies.thousands_separator,prefix:window.currencies.symbol}),o=$(".box-input-money"),n=parseInt(o.find('input[name="offered_salary_from"]').val()),r=parseInt(o.find('input[name="offered_salary_to"]').val());noUiSlider.create(e[0],{start:[n,r],step:1,connect:!0,range:{min:0,max:t},format:a}),e[0].noUiSlider.on("update",function(e){$('input[name="offered_salary_from"]').val(a.from(e[0])),$('input[name="offered_salary_to"]').val(a.from(e[1]))}),e[0].noUiSlider.on("change",function(e,t,a){u(a,$(document).find(".box-input-money"))}),e[0].noUiSlider.on("slide",function(e){$(document).find(".salary-range").text("".concat(e[0]," - ").concat(e[1]))}),$(document).find(".salary-range").text("".concat(n.format_price()," - ").concat(r.format_price()))}};d($("#slider-range")),c($(".select-location")),$(document).on("click",".review-form button[type=submit]",function(e){e.preventDefault(),e.stopPropagation();var t=$(this);$.ajax({type:"POST",cache:!1,url:t.closest("form").prop("action"),data:new FormData(t.closest("form")[0]),contentType:!1,processData:!1,beforeSend:function(){t.addClass("button-loading")},success:function(e){e.error?o(e.message):(t.closest("form").find("textarea").val(""),t.closest("form").find("textarea").attr("disabled",!0),t.attr("disabled",!0),n(e.message),l($(".review-pagination").data("review-last-page")))},error:function(e){r(e)},complete:function(){"undefined"!=typeof refreshRecaptcha&&refreshRecaptcha(),t.removeClass("button-loading")}})}),$(function(){window.jobBoardMaps={};var a=$(".job-board-street-map");a.length&&a.each(function(e,t){!function(e){var t=e.data("uid");t||(t=(Math.random()+1).toString(36).substring(7)+(new Date).getTime(),e.data("uid",t)),jobBoardMaps[t]&&(jobBoardMaps[t].off(),jobBoardMaps[t].remove()),jobBoardMaps[t]=L.map(e[0],{zoomControl:!1,scrollWheelZoom:!0,dragging:!0,maxZoom:e.data("max-zoom")||20}).setView(e.data("center"),e.data("zoom")||14);var a=L.divIcon({className:"boxmarker",iconSize:L.point(50,20),html:e.data("map-icon")});L.tileLayer(e.data("tile-layer")?e.data("tile-layer"):"https://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}").addTo(jobBoardMaps[t]),L.marker(e.data("center"),{icon:a}).addTo(jobBoardMaps[t]).bindPopup($(e.data("popup-id")).html()).openPopup()}($(t))}),$(document).on("click",".job-bookmark-action",function(e){e.preventDefault();var t=$(e.currentTarget),a=$(".job-bookmark-saved");$.ajax({type:"POST",url:t.prop("href"),data:{job_id:t.data("job-id"),_token:$('meta[name="csrf-token"]').prop("content")},beforeSend:function(){t.addClass("loading")},success:function(e){if(e.error)return o(e.message),!1;n(e.message),e.data.is_saved?a.length?a.addClass("save-job-active"):t.closest(".favorite-icon").parent().addClass("save-job-active"):a.length?a.removeClass("save-job-active"):t.closest(".favorite-icon").parent().removeClass("save-job-active")},error:function(e){401===e.status?$("#signupModal").modal("show"):r(e)},complete:function(){t.removeClass("loading")}})});var i={};i.$formSearch=$("#jobs-filter-form"),i.jobListing=".jobs-listing",i.$jobListing=$(i.jobListing),i.parseParamsSearch=function(e){for(var t,a=arguments.length>1&&void 0!==arguments[1]&&arguments[1],o=e||window.location.search.substring(1),n=/([^&=]+)=?([^&]*)/g,r=/\+/g,i=function(e){return decodeURIComponent(e.replace(r," "))},s={};t=n.exec(o);){var c=i(t[1]),l=i(t[2]);"[]"===c.substring(c.length-2)?(a&&(c=c.substring(0,c.length-2)),(s[c]||(s[c]=[])).push(l)):s[c]=l}return s},i.changeInputInSearchForm=function(e){i.$formSearch.find("input, select, textarea").each(function(t,a){i.changeInputInSearchFormDetail($(a),e)}),$(":input[form=jobs-filter-form]").each(function(t,a){i.changeInputInSearchFormDetail($(a),e)})},i.changeInputInSearchFormDetail=function(e,t){var a=t[e.attr("name")]||null;switch(e.attr("type")){case"checkbox":case"radio":e.prop("checked",!1),Array.isArray(a)?e.prop("checked",a.includes(e.val())):e.prop("checked",!!a);break;default:e.is("[name=max_price]")?e.val(a||e.data("max")):e.is("[name=min_price]")?e.val(a||e.data("min")):e.val()!==a&&e.val(a)}},i.convertFromDataToArray=function(e){var t=[];return e.forEach(function(e){if(("offered_salary_to"!==e.name||parseInt(e.value)!==parseInt($('input[name="offered_salary_to"]').data("default-value")))&&e.value){if(["min_price","max_price"].includes(e.name))if(i.$formSearch.find("input[name="+e.name+"]").data(e.name.substring(0,3))===parseInt(e.value))return;t.push(e)}}),t},i.jobsFilter=function(){var e=null;$(document).on("submit","#jobs-filter-form",function(t){t.preventDefault(),$(document).find(".sidebar-filter-mobile").hasClass("active")&&($(document).find(".sidebar-filter-mobile").removeClass("active"),$("html, body").animate({scrollTop:$(".job-content-section").offset().top-150})),e&&e.abort();var a=$(t.currentTarget),n=a.serializeArray(),s=i.convertFromDataToArray(n),l=[],u=window.location,f=u.origin+u.pathname;$.urlParam=function(e){var t=new RegExp("[?&]"+e+"=([^&#]*)").exec(window.location.search);return null!==t&&(t[1]||0)},$.urlParam("limit")&&s.push({name:"limit",value:parseInt($.urlParam("limit"))});var m=i.$jobListing.find("input[name=page]");m.val()&&s.push({name:"page",value:m.val()}),s.map(function(e){"offered_salary_to"===e.name&&(e.value=Number(e.value.replace(/[^0-9.-]+/g,""))),l.find(function(t){return t.includes(e.name)})||"offered_salary_to"===e.name&&parseInt($('input[name="offered_salary_to"]').data("default-value"))===parseInt(e.value)||("offered_salary_from"!==e.name||parseInt(e.value))&&("page"===e.name&&1===parseInt(e.value)||l.push(encodeURIComponent(e.name)+"="+e.value))}),l&&l.length&&(f+="?".concat(l.join("&"))),s.push({name:"_",value:+new Date}),e=$.ajax({url:a.attr("action"),type:"GET",data:a.serialize(),beforeSend:function(){$("#loading").css("display","block"),$(".job-items").css("opacity",.2)},success:function(e){var t=e.error,n=e.data,r=e.additional,s=e.message;t?o(s||"Opp!"):(i.$jobListing.html(n),a.closest(".filter-section").html($(r.filters_html).html()),d($(document).find("#slider-range")),c($(document).find("#jobs-filter-form .select-location")),null!=r&&r.message&&i.$jobListing.closest(".jobs-listing-container").find(".showing-of-results").html(r.message),i.executeMap(),f!==window.location.href&&window.history.pushState(n,s,f))},error:function(e){"abort"!==e.statusText&&r(e)},complete:function(){v(),setTimeout(function(){$("#loading").css("display","none"),$(".loading-ring").hide(),$(".job-items").css("opacity",1)},500)}})}),window.addEventListener("popstate",function(){window.location.reload()},!1),$(document).on("click",i.jobListing+" .pagination a",function(e){e.preventDefault();var t=$(e.currentTarget).attr("href");t.includes(window.location.protocol)||(t=window.location.protocol+t);var a=new URL(t).searchParams.get("page");i.$jobListing.find("input[name=page]").val(a),i.$formSearch.trigger("submit")})},i.jobsFilter(),$(document).on("change",".submit-form-filter",function(e){"location"===e.target.name&&$("input[name=location]").val(e.target.value),i.$formSearch.find('input[name="page"]').val(1),u(e)}),String.prototype.interpolate=function(a){var o=Object.keys(a),n=Object.values(a);return function(a,o,n){if(t())return Reflect.construct.apply(null,arguments);var r=[null];r.push.apply(r,o);var i=new(a.bind.apply(a,r));return n&&e(i,n.prototype),i}(Function,o.concat(["return `".concat(this,"`;")])).apply(void 0,n)};var s=$("#traffic-popup-map-template").html();i.initMaps=function(e){var t=arguments.length>1&&void 0!==arguments[1]&&arguments[1];if(!e.length)return!1;var a=e.data("center")||[],o=$(".jobs-listing .job-box[data-latitude][data-longitude]"),n=o.filter(function(){return $(this).data("latitude")&&$(this).data("longitude")});n&&n.length&&(a=[n.data("latitude"),n.data("longitude")]);var r,i=e.data("uid");i||(i=(Math.random()+1).toString(36).substring(7)+(new Date).getTime(),e.data("uid",i)),window.jobBoardMaps&&window.jobBoardMaps[i]&&(t?(window.jobBoardMaps[i].off(),window.jobBoardMaps[i].remove()):(r=window.jobBoardMaps[i]).eachLayer(function(e){e.remove()}));var c=[];if(o.map(function(e,t){var a=$(t);c.push(a.data())}),!r){var l=e.data("zoom")||14;c.length||(l=e.data("zoom-empty")||12),r=L.map(e[0],{zoomControl:!0,scrollWheelZoom:!0,dragging:!0,maxZoom:e.data("max-zoom")||20}).setView(a,l)}L.tileLayer(e.data("tile-layer")?e.data("tile-layer"):"https://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}").addTo(r);var d=new L.MarkerClusterGroup,u=[];c.forEach(function(e){if(e.latitude&&e.longitude){var t=L.divIcon({className:"boxmarker",iconSize:L.point(50,20),html:e.map_icon}),a=s.interpolate({item:e}),o=new L.Marker(new L.LatLng(e.latitude,e.longitude),{icon:t}).bindPopup(a).addTo(r);u.push(o),d.addLayer(o),r.flyToBounds(L.latLngBounds(u.map(function(e){return e.getLatLng()})))}}),r.addLayer(d),e.addClass("active"),window.jobBoardMaps[i]=r},$(".jobs-list-sidebar").length&&($(".jobs-list-sidebar").is(":visible")&&i.initMaps($(".jobs-list-sidebar").find(".jobs-list-map")),$(window).on("resize",function(){$(".jobs-list-sidebar").is(":visible")&&i.initMaps($(".jobs-list-sidebar").find(".jobs-list-map"))})),i.setCookie=function(e,t,a){var o=new Date,n=window.siteUrl;n.includes(window.location.protocol)||(n=window.location.protocol+n);var r=new URL(n);o.setTime(o.getTime()+24*a*60*60*1e3);var i="expires="+o.toUTCString();document.cookie=e+"="+t+"; "+i+"; path=/; domain="+r.hostname},i.executeMap=function(){var e=$(".jobs-list-sidebar").find(".jobs-list-map");e.length&&(i.initMaps(e),i.setCookie("show_map_on_jobs_page",1,60))},$("#offcanvas-jobs-map").on("show.bs.offcanvas",function(e){$('[data-bs-target="#offcanvas-jobs-map"]').addClass("active");var t=$(e.currentTarget).find(".jobs-list-map");t.hasClass("active")||i.initMaps(t)}).on("hide.bs.offcanvas",function(){$('[data-bs-target="#offcanvas-jobs-map"]').removeClass("active")})}),$(document).on("click",".review-pagination a",function(e){e.preventDefault(),l($(this).attr("href").split("page=")[1])}),$(document).on("click",".layout-job",function(e){e.preventDefault(),$("#jobs-filter-form > input[name=layout]").val($(this).data("layout")),$("#jobs-filter-form").submit()}),$(document).on("click",".per-page-item",function(e){e.preventDefault(),$("#jobs-filter-form input[name=per_page]").val($(this).data("perPage")),$("#jobs-filter-form").submit()}),$(document).on("click",".dropdown-sort-by",function(e){e.preventDefault(),$("#jobs-filter-form input[name=sort_by]").val($(this).data("sortBy")),$("#jobs-filter-form").submit()}),$(document).on("click",".row-filter .pagination-button",function(e){e.preventDefault(),$("#jobs-filter-form input[name=page]").val($(this).data("page")),$("#jobs-filter-form").submit(),$("#form-page-categories input[name=page]").val($(this).data("page")),$("#form-page-categories").submit()});var u=function(e){var t=arguments.length>1&&void 0!==arguments[1]?arguments[1]:null,a="";t?a=t:e&&(a=$(e.currentTarget));var o=a.closest("form");!o.length&&a.prop("form")&&(o=$(a.prop("form"))),o.length&&o.trigger("submit")},f=$("#ModalApplyJobForm");f.on("show.bs.modal",function(e){var t=$(e.relatedTarget),a=t.data("job-name"),o=t.data("job-id");f.find(".modal-job-name").text(a),f.find(".modal-job-id").val(o)}),f.on("hide.bs.modal",function(){f.find(".modal-job-name").text(""),f.find(".modal-job-id").val("")});var m=$("#ModalApplyExternalJobForm");m.on("show.bs.modal",function(e){var t=$(e.relatedTarget),a=t.data("job-name"),o=t.data("job-id"),b=1==t.data("apply-mailto");m.find(".modal-job-name").text(a),m.find(".modal-job-id").val(o),m.find("button[type=submit]").html(b?'Apply via Email <i class="mdi mdi-email-outline"></i>':'Go to Job Site <i class="mdi mdi-arrow-right"></i>')}),m.on("hide.bs.modal",function(){m.find(".modal-job-name").text(""),m.find(".modal-job-id").val("")}),$(document).on("submit",".job-apply-form",function(e){e.preventDefault();var t=$(e.currentTarget),a=t.find("button[type=submit]");$.ajax({type:"POST",cache:!1,url:t.prop("action"),data:new FormData(t[0]),contentType:!1,processData:!1,beforeSend:function(){a.prop("disabled",!0).addClass("button-loading")},success:function(e){e.error?o(e.message):(e.data.url||n(e.message),e.data&&e.data.boost_available&&window.onApplyBoostAvailable?window.onApplyBoostAvailable(e.data.application_id,e.data.credits):setTimeout(function(){e.data&&e.data.url?(e.data.url.startsWith("mailto:")?window.location.href=e.data.url:window.location.replace(e.data.url)):window.location.reload()},1e3))},error:function(e){o(e.responseJSON.message)},complete:function(){"undefined"!=typeof refreshRecaptcha&&refreshRecaptcha(),a.prop("disabled",!1).removeClass("button-loading")}})}),$(".job-of-the-day").on("click",".category-item",function(e){e.preventDefault();var t=$(this).data("url"),a=$(this);$.ajax({url:t,type:"GET",data:{style:$(this).data("style")},dataType:"json",beforeSend:function(){s.show()},success:function(e){e.error||($(".job-of-the-day .category-item").removeClass("active"),a.addClass("active"),$(".job-of-the-day-list").html(e.data))},error:function(e){"abort"!==e.statusText&&r(e)},complete:function(){setTimeout(function(){$(".loading-ring").hide()},500)}})});var p=$("select.jquery-bar-rating");function v(){var e=$(".filter-block").find(".link-reset");e.length&&e.attr("href",window.location.href.split("?")[0])}p.length&&p.barrating({theme:"css-stars"}),$(document).on("change","#cover_image",function(e){var t=$(".cover_image_preview");t.attr("src",URL.createObjectURL(e.target.files[0])),t.show()}),$(document).on("click",".btn-advanced-filter",function(){$(document).find(".sidebar-filter-mobile").addClass("active")}).on("click",".sidebar-filter-mobile .backdrop, .close-sidebar-filter-mobile",function(){$(document).find(".sidebar-filter-mobile").removeClass("active")}),!$(".sidebar-filter-mobile").length&&$(".btn-advanced-filter").length&&$(".btn-advanced-filter").hide(),v()})})();
+$(document).ready(function () {
+    'use strict'
+
+    const showError = (message) => {
+        window.showAlert('alert-danger', window.alertTranslations.errors,  message)
+    }
+
+    const showSuccess = (message) => {
+        window.showAlert('alert-success', window.alertTranslations.success,  message)
+    }
+
+    const showApplySuccess = (message, onClose) => {
+        if (typeof Swal !== 'undefined' && Swal.fire) {
+            Swal.fire({
+                icon: 'success',
+                title: 'Application submitted',
+                text: message,
+                confirmButtonText: 'OK',
+                confirmButtonColor: '#3c65f5',
+                allowOutsideClick: false,
+            }).then(() => {
+                if (typeof onClose === 'function') {
+                    onClose()
+                }
+            })
+
+            return
+        }
+
+        showSuccess(message)
+
+        if (typeof onClose === 'function') {
+            onClose()
+        }
+    }
+
+    Number.prototype.format_price = function (n, x) {
+        let currencies = window.currencies || {}
+        if (!n) {
+            n = window.currencies.number_after_dot !== undefined ? window.currencies.number_after_dot : 2
+        }
+        let re = '\\d(?=(\\d{' + (x || 3) + '})+$)'
+        let priceUnit = ''
+        let price = this
+        if (window.currencies.show_symbol_or_title) {
+            priceUnit = window.currencies.symbol || window.currencies.title
+        }
+        if (window.currencies.display_big_money) {
+            if (price >= 1000000 && price < 1000000000) {
+                price = price / 1000000
+                priceUnit = window.currencies.million + (priceUnit ? ' ' + priceUnit : '')
+            } else if (price >= 1000000000) {
+                price = price / 1000000000
+                priceUnit = window.currencies.billion + (priceUnit ? ' ' + priceUnit : '')
+            }
+        }
+        price = price.toFixed(Math.max(0, ~~n))
+        price = price.toString().split('.')
+        price =
+            price[0].toString().replace(new RegExp(re, 'g'), '$&' + window.currencies.thousands_separator) +
+            (price[1] ? currencies.decimal_separator + price[1] : '')
+        if (currencies.show_symbol_or_title) {
+            if (currencies.is_prefix_symbol) {
+                price = priceUnit + price
+            } else {
+                price = price + priceUnit
+            }
+        }
+        return price
+    }
+
+    const handleError = (data) => {
+        if (typeof data.errors !== 'undefined' && data.errors.length) {
+            handleValidationError(data.errors)
+        } else if (typeof data.responseJSON !== 'undefined') {
+            if (typeof data.responseJSON.errors !== 'undefined') {
+                if (data.status === 422) {
+                    handleValidationError(data.responseJSON.errors)
+                }
+            } else if (typeof data.responseJSON.message !== 'undefined') {
+                showError(data.responseJSON.message)
+            } else {
+                $.each(data.responseJSON, (index, el) => {
+                    $.each(el, (key, item) => {
+                        showError(item)
+                    })
+                })
+            }
+        } else {
+            showError(data.statusText)
+        }
+    }
+
+    const handleValidationError = (errors) => {
+        let message = ''
+        $.each(errors, (index, item) => {
+            if (message !== '') {
+                message += '<br />'
+            }
+            message += item
+        })
+        showError(message)
+    }
+
+    window.showAlert = (messageType, title, message) => {
+        if (messageType && message !== '') {
+            let alertId = Math.floor(Math.random() * 1000)
+
+            let type = null
+            let colorType = null
+            title = title || 'Alert'
+
+            switch (messageType) {
+                case 'alert-success':
+                    type = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="45px">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>`
+
+                    colorType = 'success'
+                    break
+
+                case 'status':
+                    type = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="45px">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>`
+
+                    colorType = 'success'
+                    break
+
+                case 'alert-danger':
+                    type = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="45px">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>`
+
+                    colorType = 'error'
+                    break
+            }
+
+            let html = `
+                <div class="toast ${colorType}" id="${alertId}">
+                    <div class="outer-container">
+                        ${type}
+                    </div>
+                    <div class="inner-container">
+                        <p>${title}</p>
+                        <p>${message}</p>
+                    </div>
+                    <a class="close-toast" >&times;</a>
+                </div>
+            `
+
+            $('#alert-container')
+                .append(html)
+                .ready(() => {
+                    window.setTimeout(() => {
+                        $(`#alert-container #${alertId}`).remove()
+                    }, 6000)
+                })
+
+            $('#alert-container').on('click', '.close-toast', function (event) {
+                event.preventDefault()
+                $(this).closest('.toast').remove()
+            })
+        }
+    }
+
+    $('.newsletter-form button[type=submit]').on('click', function (event) {
+        event.preventDefault()
+        event.stopPropagation()
+
+        let _self = $(this)
+        $.ajax({
+            type: 'POST',
+            cache: false,
+            url: _self.closest('form').prop('action'),
+            data: new FormData(_self.closest('form')[0]),
+            contentType: false,
+            processData: false,
+            beforeSend: () => {
+                _self.addClass('button-loading')
+                _self.attr('disabled')
+            },
+            success: (res) => {
+                if (!res.error) {
+                    _self.closest('form').find('input[type=email]').val('')
+                    showSuccess(res.message)
+                } else {
+                    showError(res.message)
+                }
+            },
+            error: (res) => {
+                handleError(res)
+            },
+            complete: () => {
+                if (typeof refreshRecaptcha !== 'undefined') {
+                    refreshRecaptcha()
+                }
+                _self.removeClass('button-loading')
+                _self.removeAttr('disabled')
+                _self.closest('form').find('.input-newsletter').val('')
+            },
+        })
+    })
+
+    const loading = $('.loading-ring')
+
+    loading.hide()
+
+    const initSelect2 = (element) => {
+        element.select2({
+            minimumInputLength: 0,
+            placeholder: element.data('placeholder'),
+            tags: true,
+            ajax: {
+                url: element.data('url') || `${window.siteUrl}/ajax/locations`,
+                dataType: 'json',
+                delay: 500,
+                type: 'GET',
+                data: function (params) {
+                    return {
+                        k: params.term,
+                        page: params.page || 1,
+                        type: element.data('location-type'),
+                    }
+                },
+                processResults: function (data, params) {
+                    return {
+                        results: $.map(data.data[0], function (item) {
+                            return {
+                                text: item.name,
+                                id: item.name,
+                                data: item,
+                            }
+                        }),
+                        pagination: {
+                            more: params.page * 10 < data.total,
+                        },
+                    }
+                },
+            },
+        })
+    }
+
+    function reloadReviewList(page = 1) {
+        let reviewable_type = $('input[name=reviewable_type]').val()
+        let reviewable_id = $('input[name=reviewable_id]').val()
+        $('.half-circle-spinner').toggle()
+        $('.spinner-overflow').toggle()
+        $('.review-listing').show()
+
+        $.ajax({
+            url: `/review/load-more?page=${page}&reviewable_type=${reviewable_type}&reviewable_id=${reviewable_id}`,
+            success: function (data) {
+                $('.review-list').html(data)
+                $('.half-circle-spinner').toggle()
+                $('.spinner-overflow').toggle()
+            },
+        })
+    }
+
+    const initUiSlider = (element) => {
+        let maxSalaryRange = parseInt(element.data('maxSalaryRange'))
+        if (element.length > 0) {
+            let moneyFormat = wNumb({
+                decimals: window.currencies.number_after_dot,
+                thousand: window.currencies.thousands_separator,
+                prefix: window.currencies.symbol,
+            })
+
+            const boxMoney = $('.box-input-money')
+            const salaryFrom = parseInt(boxMoney.find('input[name="offered_salary_from"]').val())
+            const salaryTo = parseInt(boxMoney.find('input[name="offered_salary_to"]').val())
+
+            noUiSlider.create(element[0], {
+                start: [salaryFrom, salaryTo],
+                step: 1,
+                connect: true,
+                range: {
+                    min: 0,
+                    max: maxSalaryRange,
+                },
+                format: moneyFormat,
+            })
+
+            // Set visual min and max values and also update value hidden form inputs
+            element[0].noUiSlider.on('update', function (values) {
+                $('input[name="offered_salary_from"]').val(moneyFormat.from(values[0]))
+                $('input[name="offered_salary_to"]').val(moneyFormat.from(values[1]))
+            })
+
+            element[0].noUiSlider.on('change', function (values, handle, e) {
+                submitForm(e, $(document).find('.box-input-money'))
+            })
+
+            element[0].noUiSlider.on('slide', function (values) {
+                $(document).find('.salary-range').text(`${values[0]} - ${values[1]}`)
+            })
+
+            $(document).find('.salary-range').text(`${salaryFrom.format_price()} - ${salaryTo.format_price()}`)
+        }
+    }
+
+    initUiSlider($('#slider-range'))
+    initSelect2($('.select-location'))
+
+    $(document).on('click', '.review-form button[type=submit]', function (event) {
+        event.preventDefault()
+        event.stopPropagation()
+
+        let _self = $(this)
+        $.ajax({
+            type: 'POST',
+            cache: false,
+            url: _self.closest('form').prop('action'),
+            data: new FormData(_self.closest('form')[0]),
+            contentType: false,
+            processData: false,
+            beforeSend: () => {
+                _self.addClass('button-loading')
+            },
+            success: (res) => {
+                if (!res.error) {
+                    _self.closest('form').find('textarea').val('')
+                    _self.closest('form').find('textarea').attr('disabled', true)
+                    _self.attr('disabled', true)
+                    showSuccess(res.message)
+                    let page = $('.review-pagination').data('review-last-page')
+                    reloadReviewList(page)
+                } else {
+                    showError(res.message)
+                }
+            },
+            error: (res) => {
+                handleError(res)
+            },
+            complete: () => {
+                if (typeof refreshRecaptcha !== 'undefined') {
+                    refreshRecaptcha()
+                }
+                _self.removeClass('button-loading')
+            },
+        })
+    })
+
+    $(() => {
+        window.jobBoardMaps = {}
+
+        function setJobBoardMap($el) {
+            let uid = $el.data('uid')
+            if (!uid) {
+                uid = (Math.random() + 1).toString(36).substring(7) + new Date().getTime()
+                $el.data('uid', uid)
+            }
+            if (jobBoardMaps[uid]) {
+                jobBoardMaps[uid].off()
+                jobBoardMaps[uid].remove()
+            }
+
+            jobBoardMaps[uid] = L.map($el[0], {
+                zoomControl: false,
+                scrollWheelZoom: true,
+                dragging: true,
+                maxZoom: $el.data('max-zoom') || 20,
+            }).setView($el.data('center'), $el.data('zoom') || 14)
+
+            let myIcon = L.divIcon({
+                className: 'boxmarker',
+                iconSize: L.point(50, 20),
+                html: $el.data('map-icon'),
+            })
+            L.tileLayer(
+                $el.data('tile-layer')
+                    ? $el.data('tile-layer')
+                    : 'https://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}'
+            ).addTo(jobBoardMaps[uid])
+
+            L.marker($el.data('center'), { icon: myIcon })
+                .addTo(jobBoardMaps[uid])
+                .bindPopup($($el.data('popup-id')).html())
+                .openPopup()
+        }
+
+        let $jobMaps = $('.job-board-street-map')
+
+        if ($jobMaps.length) {
+            $jobMaps.each(function (i, e) {
+                setJobBoardMap($(e))
+            })
+        }
+
+        $(document).on('click', '.job-bookmark-action', function (e) {
+            e.preventDefault()
+            const $this = $(e.currentTarget)
+            const $parent = $('.job-bookmark-saved')
+            $.ajax({
+                type: 'POST',
+                url: $this.prop('href'),
+                data: {
+                    job_id: $this.data('job-id'),
+                    _token: $('meta[name="csrf-token"]').prop('content'),
+                },
+                beforeSend: () => {
+                    $this.addClass('loading')
+                },
+                success: (res) => {
+                    if (res.error) {
+                        showError(res.message)
+                        return false
+                    }
+                    showSuccess(res.message)
+                    if (res.data.is_saved) {
+                        if ($parent.length) {
+                            $parent.addClass('save-job-active')
+                        } else {
+                            $this.closest('.favorite-icon').parent().addClass('save-job-active')
+                        }
+                    } else {
+                        if ($parent.length) {
+                            $parent.removeClass('save-job-active')
+                        } else {
+                            $this.closest('.favorite-icon').parent().removeClass('save-job-active')
+                        }
+                    }
+                },
+                error: (res) => {
+                    if (res.status === 401) {
+                        $('#signupModal').modal('show')
+                    } else {
+                        handleError(res)
+                    }
+                },
+                complete: () => {
+                    $this.removeClass('loading')
+                },
+            })
+        })
+
+        let JobBoardApp = {}
+
+        JobBoardApp.$formSearch = $('#jobs-filter-form')
+        JobBoardApp.jobListing = '.jobs-listing'
+        JobBoardApp.$jobListing = $(JobBoardApp.jobListing)
+        JobBoardApp.parseParamsSearch = function (query, includeArray = false) {
+            let pairs = query || window.location.search.substring(1)
+            let re = /([^&=]+)=?([^&]*)/g
+            let decodeRE = /\+/g // Regex for replacing addition symbol with a space
+            let decode = function (str) {
+                return decodeURIComponent(str.replace(decodeRE, ' '))
+            }
+
+            let params = {},
+                e
+            while ((e = re.exec(pairs))) {
+                let k = decode(e[1]),
+                    v = decode(e[2])
+                if (k.substring(k.length - 2) === '[]') {
+                    if (includeArray) {
+                        k = k.substring(0, k.length - 2)
+                    }
+                    ;(params[k] || (params[k] = [])).push(v)
+                } else params[k] = v
+            }
+            return params
+        }
+
+        JobBoardApp.changeInputInSearchForm = function (parseParams) {
+            JobBoardApp.$formSearch.find('input, select, textarea').each(function (e, i) {
+                JobBoardApp.changeInputInSearchFormDetail($(i), parseParams)
+            })
+
+            $(':input[form=jobs-filter-form]').each(function (e, i) {
+                JobBoardApp.changeInputInSearchFormDetail($(i), parseParams)
+            })
+        }
+
+        JobBoardApp.changeInputInSearchFormDetail = function ($el, parseParams) {
+            const name = $el.attr('name')
+            let value = parseParams[name] || null
+            const type = $el.attr('type')
+            switch (type) {
+                case 'checkbox':
+                case 'radio':
+                    $el.prop('checked', false)
+                    if (Array.isArray(value)) {
+                        $el.prop('checked', value.includes($el.val()))
+                    } else {
+                        $el.prop('checked', !!value)
+                    }
+                    break
+                default:
+                    if ($el.is('[name=max_price]')) {
+                        $el.val(value || $el.data('max'))
+                    } else if ($el.is('[name=min_price]')) {
+                        $el.val(value || $el.data('min'))
+                    } else if ($el.val() !== value) {
+                        $el.val(value)
+                    }
+                    break
+            }
+        }
+
+        JobBoardApp.convertFromDataToArray = function (formData) {
+            let data = []
+            formData.forEach(function (obj) {
+                if (
+                    obj.name === 'offered_salary_to' &&
+                    parseInt(obj.value) === parseInt($('input[name="offered_salary_to"]').data('default-value'))
+                ) {
+                    return
+                }
+
+                if (obj.value) {
+                    // break with price
+                    if (['min_price', 'max_price'].includes(obj.name)) {
+                        const dataValue = JobBoardApp.$formSearch
+                            .find('input[name=' + obj.name + ']')
+                            .data(obj.name.substring(0, 3))
+                        if (dataValue === parseInt(obj.value)) {
+                            return
+                        }
+                    }
+                    data.push(obj)
+                }
+            })
+
+            return data
+        }
+
+        JobBoardApp.jobsFilter = function () {
+            let ajaxSending = null
+            $(document).on('submit', '#jobs-filter-form', function (e) {
+                e.preventDefault()
+
+                if ($(document).find('.sidebar-filter-mobile').hasClass('active')) {
+                    $(document).find('.sidebar-filter-mobile').removeClass('active')
+
+                    $('html, body').animate({
+                        scrollTop: $('.job-content-section').offset().top - 150,
+                    })
+                }
+
+                if (ajaxSending) {
+                    ajaxSending.abort()
+                }
+
+                const $form = $(e.currentTarget)
+                let formData = $form.serializeArray()
+                let data = JobBoardApp.convertFromDataToArray(formData)
+                let uriData = []
+                let location = window.location
+                let nextHref = location.origin + location.pathname
+
+                $.urlParam = function (name) {
+                    let results = new RegExp('[?&]' + name + '=([^&#]*)').exec(window.location.search)
+
+                    return results !== null ? results[1] || 0 : false
+                }
+                if ($.urlParam('limit')) {
+                    data.push({ name: 'limit', value: parseInt($.urlParam('limit')) })
+                }
+
+                // Paginate
+                const $elPage = JobBoardApp.$jobListing.find('input[name=page]')
+                if ($elPage.val()) {
+                    data.push({ name: 'page', value: $elPage.val() })
+                }
+
+                data.map(function (obj) {
+                    if (obj.name === 'offered_salary_to') {
+                        obj.value = Number(obj.value.replace(/[^0-9.-]+/g, ''))
+                    }
+
+                    if (uriData.find((item) => item.includes(obj.name))) {
+                        return
+                    }
+
+                    if (
+                        obj.name === 'offered_salary_to' &&
+                        parseInt($('input[name="offered_salary_to"]').data('default-value')) === parseInt(obj.value)
+                    ) {
+                        return
+                    }
+
+                    if (obj.name === 'offered_salary_from' && !parseInt(obj.value)) {
+                        return
+                    }
+
+                    if (obj.name === 'page' && parseInt(obj.value) === 1) {
+                        return
+                    }
+
+                    uriData.push(encodeURIComponent(obj.name) + '=' + obj.value)
+                })
+
+                if (uriData && uriData.length) {
+                    nextHref += `?${uriData.join('&')}`
+                }
+                // add to params get to popstate not show json
+                data.push({ name: '_', value: +new Date() })
+
+                ajaxSending = $.ajax({
+                    url: $form.attr('action'),
+                    type: 'GET',
+                    data: $form.serialize(),
+                    beforeSend: function () {
+                        // Show loading before sending
+                        $('#loading').css('display', 'block')
+                        $('.job-items').css('opacity', 0.2)
+                    },
+                    success: function ({ error, data, additional, message }) {
+                        if (error) {
+                            showError(message || 'Opp!')
+
+                            return
+                        }
+
+                        JobBoardApp.$jobListing.html(data)
+
+                        $form.closest('.filter-section').html($(additional.filters_html).html())
+
+                        initUiSlider($(document).find('#slider-range'))
+                        initSelect2($(document).find('#jobs-filter-form .select-location'))
+
+                        if (additional?.message) {
+                            JobBoardApp.$jobListing
+                                .closest('.jobs-listing-container')
+                                .find('.showing-of-results')
+                                .html(additional.message)
+                        }
+
+                        JobBoardApp.executeMap()
+
+                        if (nextHref !== window.location.href) {
+                            window.history.pushState(data, message, nextHref)
+                        }
+                    },
+                    error: function (error) {
+                        if (error.statusText === 'abort') {
+                            return // ignore abort
+                        }
+                        handleError(error)
+                    },
+                    complete: function () {
+                        updateUrlResetFilter()
+                        setTimeout(function () {
+                            $('#loading').css('display', 'none')
+                            $('.loading-ring').hide()
+                            $('.job-items').css('opacity', 1)
+                        }, 500)
+                    },
+                })
+            })
+
+            window.addEventListener(
+                'popstate',
+                function () {
+                    window.location.reload()
+                },
+                false
+            )
+
+            $(document).on('click', JobBoardApp.jobListing + ' .pagination a', function (e) {
+                e.preventDefault()
+                let aLink = $(e.currentTarget).attr('href')
+
+                if (!aLink.includes(window.location.protocol)) {
+                    aLink = window.location.protocol + aLink
+                }
+
+                let url = new URL(aLink)
+                let page = url.searchParams.get('page')
+                JobBoardApp.$jobListing.find('input[name=page]').val(page)
+                JobBoardApp.$formSearch.trigger('submit')
+            })
+        }
+
+        JobBoardApp.jobsFilter()
+
+        $(document).on('change', '.submit-form-filter', function (e) {
+            if (e.target.name === 'location') {
+                $('input[name=location]').val(e.target.value)
+            }
+
+            JobBoardApp.$formSearch.find('input[name="page"]').val(1)
+            submitForm(e)
+        })
+
+        String.prototype.interpolate = function (params) {
+            const names = Object.keys(params)
+            const vals = Object.values(params)
+            return new Function(...names, `return \`${this}\`;`)(...vals)
+        }
+        let $templatePopup = $('#traffic-popup-map-template').html()
+
+        JobBoardApp.initMaps = function ($map, force = false) {
+            if (!$map.length) {
+                return false
+            }
+
+            let center = $map.data('center') || []
+            const $jobBoxes = $('.jobs-listing .job-box[data-latitude][data-longitude]')
+            const centerFirst = $jobBoxes.filter(function () {
+                return $(this).data('latitude') && $(this).data('longitude')
+            })
+
+            if (centerFirst && centerFirst.length) {
+                center = [centerFirst.data('latitude'), centerFirst.data('longitude')]
+            }
+
+            let uid = $map.data('uid')
+            if (!uid) {
+                uid = (Math.random() + 1).toString(36).substring(7) + new Date().getTime()
+                $map.data('uid', uid)
+            }
+
+            let map
+            if (window.jobBoardMaps && window.jobBoardMaps[uid]) {
+                if (force) {
+                    window.jobBoardMaps[uid].off()
+                    window.jobBoardMaps[uid].remove()
+                } else {
+                    map = window.jobBoardMaps[uid]
+                    map.eachLayer((layer) => {
+                        layer.remove()
+                    })
+                }
+            }
+
+            const data = []
+            $jobBoxes.map(function (i, e) {
+                const $el = $(e)
+                data.push($el.data())
+            })
+
+            if (!map) {
+                let zoom = $map.data('zoom') || 14
+                if (!data.length) {
+                    zoom = $map.data('zoom-empty') || 12
+                }
+                map = L.map($map[0], {
+                    zoomControl: true,
+                    scrollWheelZoom: true,
+                    dragging: true,
+                    maxZoom: $map.data('max-zoom') || 20,
+                }).setView(center, zoom)
+            }
+
+            L.tileLayer(
+                $map.data('tile-layer')
+                    ? $map.data('tile-layer')
+                    : 'https://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}'
+            ).addTo(map)
+
+            let markers = new L.MarkerClusterGroup()
+            let markersList = []
+
+            data.forEach((item) => {
+                if (item.latitude && item.longitude) {
+                    const divIcon = L.divIcon({
+                        className: 'boxmarker',
+                        iconSize: L.point(50, 20),
+                        html: item.map_icon,
+                    })
+
+                    let popup = $templatePopup.interpolate({ item })
+
+                    let m = new L.Marker(new L.LatLng(item.latitude, item.longitude), { icon: divIcon })
+                        .bindPopup(popup)
+                        .addTo(map)
+                    markersList.push(m)
+                    markers.addLayer(m)
+
+                    map.flyToBounds(L.latLngBounds(markersList.map((marker) => marker.getLatLng())))
+                }
+            })
+
+            map.addLayer(markers)
+
+            $map.addClass('active')
+            window.jobBoardMaps[uid] = map
+        }
+
+        if ($('.jobs-list-sidebar').length) {
+            if ($('.jobs-list-sidebar').is(':visible')) {
+                JobBoardApp.initMaps($('.jobs-list-sidebar').find('.jobs-list-map'))
+            }
+
+            $(window).on('resize', function () {
+                if ($('.jobs-list-sidebar').is(':visible')) {
+                    JobBoardApp.initMaps($('.jobs-list-sidebar').find('.jobs-list-map'))
+                }
+            })
+        }
+
+        JobBoardApp.setCookie = function (cname, cvalue, exdays) {
+            let d = new Date()
+            let siteUrl = window.siteUrl
+
+            if (!siteUrl.includes(window.location.protocol)) {
+                siteUrl = window.location.protocol + siteUrl
+            }
+
+            let url = new URL(siteUrl)
+            d.setTime(d.getTime() + exdays * 24 * 60 * 60 * 1000)
+            let expires = 'expires=' + d.toUTCString()
+            document.cookie = cname + '=' + cvalue + '; ' + expires + '; path=/' + '; domain=' + url.hostname
+        }
+
+        JobBoardApp.executeMap = () => {
+            const $map = $('.jobs-list-sidebar').find('.jobs-list-map')
+
+            if ($map.length) {
+                JobBoardApp.initMaps($map)
+                JobBoardApp.setCookie('show_map_on_jobs_page', 1, 60)
+            }
+        }
+
+        $('#offcanvas-jobs-map')
+            .on('show.bs.offcanvas', function (e) {
+                $('[data-bs-target="#offcanvas-jobs-map"]').addClass('active')
+                const $this = $(e.currentTarget)
+                const $map = $this.find('.jobs-list-map')
+                if (!$map.hasClass('active')) {
+                    JobBoardApp.initMaps($map)
+                }
+            })
+            .on('hide.bs.offcanvas', function () {
+                $('[data-bs-target="#offcanvas-jobs-map"]').removeClass('active')
+            })
+    })
+
+    $(document).on('click', '.review-pagination a', function (e) {
+        e.preventDefault()
+        let page = $(this).attr('href').split('page=')[1]
+        reloadReviewList(page)
+    })
+
+    $(document).on('click', '.layout-job', function (e) {
+        e.preventDefault()
+
+        $('#jobs-filter-form > input[name=layout]').val($(this).data('layout'))
+        $('#jobs-filter-form').submit()
+    })
+
+    $(document).on('click', '.per-page-item', function (e) {
+        e.preventDefault()
+        $('#jobs-filter-form input[name=per_page]').val($(this).data('perPage'))
+        $('#jobs-filter-form').submit()
+    })
+
+    $(document).on('click', '.dropdown-sort-by', function (e) {
+        e.preventDefault()
+
+        $('#jobs-filter-form input[name=sort_by]').val($(this).data('sortBy'))
+        $('#jobs-filter-form').submit()
+    })
+
+    $(document).on('click', '.row-filter .pagination-button', function (e) {
+        e.preventDefault()
+
+        $('#jobs-filter-form input[name=page]').val($(this).data('page'))
+        $('#jobs-filter-form').submit()
+
+        $('#form-page-categories input[name=page]').val($(this).data('page'))
+        $('#form-page-categories').submit()
+    })
+
+    let submitForm = (e, element = null) => {
+        let $this = ''
+
+        if (element) {
+            $this = element
+        } else if (e) {
+            $this = $(e.currentTarget)
+        }
+
+        let $form = $this.closest('form')
+        if (!$form.length && $this.prop('form')) {
+            $form = $($this.prop('form'))
+        }
+
+        if ($form.length) {
+            $form.trigger('submit')
+        }
+    }
+
+    let $applyNow = $('#ModalApplyJobForm')
+    $applyNow.on('show.bs.modal', function (e) {
+        const button = $(e.relatedTarget)
+        const jobName = button.data('job-name')
+        const jobId = button.data('job-id')
+
+        $applyNow.find('.modal-job-name').text(jobName)
+        $applyNow.find('.modal-job-id').val(jobId)
+    })
+
+    $applyNow.on('hide.bs.modal', function () {
+        $applyNow.find('.modal-job-name').text('')
+        $applyNow.find('.modal-job-id').val('')
+    })
+
+    let $applyExternalJob = $('#ModalApplyExternalJobForm')
+
+    $applyExternalJob.on('show.bs.modal', function (e) {
+        const button = $(e.relatedTarget)
+        const jobName = button.data('job-name')
+        const jobId = button.data('job-id')
+        const isMailto = button.data('apply-mailto') == 1
+
+        $applyExternalJob.find('.modal-job-name').text(jobName)
+        $applyExternalJob.find('.modal-job-id').val(jobId)
+
+        const $submitBtn = $applyExternalJob.find('button[type=submit]')
+        if (isMailto) {
+            $submitBtn.html('Apply via Email <i class="mdi mdi-email-outline"></i>')
+        } else {
+            $submitBtn.html('Go to Job Site <i class="mdi mdi-arrow-right"></i>')
+        }
+    })
+
+    $applyExternalJob.on('hide.bs.modal', function () {
+        $applyExternalJob.find('.modal-job-name').text('')
+        $applyExternalJob.find('.modal-job-id').val('')
+    })
+
+    $(document).on('submit', '.job-apply-form', function (e) {
+        e.preventDefault()
+
+        const $this = $(e.currentTarget)
+        const $submitButton = $this.find('button[type=submit]').first()
+        const isExternalApply = $this.find('input[name="job_type"]').val() === 'external'
+        const originalButtonHtml = $submitButton.html()
+        const loadingLabel = isExternalApply
+            ? 'Submitting Application...'
+            : 'Submitting...'
+
+        if ($this.data('isSubmitting')) {
+            return
+        }
+
+        $.ajax({
+            type: 'POST',
+            cache: false,
+            url: $this.prop('action'),
+            data: new FormData($this[0]),
+            contentType: false,
+            processData: false,
+            beforeSend: () => {
+                $this.data('keepLocked', false)
+                $this.data('isSubmitting', true)
+                $this.find('input, select, textarea, button').prop('disabled', true)
+                $submitButton
+                    .addClass('button-loading')
+                    .html(`${loadingLabel} <span class="spinner-border spinner-border-sm ms-2" role="status" aria-hidden="true"></span>`)
+            },
+            success: (res) => {
+                if (!res.error) {
+                    const redirectToTarget = () => {
+                        if (res.data && res.data.url) {
+                            if (res.data.url.startsWith('mailto:')) {
+                                window.location.href = res.data.url
+                            } else {
+                                window.location.replace(res.data.url)
+                            }
+                        } else {
+                            window.location.reload()
+                        }
+                    }
+
+                    if (res.data && res.data.boost_available && window.onApplyBoostAvailable) {
+                        window.onApplyBoostAvailable(res.data.application_id, res.data.credits)
+                    } else {
+                        $this.data('keepLocked', true)
+                        showApplySuccess(res.message, redirectToTarget)
+                    }
+                } else {
+                    showError(res.message)
+                }
+            },
+            error: (res) => {
+                showError(res.responseJSON?.message || 'Something went wrong.')
+            },
+            complete: () => {
+                if (typeof refreshRecaptcha !== 'undefined') {
+                    refreshRecaptcha()
+                }
+
+                if (!$this.data('isSubmitting')) {
+                    return
+                }
+
+                if ($this.data('keepLocked')) {
+                    return
+                }
+
+                $this.data('isSubmitting', false)
+                $this.find('input, select, textarea, button').prop('disabled', false)
+                $submitButton.prop('disabled', false).removeClass('button-loading').html(originalButtonHtml)
+            },
+        })
+    })
+
+    $('.job-of-the-day').on('click', '.category-item', function (e) {
+        e.preventDefault()
+        let url = $(this).data('url')
+
+        const $this = $(this)
+
+        $.ajax({
+            url: url,
+            type: 'GET',
+            data: {
+                style: $(this).data('style'),
+            },
+            dataType: 'json',
+            beforeSend: function () {
+                loading.show()
+            },
+            success: function (res) {
+                if (!res.error) {
+                    $('.job-of-the-day .category-item').removeClass('active')
+                    $this.addClass('active')
+                    $('.job-of-the-day-list').html(res.data)
+                }
+            },
+            error: function (res) {
+                if (res.statusText === 'abort') {
+                    return // ignore abort
+                }
+                handleError(res)
+            },
+            complete: function () {
+                setTimeout(function () {
+                    $('.loading-ring').hide()
+                }, 500)
+            },
+        })
+    })
+    let rating = $('select.jquery-bar-rating')
+    if (rating.length) {
+        rating.barrating({
+            theme: 'css-stars',
+        })
+    }
+
+    $(document).on('change', '#cover_image', function (event) {
+        const imagePreview = $('.cover_image_preview')
+        imagePreview.attr('src', URL.createObjectURL(event.target.files[0]))
+        imagePreview.show()
+    })
+
+    $(document)
+        .on('click', '.btn-advanced-filter', () => {
+            $(document).find('.sidebar-filter-mobile').addClass('active')
+        })
+        .on('click', '.sidebar-filter-mobile .backdrop, .close-sidebar-filter-mobile', () => {
+            $(document).find('.sidebar-filter-mobile').removeClass('active')
+        })
+
+    function updateUrlResetFilter() {
+        const $btnResetFilter = $('.filter-block').find('.link-reset')
+
+        if ($btnResetFilter.length) {
+            $btnResetFilter.attr('href', window.location.href.split('?')[0])
+        }
+    }
+
+    if (! $('.sidebar-filter-mobile').length && $('.btn-advanced-filter').length) {
+        $('.btn-advanced-filter').hide()
+    }
+
+    updateUrlResetFilter()
+})

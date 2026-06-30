@@ -9,6 +9,31 @@ $(document).ready(function () {
         window.showAlert('alert-success', window.alertTranslations.success,  message)
     }
 
+    const showApplySuccess = (message, onClose) => {
+        if (typeof Swal !== 'undefined' && Swal.fire) {
+            Swal.fire({
+                icon: 'success',
+                title: 'Application submitted',
+                text: message,
+                confirmButtonText: 'OK',
+                confirmButtonColor: '#3c65f5',
+                allowOutsideClick: false,
+            }).then(() => {
+                if (typeof onClose === 'function') {
+                    onClose()
+                }
+            })
+
+            return
+        }
+
+        showSuccess(message)
+
+        if (typeof onClose === 'function') {
+            onClose()
+        }
+    }
+
     Number.prototype.format_price = function (n, x) {
         let currencies = window.currencies || {}
         if (!n) {
@@ -902,7 +927,16 @@ $(document).ready(function () {
         e.preventDefault()
 
         const $this = $(e.currentTarget)
-        let _self = $this.find('button[type=submit]')
+        const $submitButton = $this.find('button[type=submit]').first()
+        const isExternalApply = $this.find('input[name="job_type"]').val() === 'external'
+        const originalButtonHtml = $submitButton.html()
+        const loadingLabel = isExternalApply
+            ? 'Submitting Application...'
+            : 'Submitting...'
+
+        if ($this.data('isSubmitting')) {
+            return
+        }
 
         $.ajax({
             type: 'POST',
@@ -912,40 +946,56 @@ $(document).ready(function () {
             contentType: false,
             processData: false,
             beforeSend: () => {
-                _self.prop('disabled', true).addClass('button-loading')
+                $this.data('keepLocked', false)
+                $this.data('isSubmitting', true)
+                $this.find('input, select, textarea, button').prop('disabled', true)
+                $submitButton
+                    .addClass('button-loading')
+                    .html(`${loadingLabel} <span class="spinner-border spinner-border-sm ms-2" role="status" aria-hidden="true"></span>`)
             },
             success: (res) => {
                 if (!res.error) {
-                    if (!res.data.url) {
-                        showSuccess(res.message)
+                    const redirectToTarget = () => {
+                        if (res.data && res.data.url) {
+                            if (res.data.url.startsWith('mailto:')) {
+                                window.location.href = res.data.url
+                            } else {
+                                window.location.replace(res.data.url)
+                            }
+                        } else {
+                            window.location.reload()
+                        }
                     }
+
                     if (res.data && res.data.boost_available && window.onApplyBoostAvailable) {
                         window.onApplyBoostAvailable(res.data.application_id, res.data.credits)
                     } else {
-                        setTimeout(function () {
-                            if (res.data && res.data.url) {
-                                if (res.data.url.startsWith('mailto:')) {
-                                    window.location.href = res.data.url
-                                } else {
-                                    window.location.replace(res.data.url)
-                                }
-                            } else {
-                                window.location.reload()
-                            }
-                        }, 1000)
+                        $this.data('keepLocked', true)
+                        showApplySuccess(res.message, redirectToTarget)
                     }
                 } else {
                     showError(res.message)
                 }
             },
             error: (res) => {
-                showError(res.responseJSON.message)
+                showError(res.responseJSON?.message || 'Something went wrong.')
             },
             complete: () => {
                 if (typeof refreshRecaptcha !== 'undefined') {
                     refreshRecaptcha()
                 }
-                _self.prop('disabled', false).removeClass('button-loading')
+
+                if (!$this.data('isSubmitting')) {
+                    return
+                }
+
+                if ($this.data('keepLocked')) {
+                    return
+                }
+
+                $this.data('isSubmitting', false)
+                $this.find('input, select, textarea, button').prop('disabled', false)
+                $submitButton.prop('disabled', false).removeClass('button-loading').html(originalButtonHtml)
             },
         })
     })

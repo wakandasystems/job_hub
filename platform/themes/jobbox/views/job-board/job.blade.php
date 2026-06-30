@@ -238,6 +238,36 @@
                             </div>
                         @endif
 
+                        <div class="col-md-6 d-flex mt-15">
+                            <div class="sidebar-icon-item">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+                                    <circle cx="9" cy="7" r="4"/>
+                                    <path d="M3 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/>
+                                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                                    <path d="M21 21v-2a4 4 0 0 0 -3 -3.85"/>
+                                </svg>
+                            </div>
+                            <div class="sidebar-text-info ml-10">
+                                <span class="text-description mb-10">{{ __('Applicants') }}</span>
+                                <strong class="small-heading">{{ number_format((int) ($job->applications_count ?? 0)) }}</strong>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 d-flex mt-15">
+                            <div class="sidebar-icon-item">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+                                    <path d="M2 12s3.5 -6 10 -6s10 6 10 6s-3.5 6 -10 6s-10 -6 -10 -6" />
+                                    <circle cx="12" cy="12" r="3" />
+                                </svg>
+                            </div>
+                            <div class="sidebar-text-info ml-10">
+                                <span class="text-description mb-10">{{ __('Views') }}</span>
+                                <strong class="small-heading">{{ number_format((int) $job->views) }}</strong>
+                            </div>
+                        </div>
+
                         @if($job->salary_from || $job->salary_to)
                             <div class="col-md-6 d-flex mt-15">
                                 <div class="sidebar-icon-item">

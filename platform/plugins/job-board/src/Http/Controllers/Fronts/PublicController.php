@@ -71,6 +71,7 @@ class PublicController extends BaseController
             'condition' => $condition,
             'take' => 1,
             'with' => [],
+            'withCount' => ['applicants as applications_count'],
         ]);
 
         if (! $job) {
@@ -296,6 +297,7 @@ class PublicController extends BaseController
                     'per_page' => $requestQuery['per_page'] ?? Arr::first(JobBoardHelper::getPerPageParams()),
                     'current_paged' => $requestQuery['page'] ?? 1,
                 ],
+                'withCount' => ['applicants as applications_count'],
             ],
         );
 
@@ -459,6 +461,9 @@ class PublicController extends BaseController
             }
 
             $account = null;
+            $externalApplyTarget = $job->apply_email
+                ? ('mailto:' . $job->apply_email . '?subject=' . rawurlencode(trim(strip_tags((string) $job->name)) . ' Application'))
+                : $job->apply_url;
 
             if (auth('account')->check()) {
                 /**
@@ -483,6 +488,23 @@ class PublicController extends BaseController
                             trans('plugins/job-board::messages.already_applied')
                         );
                 }
+            }
+
+            $applicantEmail = strtolower(trim((string) $request->input('email', '')));
+            $existingApplication = JobApplication::query()
+                ->where('job_id', $job->id)
+                ->when(
+                    $account,
+                    fn (Builder $query) => $query->where('account_id', $account->getKey()),
+                    fn (Builder $query) => $query->whereRaw('LOWER(email) = ?', [$applicantEmail])
+                )
+                ->exists();
+
+            if ($existingApplication) {
+                return $this
+                    ->httpResponse()
+                    ->setError()
+                    ->setMessage(trans('plugins/job-board::messages.already_applied'));
             }
 
             $jobApplication = new JobApplication();
@@ -524,7 +546,6 @@ class PublicController extends BaseController
             $jobApplication->save();
 
             try {
-                $applicantEmail = strtolower(trim((string) $request->input('email', '')));
                 if ($applicantEmail && filter_var($applicantEmail, FILTER_VALIDATE_EMAIL)) {
                     $applicantName = trim($request->input('first_name', '') . ' ' . $request->input('last_name', '')) ?: null;
                     Newsletter::firstOrCreate(
@@ -547,16 +568,14 @@ class PublicController extends BaseController
             }
 
             if (! $request->ajax()) {
-                return redirect()->to($job->apply_url);
+                return redirect()->to($externalApplyTarget);
             }
 
-            $message = $job->apply_url
-                ? trans('plugins/job-board::job-application.email.external_redirect')
-                : trans('plugins/job-board::job-application.email.success');
+            $message = trans('plugins/job-board::messages.application_submitted_successfully');
 
-            $responseData = ['url' => $job->apply_url];
+            $responseData = ['url' => $externalApplyTarget];
 
-            if (! $job->apply_url && $account && $account->credits > 0) {
+            if (! $externalApplyTarget && $account && $account->credits > 0) {
                 $responseData['boost_available'] = true;
                 $responseData['application_id']  = $jobApplication->getKey();
                 $responseData['credits']          = (int) $account->credits;
