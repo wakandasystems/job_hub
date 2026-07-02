@@ -138,7 +138,18 @@
                                                 @click="openPreview(sampleFor({{ $campaign->getKey() }}).image_url, sampleFor({{ $campaign->getKey() }}).download_url, @js($campaign->name))"
                                                 title="Preview sample image"
                                             >
-                                                <img :src="sampleFor({{ $campaign->getKey() }}).image_url" alt="{{ $campaign->name }}" class="rounded" style="width:58px;height:58px;object-fit:cover;">
+                                                <img
+                                                    :src="sampleFor({{ $campaign->getKey() }}).thumb_url || sampleFor({{ $campaign->getKey() }}).image_url"
+                                                    :data-full-src="sampleFor({{ $campaign->getKey() }}).image_url"
+                                                    alt="{{ $campaign->name }}"
+                                                    class="rounded"
+                                                    width="58"
+                                                    height="58"
+                                                    loading="lazy"
+                                                    decoding="async"
+                                                    fetchpriority="low"
+                                                    style="width:58px;height:58px;object-fit:cover;"
+                                                >
                                             </button>
 
                                             <span
@@ -170,11 +181,22 @@
                                                     class="btn p-0 border"
                                                     data-bs-toggle="modal"
                                                     data-bs-target="#campaignImagePreviewModal"
-                                                    @click="openPreview(@js($sampleImage->imageUrl()), @js(route('sales-agents.marketing-images.download', [$sampleImage->sales_agent_id, $sampleImage->getKey()])), @js($campaign->name))"
-                                                    title="Preview sample image"
+                                                @click="openPreview(@js($sampleImage->imageUrl()), @js(route('sales-agents.marketing-images.download', [$sampleImage->sales_agent_id, $sampleImage->getKey()])), @js($campaign->name))"
+                                                title="Preview sample image"
+                                            >
+                                                <img
+                                                    src="{{ $sampleImage->thumbnailUrl() ?: $sampleImage->imageUrl() }}"
+                                                    data-full-src="{{ $sampleImage->imageUrl() }}"
+                                                    alt="{{ $campaign->name }}"
+                                                    class="rounded"
+                                                    width="58"
+                                                    height="58"
+                                                    loading="lazy"
+                                                    decoding="async"
+                                                    fetchpriority="low"
+                                                    style="width:58px;height:58px;object-fit:cover;"
                                                 >
-                                                    <img src="{{ $sampleImage->imageUrl() }}" alt="{{ $campaign->name }}" class="rounded" style="width:58px;height:58px;object-fit:cover;">
-                                                </button>
+                                            </button>
                                             @else
                                                 <span v-else class="d-inline-flex align-items-center justify-content-center rounded border bg-light text-muted" style="width:58px;height:58px;">
                                                     <x-core::icon name="ti ti-photo" />
@@ -184,7 +206,7 @@
                                         <td>{{ $campaign->name }}</td>
                                         <td>{{ $campaign->resolvedProductLabel() }}</td>
                                         <td>{{ str_replace('_', ' ', $campaign->aspect_ratio) }}</td>
-                                        <td>{{ $campaign->promo_price ?: '—' }}</td>
+                                        <td>{{ $campaign->resolvedPricingSummary() ?: '—' }}</td>
                                         <td>{{ $campaign->promo_end_date?->format('Y-m-d') ?: '—' }}</td>
                                         <td>{{ number_format($campaign->clicks_count ?? 0) }}</td>
                                         <td>
@@ -329,7 +351,7 @@
                             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                         </div>
                         <div class="modal-body bg-light overflow-auto text-center" style="max-height:78vh;">
-                            <img :src="preview.src" alt="" :style="{ maxWidth: '100%', transformOrigin: 'top center', transition: 'transform .15s ease', transform: 'scale(' + preview.zoom + ')' }">
+                            <img :src="preview.src" alt="" loading="eager" decoding="async" :style="{ maxWidth: '100%', transformOrigin: 'top center', transition: 'transform .15s ease', transform: 'scale(' + preview.zoom + ')' }">
                         </div>
                     </div>
                 </div>

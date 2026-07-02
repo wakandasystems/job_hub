@@ -5520,6 +5520,12 @@ class JobCrawlerRunner
                 continue;
             }
 
+            if ($this->isZambiaJobAlertsCandidatePost($item)) {
+                $stats['jobs_skipped']++;
+                $this->saveNewImportProgress($index + 1, $newTotal, $stats);
+                continue;
+            }
+
             $company = $this->firstOrCreateZambiaJobAlertsCompany($item);
             if (! $company) {
                 $stats['jobs_skipped']++;
@@ -5540,6 +5546,36 @@ class JobCrawlerRunner
         }
 
         return $stats;
+    }
+
+    /**
+     * Zambia Job Alerts mixes candidate self-promo classifieds into the same feed as employer
+     * vacancies. Those should never be imported as employer jobs.
+     */
+    protected function isZambiaJobAlertsCandidatePost(array $item): bool
+    {
+        $title = Str::lower(trim((string) ($item['title'] ?? '')));
+        $company = Str::lower(trim((string) ($item['company'] ?? '')));
+        $location = Str::lower(trim((string) ($item['location'] ?? '')));
+        $content = Str::lower(trim(strip_tags((string) ($item['content'] ?? ''))));
+        $description = Str::lower(trim(strip_tags((string) ($item['description'] ?? ''))));
+        $text = trim(implode(' ', array_filter([$title, $description, $content, $location])));
+
+        if ($text === '') {
+            return false;
+        }
+
+        $hasSelfPromoLanguage = preg_match(
+            '/\b(job seeker|looking for a job|looking for work|am looking for work|am looking for a job|i am seeking|i am looking for|your help will be appreciated|cv.*provided upon request|thank you for your consideration)\b/i',
+            $text
+        ) === 1;
+
+        $hasPhoneNumber = preg_match('/\b(?:\+?260|0)\d{9}\b/', $text) === 1;
+        $hasPlaceholderCompany = in_array($company, ['non', 'none', 'n/a', 'na', 'nil'], true);
+        $hasGenericTitle = in_array($title, ['full time', 'part time', 'contract', 'internship', 'job'], true);
+
+        return ($hasSelfPromoLanguage && ($hasPlaceholderCompany || $hasPhoneNumber || $hasGenericTitle))
+            || ($hasPlaceholderCompany && ($hasPhoneNumber || $hasGenericTitle));
     }
 
     protected function firstOrCreateZambiaJobAlertsCompany(array $item): ?Company

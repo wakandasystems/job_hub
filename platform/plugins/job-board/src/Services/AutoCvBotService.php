@@ -4804,6 +4804,31 @@ PROMPT;
         return $this->contactFieldExplicitlyDeclined($session, $field);
     }
 
+    private function unresolvedContactFields(AutoCvSession $session, array $cv): array
+    {
+        $orderedFields = ['whatsapp', 'phone', 'email', 'location', 'address', 'age', 'marital_status', 'linkedin'];
+
+        return array_values(array_filter(
+            $orderedFields,
+            fn (string $field) => ! $this->contactFieldIsResolved($session, $cv, $field)
+        ));
+    }
+
+    private function contactFieldLabel(string $field): string
+    {
+        return match ($field) {
+            'whatsapp' => 'WhatsApp number',
+            'phone' => 'call number',
+            'email' => 'email address',
+            'location' => 'town or city',
+            'address' => 'residential area',
+            'age' => 'age',
+            'marital_status' => 'marital status',
+            'linkedin' => 'LinkedIn',
+            default => str_replace('_', ' ', $field),
+        };
+    }
+
     private function contactFieldExplicitlyDeclined(AutoCvSession $session, string $field): bool
     {
         if (! in_array($field, ['email', 'address', 'age', 'marital_status', 'linkedin'], true)) {
@@ -5060,6 +5085,7 @@ PROMPT;
             }
         }
 
+        $scores = $this->enforceMandatoryContactTopic($scores, $cv, $session);
         $scores = $this->enforceMandatoryLanguagesTopic($scores, $cv, $session);
         $scores = $this->enforceClosedAdditionalTopics($scores, $session);
 
@@ -5141,10 +5167,43 @@ PROMPT;
             }
         }
 
+        $unresolved = $session ? $this->unresolvedContactFields($session, $cv) : [];
+
+        if ($unresolved !== []) {
+            $score = min($score, 85);
+        }
+
         return [
             'score' => min(100, $score),
-            'improve' => $score >= 90 ? '' : 'Add any missing contact details still worth including.',
+            'improve' => $score >= 90
+                ? ''
+                : ($unresolved !== []
+                    ? 'Still needed: ' . implode(', ', array_map(fn (string $field) => $this->contactFieldLabel($field), $unresolved)) . '.'
+                    : 'Add any missing contact details still worth including.'),
         ];
+    }
+
+    private function enforceMandatoryContactTopic(array $sectionScores, array $structuredCv, AutoCvSession $session): array
+    {
+        $topicKey = '2';
+
+        if (! isset($sectionScores[$topicKey])) {
+            return $sectionScores;
+        }
+
+        $unresolved = $this->unresolvedContactFields($session, $structuredCv);
+
+        if ($unresolved === []) {
+            return $sectionScores;
+        }
+
+        $sectionScores[$topicKey]['score'] = min(85, (int) ($sectionScores[$topicKey]['score'] ?? 0));
+        $sectionScores[$topicKey]['improve'] = 'Still needed: ' . implode(', ', array_map(
+            fn (string $field) => $this->contactFieldLabel($field),
+            $unresolved
+        )) . '.';
+
+        return $sectionScores;
     }
 
     private function scoreCollectionSection($rows, callable $rowScorer, string $emptyImprove): array

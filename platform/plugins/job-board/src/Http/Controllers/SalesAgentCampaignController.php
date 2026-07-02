@@ -34,7 +34,7 @@ class SalesAgentCampaignController extends BaseController
             ->add('Marketing Campaigns', route('sales-agent-campaigns.index'));
     }
 
-    public function index()
+    public function index(OpenAiImageService $imageService)
     {
         Assets::usingVueJS();
 
@@ -46,6 +46,12 @@ class SalesAgentCampaignController extends BaseController
             ->orderByDesc('is_active')
             ->latest()
             ->paginate(20);
+
+        $campaigns->getCollection()->each(function (SalesAgentCampaign $campaign) use ($imageService): void {
+            if ($campaign->latestMarketingImage) {
+                $this->ensureMarketingImageVariants($campaign->latestMarketingImage, $imageService);
+            }
+        });
 
         $nakiaImageUrl = $this->settingImageUrl('sales_agent_nakia_image') ?: $this->settingImageUrl('auto_cv_bot_persona_image');
         $logoImageUrl = $this->settingImageUrl('sales_agent_logo_image');
@@ -536,6 +542,7 @@ class SalesAgentCampaignController extends BaseController
         SalesAgentCampaign $campaign
     ): array {
         $imageUrl = $image->status === 'completed' ? $image->imageUrl() : null;
+        $variants = $image->status === 'completed' ? $image->imageVariantUrls() : [];
 
         return [
             'campaign_id' => $campaign->getKey(),
@@ -545,17 +552,42 @@ class SalesAgentCampaignController extends BaseController
             'subject_label' => SalesAgentMarketingImage::subjectModes()[$image->subject_mode] ?? $image->subject_mode,
             'error_message' => $image->error_message,
             'image_url' => $imageUrl,
+            'thumb_url' => $variants['thumb'] ?? $imageUrl,
+            'image_lqip' => $variants['lqip'] ?? null,
             'download_url' => $imageUrl ? route('sales-agents.marketing-images.download', [$image->sales_agent_id, $image->getKey()]) : null,
             'status_url' => route('sales-agent-campaigns.sample-status', [$campaign->getKey(), $image->getKey()]),
         ];
     }
 
+    private function ensureMarketingImageVariants(SalesAgentMarketingImage $image, OpenAiImageService $imageService): void
+    {
+        if ($image->status !== 'completed' || ! $image->image_path || ! Storage::disk('public')->exists($image->image_path)) {
+            return;
+        }
+
+        $variants = $image->imageVariantUrls();
+
+        if ($variants['thumb'] && $variants['webp'] && $variants['lqip'] && ($variants['avif'] || ! function_exists('imageavif'))) {
+            return;
+        }
+
+        $generated = $imageService->generateVariants($image->image_path);
+
+        if (! empty($generated['lqip']) && $image->lqipSidecarPath()) {
+            Storage::disk('public')->put($image->lqipSidecarPath(), $generated['lqip']);
+        }
+    }
+
     private function validatedData(Request $request, ?SalesAgentCampaign $campaign = null): array
     {
+        $autoApplyPlanKeys = array_keys(\Botble\JobBoard\Models\AutoApplyOrder::plans());
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:150'],
             'product_type' => ['required', 'in:' . implode(',', array_keys(SalesAgentCampaign::productTypeOptions()))],
             'product_label' => ['nullable', 'string', 'max:120'],
+            'auto_apply_plan_keys' => ['nullable', 'array'],
+            'auto_apply_plan_keys.*' => ['string', Rule::in($autoApplyPlanKeys)],
             'landing_headline' => ['nullable', 'string', 'max:190'],
             'landing_body' => ['nullable', 'string', 'max:5000'],
             'landing_cta_text' => ['nullable', 'string', 'max:120'],
@@ -567,6 +599,7 @@ class SalesAgentCampaignController extends BaseController
             'aspect_ratio' => ['required', 'in:portrait_4_5,square_1_1,landscape_16_9'],
             'promo_price' => ['nullable', 'string', 'max:30'],
             'promo_original_price' => ['nullable', 'string', 'max:30'],
+            'promo_discount_percent' => ['nullable', 'integer', 'min:0', 'max:100'],
             'promo_end_date' => ['nullable', 'date_format:' . BaseHelper::getDateFormat()],
         ], [
             'promo_end_date.date_format' => 'The promo end date must be a valid date in ' . BaseHelper::getDateFormat() . ' format.',
@@ -574,6 +607,12 @@ class SalesAgentCampaignController extends BaseController
 
         $data['promo_end_date'] = BaseHelper::parseDate($data['promo_end_date'] ?? null)?->toDateString();
         $data['product_label'] = trim((string) ($data['product_label'] ?? '')) ?: null;
+        $data['auto_apply_plan_keys'] = collect((array) ($data['auto_apply_plan_keys'] ?? []))
+            ->map(fn ($key) => trim((string) $key))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
         $data['landing_headline'] = trim((string) ($data['landing_headline'] ?? '')) ?: null;
         $data['landing_body'] = trim((string) ($data['landing_body'] ?? '')) ?: null;
         $data['landing_cta_text'] = trim((string) ($data['landing_cta_text'] ?? '')) ?: null;
@@ -582,6 +621,7 @@ class SalesAgentCampaignController extends BaseController
         $data['reconstruction_layout'] = $this->decodeReconstructionLayout($data['reconstruction_layout'] ?? null);
         $data['promo_price'] = trim((string) ($data['promo_price'] ?? '')) ?: null;
         $data['promo_original_price'] = trim((string) ($data['promo_original_price'] ?? '')) ?: null;
+        $data['promo_discount_percent'] = max(0, min(100, (int) ($data['promo_discount_percent'] ?? 0)));
         $data['inspiration_images'] = $campaign?->inspirationImages() ?? [];
 
         if ($request->boolean('remove_inspiration_image')) {
@@ -602,11 +642,27 @@ class SalesAgentCampaignController extends BaseController
             }
         }
 
-        $isPromo = filled($data['promo_price']) && filled($data['promo_original_price']) && filled($data['promo_end_date']);
-
-        if (! $isPromo) {
+        if (($data['product_type'] ?? null) === 'auto_apply') {
+            $data['promo_price'] = null;
             $data['promo_original_price'] = null;
             $data['promo_end_date'] = null;
+        } else {
+            $data['auto_apply_plan_keys'] = [];
+            $data['promo_discount_percent'] = 0;
+            $isPromo = filled($data['promo_price']) && filled($data['promo_original_price']) && filled($data['promo_end_date']);
+
+            if (! $isPromo) {
+                $data['promo_original_price'] = null;
+                $data['promo_end_date'] = null;
+            }
+        }
+
+        if (! Schema::hasColumn('jb_sales_agent_campaigns', 'auto_apply_plan_keys')) {
+            unset($data['auto_apply_plan_keys']);
+        }
+
+        if (! Schema::hasColumn('jb_sales_agent_campaigns', 'promo_discount_percent')) {
+            unset($data['promo_discount_percent']);
         }
 
         $data['is_active'] = $request->boolean('is_active');

@@ -49,6 +49,104 @@ class SalesAgentMarketingImage extends BaseModel
         return $this->image_path ? Storage::disk('public')->url($this->image_path) : null;
     }
 
+    public function thumbnailPath(string $extension = 'webp'): ?string
+    {
+        if (! $this->image_path) {
+            return null;
+        }
+
+        $folder = pathinfo($this->image_path, PATHINFO_DIRNAME);
+        $basename = pathinfo($this->image_path, PATHINFO_FILENAME);
+
+        return ($folder !== '.' ? $folder . '/' : '') . $basename . '.thumb.' . ltrim(strtolower($extension), '.');
+    }
+
+    public function thumbnailUrl(): ?string
+    {
+        foreach (['webp', 'png', 'jpg', 'jpeg'] as $extension) {
+            $path = $this->thumbnailPath($extension);
+
+            if ($path && Storage::disk('public')->exists($path)) {
+                return Storage::disk('public')->url($path);
+            }
+        }
+
+        return null;
+    }
+
+    public function variantPath(string $extension): ?string
+    {
+        if (! $this->image_path) {
+            return null;
+        }
+
+        $folder = pathinfo($this->image_path, PATHINFO_DIRNAME);
+        $basename = pathinfo($this->image_path, PATHINFO_FILENAME);
+
+        return ($folder !== '.' ? $folder . '/' : '') . $basename . '.' . ltrim(strtolower($extension), '.');
+    }
+
+    public function variantUrl(string $extension): ?string
+    {
+        $path = $this->variantPath($extension);
+
+        if (! $path || ! Storage::disk('public')->exists($path)) {
+            return null;
+        }
+
+        return Storage::disk('public')->url($path);
+    }
+
+    public function lqipSidecarPath(): ?string
+    {
+        if (! $this->image_path) {
+            return null;
+        }
+
+        $folder = pathinfo($this->image_path, PATHINFO_DIRNAME);
+        $basename = pathinfo($this->image_path, PATHINFO_FILENAME);
+
+        return ($folder !== '.' ? $folder . '/' : '') . $basename . '.lqip.txt';
+    }
+
+    public function lqipDataUri(): ?string
+    {
+        $path = $this->lqipSidecarPath();
+
+        if (! $path || ! Storage::disk('public')->exists($path)) {
+            return null;
+        }
+
+        $contents = trim((string) Storage::disk('public')->get($path));
+
+        return str_starts_with($contents, 'data:image/') ? $contents : null;
+    }
+
+    public function imageVariantUrls(): array
+    {
+        return [
+            'original' => $this->imageUrl(),
+            'thumb' => $this->thumbnailUrl(),
+            'webp' => $this->variantUrl('webp'),
+            'avif' => $this->variantUrl('avif'),
+            'lqip' => $this->lqipDataUri(),
+        ];
+    }
+
+    public function filesForCleanup(): array
+    {
+        return array_values(array_filter([
+            $this->image_path,
+            $this->thumbnailPath('webp'),
+            $this->thumbnailPath('png'),
+            $this->thumbnailPath('jpg'),
+            $this->thumbnailPath('jpeg'),
+            $this->variantPath('webp'),
+            $this->variantPath('avif'),
+            $this->lqipSidecarPath(),
+        ]));
+    }
+
     public function generationMeta(): ?string
     {
         $parts = [];

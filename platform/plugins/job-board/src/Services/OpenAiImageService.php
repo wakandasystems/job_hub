@@ -249,6 +249,8 @@ Your goals:
 {landing_body}
 {cta}
 {price_line}
+{auto_apply_plan_summary}
+{auto_apply_plan_cards}
 {promo_deadline_line}
 {promo_badge}
 {headline_zone}
@@ -844,6 +846,19 @@ TEXT,
     private function buildSalesAgentPrompt(SalesAgent $agent, SalesAgentCampaign $campaign, string $subjectMode): string
     {
         $campaignPrompt = $campaign->replacePromptPlaceholders($campaign->prompt_template, $agent);
+        $autoApplyPlanInstruction = null;
+
+        if ($campaign->usesAutoApplyPlanPricing() && $campaign->resolvedAutoApplyPlans() !== []) {
+            $autoApplyPlanInstruction = trim(implode("\n", [
+                'FINAL AUTO APPLY PLAN OVERRIDE: this takes precedence over any conflicting earlier price wording inside the campaign template.',
+                'The selected Auto Apply plans below are the source of truth for every pricing card, duration label, amount, currency, and badge shown in the poster.',
+                'Do not collapse multiple plans into one generic amount. Do not invent "/MONTH", "/WEEK", or any other period unless that exact selected plan label or duration supports it. Preserve each selected plan as its own pricing item inside the main offer/pricing zone.',
+                'If a plan has a badge, show that badge text exactly. If a plan has no badge, do not invent one.',
+                'Selected plans:',
+                $campaign->autoApplyPlanCards(),
+            ]));
+        }
+
         $inspirationInstruction = $campaign->inspirationImages() !== []
             ? "STRICT EDIT-IN-PLACE MODE: the first attached image is the source poster to edit directly, and the mask marks the only regions that may change. Preserve every non-masked pixel as faithfully as possible. Keep the original composition, palette, gradients, textures, shadows, background treatment, spacing, typography mood, visual hierarchy, and poster structure intact. This is a reconstruction task, not a redesign.
 
@@ -867,6 +882,7 @@ LAYOUT RULES: Keep the same left/right or top/bottom balance, same spacing densi
             "Use the attached Wakanda Jobs logo references as brand elements only. Keep the text fully legible, premium, modern, and WhatsApp-shareable.",
             $inspirationInstruction,
             $campaignPrompt,
+            $autoApplyPlanInstruction,
             "MASK DISCIPLINE RULE: only regenerate the masked regions for subject/text/logo replacement. Every unmasked area must remain visually equivalent to the source poster, including exact palette family, lighting treatment, effects, edge styling, and decorative elements.",
             "TEXT REPLACEMENT RULE: do not preserve any foreign readable text from the inspiration image. Rebuild the same text containers and hierarchy, but leave them clean and style-consistent for deterministic final text compositing.",
             "IDENTITY RULE: this is not a loose inspiration task. This is a poster recreation task where the design language, art direction, and text layout are preserved, while only the subject, logo/brand, and text content are swapped to Wakanda Jobs campaign content.",
@@ -1862,6 +1878,12 @@ LAYOUT RULES: Keep the same left/right or top/bottom balance, same spacing densi
         $variants = [];
 
         try {
+            $thumbExtension = function_exists('imagewebp') ? 'webp' : 'png';
+            $thumbPath = $this->withVariantSuffix($path, 'thumb', $thumbExtension);
+            if ($this->encodeThumbnail($image, $thumbExtension, $thumbPath, $disk, 160)) {
+                $variants['thumb'] = $thumbPath;
+            }
+
             if ($sourceFormat === 'webp') {
                 // Already WebP — reuse as-is rather than spend CPU re-encoding an identical copy.
                 $variants['webp'] = $path;
@@ -1909,6 +1931,14 @@ LAYOUT RULES: Keep the same left/right or top/bottom balance, same spacing densi
         return ($folder !== '.' ? $folder . '/' : '') . $basename . '.' . $extension;
     }
 
+    private function withVariantSuffix(string $path, string $suffix, string $extension): string
+    {
+        $folder = pathinfo($path, PATHINFO_DIRNAME);
+        $basename = pathinfo($path, PATHINFO_FILENAME);
+
+        return ($folder !== '.' ? $folder . '/' : '') . $basename . '.' . $suffix . '.' . $extension;
+    }
+
     private function encodeAndStore(\GdImage $image, string $format, string $path, $disk): bool
     {
         $quality = max(0, min(100, 100 - $this->outputCompression()));
@@ -1928,6 +1958,48 @@ LAYOUT RULES: Keep the same left/right or top/bottom balance, same spacing densi
         $disk->put($path, $data);
 
         return true;
+    }
+
+    private function encodeThumbnail(\GdImage $source, string $format, string $path, $disk, int $maxDimension = 160): bool
+    {
+        $sourceWidth = imagesx($source);
+        $sourceHeight = imagesy($source);
+
+        if ($sourceWidth <= 0 || $sourceHeight <= 0) {
+            return false;
+        }
+
+        $scale = min($maxDimension / $sourceWidth, $maxDimension / $sourceHeight, 1);
+        $targetWidth = max(1, (int) round($sourceWidth * $scale));
+        $targetHeight = max(1, (int) round($sourceHeight * $scale));
+        $thumb = imagescale($source, $targetWidth, $targetHeight);
+
+        if (! $thumb) {
+            return false;
+        }
+
+        imagealphablending($thumb, true);
+        imagesavealpha($thumb, true);
+
+        try {
+            if ($format === 'png') {
+                ob_start();
+                $written = imagepng($thumb);
+                $data = ob_get_clean();
+
+                if (! $written || ! is_string($data) || $data === '') {
+                    return false;
+                }
+
+                $disk->put($path, $data);
+
+                return true;
+            }
+
+            return $this->encodeAndStore($thumb, $format, $path, $disk);
+        } finally {
+            imagedestroy($thumb);
+        }
     }
 
     private function buildLqip(\GdImage $source): ?string
