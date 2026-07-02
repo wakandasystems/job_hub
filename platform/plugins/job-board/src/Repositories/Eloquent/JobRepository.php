@@ -26,6 +26,7 @@ class JobRepository extends RepositoriesAbstract implements JobInterface
             'job_categories' => [],
             'job_tags' => [],
             'job_types' => [],
+            'employment_type' => null,
             'job_experiences' => [],
             'job_skills' => [],
             'offered_salary_from' => null,

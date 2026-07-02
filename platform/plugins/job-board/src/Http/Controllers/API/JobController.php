@@ -28,50 +28,8 @@ class JobController extends BaseController
      */
     public function index(Request $request)
     {
-        $with = [
-            'slugable',
-            'company',
-            'company.slugable',
-            'company.accounts',
-            'jobTypes',
-            'categories',
-            'tags',
-            'skills',
-            'currency',
-        ];
-
-        if (is_plugin_active('location')) {
-            $with = array_merge($with, [
-                'state',
-                'city',
-                'company.country',
-                'company.state',
-                'company.city',
-            ]);
-        }
-
-        $filters = [
-            'keyword' => $request->input('keyword'),
-            'company_id' => $request->input('company_id'),
-            'job_categories' => $request->input('categories', []),
-            'job_types' => $request->input('job_types', []),
-            'job_experiences' => $request->input('job_experiences', []),
-            'job_skills' => $request->input('job_skills', []),
-            'offered_salary_from' => $request->input('salary_from'),
-            'offered_salary_to' => $request->input('salary_to'),
-            'date_posted' => $request->input('date_posted'),
-            'city_id' => $request->input('city_id'),
-            'state_id' => $request->input('state_id'),
-            'location' => $request->input('location'),
-        ];
-
-        $params = [
-            'paginate' => [
-                'per_page' => min($request->integer('per_page', 12), 50),
-                'current_paged' => $request->integer('page', 1),
-            ],
-            'with' => $with,
-        ];
+        $filters = $this->buildFilters($request);
+        $params = $this->buildListParams($request, $this->buildWithRelations(true));
 
         $jobs = $this->jobRepository->getJobs($filters, $params);
 
@@ -132,21 +90,20 @@ class JobController extends BaseController
 
     public function featured(Request $request)
     {
-        $with = [
-            'slugable',
-            'company',
-            'company.slugable',
-            'jobTypes',
-            'categories',
-            'currency',
-        ];
-
-        if (is_plugin_active('location')) {
-            $with = array_merge($with, ['state', 'city']);
-        }
-
-        $limit = min($request->integer('limit', 10), 50);
-        $jobs = $this->jobRepository->getFeaturedJobs($limit, $with);
+        $jobs = $this->jobRepository->getJobs(
+            $this->buildFilters($request),
+            $this->buildSectionParams(
+                $request,
+                $this->buildWithRelations(),
+                [
+                    'is_featured' => 'DESC',
+                    'created_at' => 'DESC',
+                ],
+                [
+                    'is_featured' => true,
+                ],
+            ),
+        );
 
         return $this
             ->httpResponse()
@@ -156,21 +113,17 @@ class JobController extends BaseController
 
     public function recent(Request $request)
     {
-        $with = [
-            'slugable',
-            'company',
-            'company.slugable',
-            'jobTypes',
-            'categories',
-            'currency',
-        ];
-
-        if (is_plugin_active('location')) {
-            $with = array_merge($with, ['state', 'city']);
-        }
-
-        $limit = min($request->integer('limit', 10), 50);
-        $jobs = $this->jobRepository->getRecentJobs($limit, $with);
+        $jobs = $this->jobRepository->getJobs(
+            $this->buildFilters($request),
+            $this->buildSectionParams(
+                $request,
+                $this->buildWithRelations(),
+                [
+                    'is_featured' => 'DESC',
+                    'created_at' => 'DESC',
+                ],
+            ),
+        );
 
         return $this
             ->httpResponse()
@@ -180,26 +133,126 @@ class JobController extends BaseController
 
     public function popular(Request $request)
     {
+        $jobs = $this->jobRepository->getJobs(
+            $this->buildFilters($request),
+            $this->buildSectionParams(
+                $request,
+                $this->buildWithRelations(),
+                [
+                    'views' => 'DESC',
+                    'is_featured' => 'DESC',
+                    'created_at' => 'DESC',
+                ],
+            ),
+        );
+
+        return $this
+            ->httpResponse()
+            ->setData(JobResource::collection($jobs))
+            ->toApiResponse();
+    }
+
+
+    protected function buildWithRelations(bool $includeCompanyAccounts = false): array
+    {
         $with = [
             'slugable',
             'company',
             'company.slugable',
             'jobTypes',
             'categories',
+            'tags',
+            'skills',
             'currency',
         ];
 
-        if (is_plugin_active('location')) {
-            $with = array_merge($with, ['state', 'city']);
+        if ($includeCompanyAccounts) {
+            $with[] = 'company.accounts';
         }
 
-        $limit = min($request->integer('limit', 10), 50);
-        $jobs = $this->jobRepository->getPopularJobs($limit, $with);
+        if (is_plugin_active('location')) {
+            $with = array_merge($with, [
+                'state',
+                'city',
+                'company.country',
+                'company.state',
+                'company.city',
+            ]);
+        }
 
-        return $this
-            ->httpResponse()
-            ->setData(JobResource::collection($jobs))
-            ->toApiResponse();
+        return $with;
+    }
+
+    protected function buildFilters(Request $request): array
+    {
+        return [
+            'keyword' => $request->input('keyword'),
+            'company_id' => $request->input('company_id'),
+            'country_id' => $request->input('country_id'),
+            'job_categories' => $request->input('categories', []),
+            'job_types' => $request->input('job_types', []),
+            'employment_type' => $request->input('employment_type'),
+            'job_experiences' => $request->input('job_experiences', []),
+            'job_skills' => $request->input('job_skills', []),
+            'offered_salary_from' => $request->input('salary_from'),
+            'offered_salary_to' => $request->input('salary_to'),
+            'date_posted' => $request->input('date_posted'),
+            'city_id' => $request->input('city_id'),
+            'state_id' => $request->input('state_id'),
+            'location' => $request->input('location'),
+        ];
+    }
+
+    protected function buildListParams(Request $request, array $with, array $overrides = []): array
+    {
+        $params = [
+            'paginate' => [
+                'per_page' => min($request->integer('per_page', 12), 50),
+                'current_paged' => $request->integer('page', 1),
+            ],
+            'with' => $with,
+            'order_by' => $this->resolveSortBy($request->input('sort_by')),
+        ];
+
+        return array_replace_recursive($params, $overrides);
+    }
+
+    protected function buildSectionParams(
+        Request $request,
+        array $with,
+        array $defaultOrderBy,
+        array $conditions = [],
+    ): array {
+        return [
+            'condition' => $conditions,
+            'order_by' => $this->resolveSortBy($request->input('sort_by'), $defaultOrderBy),
+            'take' => min($request->integer('limit', 10), 50),
+            'with' => $with,
+        ];
+    }
+
+    protected function resolveSortBy(?string $sortBy, ?array $fallback = null): array
+    {
+        return match ($sortBy) {
+            'oldest' => [
+                'is_featured' => 'DESC',
+                'created_at' => 'ASC',
+            ],
+            'salary_high' => [
+                'salary_to' => 'DESC',
+                'salary_from' => 'DESC',
+                'created_at' => 'DESC',
+            ],
+            'salary_low' => [
+                'salary_from' => 'ASC',
+                'salary_to' => 'ASC',
+                'created_at' => 'DESC',
+            ],
+            default => $fallback ?? [
+                'is_featured' => 'DESC',
+                'created_at' => 'DESC',
+            ],
+        };
     }
 
     public function related(int $id, Request $request)

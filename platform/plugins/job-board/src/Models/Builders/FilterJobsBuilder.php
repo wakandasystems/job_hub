@@ -22,6 +22,7 @@ class FilterJobsBuilder extends BaseQueryBuilder
             'job_categories' => [],
             'job_tags' => [],
             'job_types' => [],
+            'employment_type' => null,
             'job_experiences' => [],
             'job_skills' => [],
             'offered_salary_from' => null,
@@ -128,6 +129,12 @@ class FilterJobsBuilder extends BaseQueryBuilder
         if ($filters['job_types']) {
             $this->whereHas('jobTypes', function ($query) use ($filters) {
                 return $query->whereIn('jb_job_types.id', $filters['job_types']);
+            });
+        }
+
+        if ($employmentType = Arr::get($filters, 'employment_type')) {
+            $this->whereHas('jobTypes', function (Builder $query) use ($employmentType): void {
+                $query->where('jb_job_types.name', 'LIKE', '%' . $employmentType . '%');
             });
         }
 
