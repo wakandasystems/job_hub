@@ -424,6 +424,11 @@ Route::group(['namespace' => 'Botble\JobBoard\Http\Controllers'], function (): v
                     'uses' => 'postUploadResumeScore',
                 ]);
 
+                Route::post('prefill-from-resume', [
+                    'as' => 'prefill-from-resume',
+                    'uses' => 'postPrefillFromResume',
+                ]);
+
                 Route::get('cv-score-history', [
                     'as' => 'cv-score-history',
                     'uses' => 'getCvScoreHistory',

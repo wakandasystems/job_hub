@@ -19,6 +19,7 @@ use Botble\JobBoard\Models\AccountExperience;
 use Botble\JobBoard\Models\AccountLanguage;
 use Botble\JobBoard\Models\CareerServiceOrder;
 use Botble\JobBoard\Models\Currency;
+use Botble\JobBoard\Services\AccountCvProfileSyncService;
 use Botble\JobBoard\Services\CvScoringService;
 use Botble\Media\Facades\RvMedia;
 use Botble\Media\Models\MediaFile;
@@ -479,6 +480,77 @@ class AccountController extends BaseController
             'points_to_100' => $account->cv_score_data['points_to_100'] ?? null,
             'scored_at' => $account->cv_score_data['scored_at'] ?? null,
         ]);
+    }
+
+    public function postPrefillFromResume(Request $request, AccountCvProfileSyncService $syncService)
+    {
+        /** @var Account $account */
+        $account = auth('account')->user();
+        $nextUrl = $this->resolveSafeNextUrl($request->input('next_url'));
+
+        try {
+            $analysis = $syncService->analyzeStoredCv($account);
+            $report = $syncService->syncFromAnalysis($account, $analysis);
+        } catch (\Throwable $exception) {
+            return $this
+                ->httpResponse()
+                ->setError()
+                ->setMessage($exception->getMessage() ?: __('We could not analyze your CV right now.'));
+        }
+
+        AccountActivityLog::query()->create(['action' => 'prefill_profile_from_cv']);
+
+        $updatedCount = count($report['updated_fields'] ?? []);
+        $relatedCount = (int) ($report['created_educations'] ?? 0)
+            + (int) ($report['created_experiences'] ?? 0)
+            + (int) ($report['created_languages'] ?? 0)
+            + (int) ($report['attached_skills'] ?? 0)
+            + (int) ($report['attached_tags'] ?? 0);
+
+        $message = $updatedCount || $relatedCount
+            ? __('Your profile was prefilled from the uploaded CV. Review the changes and save anything else you want to adjust.')
+            : __('No new profile details were found to prefill from your current CV.');
+
+        return $this
+            ->httpResponse()
+            ->setMessage($message)
+            ->setData([
+                'updated_fields' => $report['updated_fields'] ?? [],
+                'created_educations' => $report['created_educations'] ?? 0,
+                'created_experiences' => $report['created_experiences'] ?? 0,
+                'created_languages' => $report['created_languages'] ?? 0,
+                'attached_skills' => $report['attached_skills'] ?? 0,
+                'attached_tags' => $report['attached_tags'] ?? 0,
+                'next_url' => $nextUrl,
+            ]);
+    }
+
+    private function resolveSafeNextUrl(?string $nextUrl): string
+    {
+        $fallback = route('public.account.settings');
+        $nextUrl = trim((string) $nextUrl);
+
+        if ($nextUrl === '') {
+            return $fallback;
+        }
+
+        if (str_starts_with($nextUrl, '/')) {
+            return $nextUrl;
+        }
+
+        if (filter_var($nextUrl, FILTER_VALIDATE_URL)) {
+            $appUrl = parse_url(url('/'));
+            $targetUrl = parse_url($nextUrl);
+
+            if (
+                ($appUrl['host'] ?? null) === ($targetUrl['host'] ?? null)
+                && ($appUrl['scheme'] ?? null) === ($targetUrl['scheme'] ?? null)
+            ) {
+                return $nextUrl;
+            }
+        }
+
+        return $fallback;
     }
 
     public function getCvScoreHistory(Request $request)

@@ -22,6 +22,7 @@ class NotifyCandidateAutoApplySentJob implements ShouldQueue
         private readonly int $jobId,
         private readonly ?string $coverLetterSubject = null,
         private readonly ?string $coverLetterBody = null,
+        private readonly bool $wasRecoveredFromManualNotice = false,
     ) {
     }
 
@@ -39,6 +40,7 @@ class NotifyCandidateAutoApplySentJob implements ShouldQueue
             $job,
             $this->coverLetterSubject,
             $this->coverLetterBody,
+            $this->wasRecoveredFromManualNotice,
         );
     }
 }

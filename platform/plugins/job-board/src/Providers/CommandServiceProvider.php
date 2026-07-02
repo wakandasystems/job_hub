@@ -33,6 +33,7 @@ use Botble\JobBoard\Console\Commands\CloseRemovedCrawledJobsCommand;
 use Botble\JobBoard\Console\Commands\ForwardEmployerRepliesCommand;
 use Botble\JobBoard\Console\Commands\BackfillAutoApplyOrderCommand;
 use Botble\JobBoard\Console\Commands\ReconcileMissedAutoApplyCommand;
+use Botble\JobBoard\Console\Commands\ReplayManualAutoApplyCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
 
@@ -76,6 +77,7 @@ class CommandServiceProvider extends ServiceProvider
             CloseRemovedCrawledJobsCommand::class,
             BackfillAutoApplyOrderCommand::class,
             ReconcileMissedAutoApplyCommand::class,
+            ReplayManualAutoApplyCommand::class,
         ]);
 
         $this->app->afterResolving(Schedule::class, function (Schedule $schedule): void {
@@ -106,6 +108,9 @@ class CommandServiceProvider extends ServiceProvider
             $schedule->command(CompleteAutoCvFinalConfirmationsCommand::class)->everyMinute()->withoutOverlapping();
             $schedule->command(ForwardEmployerRepliesCommand::class)->everyFiveMinutes()->withoutOverlapping();
             $schedule->command(ReconcileMissedAutoApplyCommand::class)
+                ->everyTenMinutes()
+                ->withoutOverlapping();
+            $schedule->command(ReplayManualAutoApplyCommand::class)
                 ->everyTenMinutes()
                 ->withoutOverlapping();
             // 08:00 CAT = start of business day (catches overnight removals)

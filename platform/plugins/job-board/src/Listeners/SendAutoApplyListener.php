@@ -50,7 +50,7 @@ class SendAutoApplyListener implements ShouldQueue
                 $account = $preference->account;
 
                 // Skip if already applied (manual or auto)
-                if ($service->hasAlreadyApplied($account->id, $job->id)) {
+                if ($service->hasAlreadyAppliedForJob($account->id, $job)) {
                     continue;
                 }
 

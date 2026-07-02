@@ -3,6 +3,10 @@
         $menuPaths = collect($menu_nodes)
             ->map(fn ($row) => trim(parse_url($row->url, PHP_URL_PATH) ?: '', '/'))
             ->all();
+        $shouldAppendPrivacyPolicy = in_array('cookie-policy', $menuPaths, true)
+            && in_array('terms', $menuPaths, true)
+            && in_array('faqs', $menuPaths, true)
+            && ! in_array('privacy-policy', $menuPaths, true);
     @endphp
 
     @foreach ($menu_nodes as $key => $row)
@@ -17,6 +21,10 @@
 
         <li><a href="{{ $row->url }}">{{ $title }}</a></li>
     @endforeach
+
+    @if ($shouldAppendPrivacyPolicy)
+        <li><a href="{{ url('/privacy-policy') }}">{{ __('Privacy Policy') }}</a></li>
+    @endif
 
     @if (in_array('salary-checker', $menuPaths, true) && ! in_array('career-services/cv-score', $menuPaths, true))
         <li><a href="{{ route('public.career-service.cv-score') }}">{{ __('AI CV Score') }}</a></li>

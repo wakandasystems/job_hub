@@ -84,6 +84,12 @@
                                                     <span>{{ $application->job->salary_text }}</span>
                                                 </p>
                                             </li>
+                                            <li class="list-inline-item">
+                                                <p class="text-muted fs-14 mb-0">
+                                                    <i class="mdi mdi-calendar-clock"></i>
+                                                    <span>{{ __('Applied') }} {{ $application->created_at->format('d M Y') }}</span>
+                                                </p>
+                                            </li>
                                         </ul>
                                         @if ($application->job->jobTypes->count())
                                             <div class="mt-2">

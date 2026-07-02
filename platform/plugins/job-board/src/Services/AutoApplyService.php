@@ -316,6 +316,15 @@ PROMPT;
         return false;
     }
 
+    public function isManualNoticeDraft(string $subject, string $body): bool
+    {
+        $normalizedSubject = trim(mb_strtolower($subject));
+
+        return $normalizedSubject === 'manual apply notice sent to candidate'
+            || str_contains($body, 'This job does not include an application email')
+            || str_contains($body, '*Cover letter to copy and paste:*');
+    }
+
     /**
      * Send the application email with CV attached, Reply-To set to candidate's email.
      */
@@ -422,6 +431,32 @@ PROMPT;
         ]);
     }
 
+    public function upsertAutoApplyJobApplication(Account $account, Job $job, string $emailBody, ?string $message = null): JobApplication
+    {
+        $application = JobApplication::query()
+            ->where('account_id', $account->id)
+            ->where('job_id', $job->id)
+            ->first();
+
+        if (! $application) {
+            return $this->createJobApplication($account, $job, $emailBody);
+        }
+
+        $application->forceFill([
+            'first_name' => $account->first_name,
+            'last_name' => $account->last_name,
+            'phone' => $account->phone,
+            'email' => $account->email,
+            'resume' => $account->resume,
+            'cover_letter' => mb_substr($emailBody, 0, 5000),
+            'message' => $message ?: 'Auto-applied via Wakanda Jobs Auto Apply service',
+            'status' => 'pending',
+            'is_external_apply' => false,
+        ])->save();
+
+        return $application;
+    }
+
     /**
      * Check if candidate has remaining auto-apply quota for the current period.
      */
@@ -462,6 +497,48 @@ PROMPT;
         }
 
         return false;
+    }
+
+    public function hasAlreadyAppliedForJob(int $accountId, Job $job): bool
+    {
+        $application = JobApplication::query()
+            ->where('account_id', $accountId)
+            ->where('job_id', $job->id)
+            ->first();
+
+        if ($application) {
+            $isManualExternalApplication = (bool) $application->is_external_apply
+                && $this->resolveJobApplyEmail($job) !== ''
+                && $this->hasManualOnlyAutoApplyLogs($accountId, $job->id);
+
+            if (! $isManualExternalApplication) {
+                return true;
+            }
+        }
+
+        $logs = AutoApplyLog::query()
+            ->where('account_id', $accountId)
+            ->where('job_id', $job->id);
+
+        if (! $logs->exists()) {
+            return false;
+        }
+
+        if ($this->resolveJobApplyEmail($job) !== '' && $this->hasManualOnlyAutoApplyLogs($accountId, $job->id)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    public function hasManualOnlyAutoApplyLogs(int $accountId, int $jobId): bool
+    {
+        $logs = AutoApplyLog::query()
+            ->where('account_id', $accountId)
+            ->where('job_id', $jobId);
+
+        return (clone $logs)->where('email_sent_to', 'manual-apply-notice')->exists()
+            && ! (clone $logs)->where('email_sent_to', '!=', 'manual-apply-notice')->exists();
     }
 
     /**
@@ -617,7 +694,7 @@ PROMPT;
             ];
         }
 
-        if ($this->hasAlreadyApplied($account->id, $job->id)) {
+        if ($this->hasAlreadyAppliedForJob($account->id, $job)) {
             return [
                 'status' => 'already_processed',
                 'job_id' => $job->id,
@@ -1149,16 +1226,25 @@ PROMPT;
         Job $job,
         ?string $coverLetterSubject = null,
         ?string $coverLetterBody = null,
+        bool $wasRecoveredFromManualNotice = false,
     ): array {
-        return $this->runCandidateMessageSequence($account, function () use ($account, $job, $coverLetterSubject, $coverLetterBody) {
+        return $this->runCandidateMessageSequence($account, function () use ($account, $job, $coverLetterSubject, $coverLetterBody, $wasRecoveredFromManualNotice) {
             $jobUrl = url('/jobs/' . ($job->slugable?->key ?? $job->id));
             $company = trim((string) $job->company?->name);
             $candidateName = trim((string) ($account->first_name ?: $account->name ?: 'there'));
 
-            $message = "Hi {$candidateName},\n\n"
-                . "I have just applied for *{$job->name}*" . ($company !== '' ? " at {$company}" : '') . ".\n"
-                . "{$jobUrl}\n\n"
-                . '_Nakia_';
+            if ($wasRecoveredFromManualNotice) {
+                $message = "Hi {$candidateName},\n\n"
+                    . "Earlier, this job did not include an application email, so I could not auto-apply at that time.\n"
+                    . "The job has now been updated with an application email, and I have just applied for *{$job->name}*" . ($company !== '' ? " at {$company}" : '') . ".\n"
+                    . "{$jobUrl}\n\n"
+                    . '_Nakia_';
+            } else {
+                $message = "Hi {$candidateName},\n\n"
+                    . "I have just applied for *{$job->name}*" . ($company !== '' ? " at {$company}" : '') . ".\n"
+                    . "{$jobUrl}\n\n"
+                    . '_Nakia_';
+            }
 
             if ($coverLetterBody) {
                 $message .= "\n\n---\n*Here's exactly what we sent on your behalf:*\n\n"
@@ -1178,11 +1264,20 @@ PROMPT;
                 $whatsAppError = 'Candidate has no WhatsApp number.';
             }
 
-            $emailBody = "Hi {$candidateName},\n\n"
-                . "I have just applied for:\n\n"
-                . $job->name . ($company !== '' ? " at {$company}" : '') . "\n{$jobUrl}\n\n"
-                . "No action is needed from you. I will keep applying to new matching jobs for you for the rest of your plan.\n\n"
-                . 'Nakia';
+            if ($wasRecoveredFromManualNotice) {
+                $emailBody = "Hi {$candidateName},\n\n"
+                    . "Earlier, this job did not include an application email, so I could not auto-apply at that time.\n"
+                    . "The job has now been updated with an application email, and I have just applied for:\n\n"
+                    . $job->name . ($company !== '' ? " at {$company}" : '') . "\n{$jobUrl}\n\n"
+                    . "No action is needed from you now. I will keep applying to new matching jobs for you for the rest of your plan.\n\n"
+                    . 'Nakia';
+            } else {
+                $emailBody = "Hi {$candidateName},\n\n"
+                    . "I have just applied for:\n\n"
+                    . $job->name . ($company !== '' ? " at {$company}" : '') . "\n{$jobUrl}\n\n"
+                    . "No action is needed from you. I will keep applying to new matching jobs for you for the rest of your plan.\n\n"
+                    . 'Nakia';
+            }
 
             if ($coverLetterBody) {
                 $emailBody .= "\n\n---\nHere's exactly what we sent on your behalf:\n\n"
@@ -1298,5 +1393,204 @@ PROMPT;
                 'cover_sent' => $notified,
             ];
         });
+    }
+
+    /**
+     * Replay a manual-notice auto-apply log now that the job has a real application email.
+     *
+     * @return array{status:string, job_id?:int, message:string, email_sent?:bool}
+     */
+    public function replayManualApplyLog(AutoApplyLog $log, ?array $preview = null): array
+    {
+        $log->loadMissing(['account', 'job.company', 'job.slugable']);
+
+        $account = $log->account;
+        $job = $log->job;
+
+        if (! $account || ! $job) {
+            return [
+                'status' => 'missing_relation',
+                'message' => 'The manual auto-apply log no longer has a candidate or job attached.',
+                'email_sent' => false,
+            ];
+        }
+
+        $toEmail = $this->resolveJobApplyEmail($job);
+
+        if ($toEmail === '') {
+            return [
+                'status' => 'still_manual_only',
+                'job_id' => $job->id,
+                'message' => 'This job still has no application email.',
+                'email_sent' => false,
+            ];
+        }
+
+        $existingApplication = JobApplication::query()
+            ->where('account_id', $account->id)
+            ->where('job_id', $job->id)
+            ->first();
+
+        if ($existingApplication && ! (bool) $existingApplication->is_external_apply) {
+            return [
+                'status' => 'already_applied',
+                'job_id' => $job->id,
+                'message' => 'The candidate already has a job application record for this job.',
+                'email_sent' => false,
+            ];
+        }
+
+        if (! $this->hasQuota($account->id)) {
+            $log->forceFill([
+                'email_sent_to' => $toEmail,
+                'status' => 'failed',
+                'error_message' => 'Manual-notice replay skipped because no active auto-apply quota is available for the current billing cycle.',
+                'sent_at' => now(),
+            ])->save();
+
+            return [
+                'status' => 'no_quota',
+                'job_id' => $job->id,
+                'message' => 'No active auto-apply quota is available for this candidate right now.',
+                'email_sent' => false,
+            ];
+        }
+
+        $preview = $preview ?: [
+            'score' => $log->match_score,
+            'reasons' => $log->match_reasons ?? [],
+            'subject' => $log->ai_email_subject,
+            'body' => $log->ai_email_body,
+            'ai_model' => $log->ai_model_used ?: AutoApplyOrder::globalAiModel(),
+            'prompt_tokens' => $log->prompt_tokens,
+            'completion_tokens' => $log->completion_tokens,
+            'total_tokens' => $log->total_tokens,
+            'cost' => $log->ai_cost_usd,
+        ];
+
+        $subject = trim((string) ($preview['subject'] ?? ''));
+        $body = trim((string) ($preview['body'] ?? ''));
+        $model = trim((string) ($preview['ai_model'] ?? AutoApplyOrder::globalAiModel()));
+
+        if ($this->isManualNoticeDraft($subject, $body)) {
+            $subject = '';
+            $body = '';
+        }
+
+        if ($subject === '' || $body === '') {
+            $preview = $this->resolvePreviewForJob($account, $job, $model) ?: [];
+            $subject = trim((string) ($preview['subject'] ?? ''));
+            $body = trim((string) ($preview['body'] ?? ''));
+            $model = trim((string) ($preview['ai_model'] ?? $model));
+        }
+
+        if ($subject === '' || $body === '') {
+            $log->forceFill([
+                'email_sent_to' => $toEmail,
+                'status' => 'failed',
+                'error_message' => 'Manual-notice replay failed because no AI application draft was available.',
+                'sent_at' => now(),
+            ])->save();
+
+            return [
+                'status' => 'generation_failed',
+                'job_id' => $job->id,
+                'message' => 'No AI application draft was available for this candidate/job pair.',
+                'email_sent' => false,
+            ];
+        }
+
+        if ($this->containsPlaceholders($subject) || $this->containsPlaceholders($body)) {
+            $log->forceFill([
+                'email_sent_to' => $toEmail,
+                'ai_email_subject' => $subject,
+                'ai_email_body' => $body,
+                'ai_model_used' => $model,
+                'prompt_tokens' => $preview['prompt_tokens'] ?? null,
+                'completion_tokens' => $preview['completion_tokens'] ?? null,
+                'total_tokens' => $preview['total_tokens'] ?? null,
+                'ai_cost_usd' => $preview['cost'] ?? null,
+                'match_score' => isset($preview['score']) ? (int) $preview['score'] : $log->match_score,
+                'match_reasons' => $preview['reasons'] ?? $log->match_reasons ?? [],
+                'status' => 'failed',
+                'error_message' => 'Manual-notice replay blocked because the AI draft still contains placeholders.',
+                'sent_at' => now(),
+            ])->save();
+
+            return [
+                'status' => 'placeholder_blocked',
+                'job_id' => $job->id,
+                'message' => 'The AI draft still contains placeholders, so it was blocked for safety.',
+                'email_sent' => false,
+            ];
+        }
+
+        $messageId = sprintf('auto-apply-replay-%s@%s', (string) Str::uuid(), parse_url(config('app.url'), PHP_URL_HOST) ?: 'wakandajobs.com');
+        $sent = $this->sendApplicationEmail($account, $job, $subject, $body, $toEmail, $messageId);
+
+        if ($sent) {
+            $this->upsertAutoApplyJobApplication(
+                $account,
+                $job,
+                $body,
+                'Auto-applied via Wakanda Jobs Auto Apply service after the job application email was recovered'
+            );
+
+            if (! $this->deductQuota($account->id)) {
+                $log->forceFill([
+                    'email_sent_to' => $toEmail,
+                    'message_id' => $messageId,
+                    'ai_email_subject' => $subject,
+                    'ai_email_body' => $body,
+                    'ai_model_used' => $model,
+                    'prompt_tokens' => $preview['prompt_tokens'] ?? null,
+                    'completion_tokens' => $preview['completion_tokens'] ?? null,
+                    'total_tokens' => $preview['total_tokens'] ?? null,
+                    'ai_cost_usd' => $preview['cost'] ?? null,
+                    'match_score' => isset($preview['score']) ? (int) $preview['score'] : $log->match_score,
+                    'match_reasons' => $preview['reasons'] ?? $log->match_reasons ?? [],
+                    'status' => 'failed',
+                    'error_message' => 'Manual-notice replay sent the application email, but quota deduction failed.',
+                    'sent_at' => now(),
+                ])->save();
+
+                return [
+                    'status' => 'quota_deduction_failed',
+                    'job_id' => $job->id,
+                    'message' => 'The application email was sent, but quota deduction failed.',
+                    'email_sent' => true,
+                ];
+            }
+
+            NotifyCandidateAutoApplySentJob::dispatch($account->id, $job->id, $subject, $body, true)->onQueue('default');
+        }
+
+        $log->forceFill([
+            'email_sent_to' => $toEmail,
+            'message_id' => $sent ? $messageId : null,
+            'ai_email_subject' => $subject,
+            'ai_email_body' => $body,
+            'ai_model_used' => $model,
+            'prompt_tokens' => $preview['prompt_tokens'] ?? null,
+            'completion_tokens' => $preview['completion_tokens'] ?? null,
+            'total_tokens' => $preview['total_tokens'] ?? null,
+            'ai_cost_usd' => $preview['cost'] ?? null,
+            'match_score' => isset($preview['score']) ? (int) $preview['score'] : $log->match_score,
+            'match_reasons' => $preview['reasons'] ?? $log->match_reasons ?? [],
+            'status' => $sent ? 'sent' : 'failed',
+            'error_message' => $sent
+                ? 'Replayed from manual notice after the crawler recovered an application email for the job.'
+                : 'Manual-notice replay could not deliver the application email.',
+            'sent_at' => now(),
+        ])->save();
+
+        return [
+            'status' => $sent ? 'sent' : 'failed',
+            'job_id' => $job->id,
+            'message' => $sent
+                ? 'Manual auto-apply log was replayed successfully.'
+                : 'The application email could not be delivered.',
+            'email_sent' => $sent,
+        ];
     }
 }

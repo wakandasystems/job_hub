@@ -1381,6 +1381,8 @@ class JobCrawlerRunner
 
                 if ($job) {
                     $job->forceFill($this->buildGoZambiaListAttributes($item));
+                    $this->resolveApplyContact($job);
+
                     if ($job->isDirty()) {
                         $job->save();
                         $stats['jobs_updated']++;
@@ -1750,6 +1752,15 @@ class JobCrawlerRunner
             array_unshift($emails, $storedApplyEmail);
         }
 
+        $existingApplyUrl = trim((string) $job->getRawOriginal('apply_url'));
+        if ($existingApplyUrl !== '' && preg_match('/^mailto:([^?]+)/i', $existingApplyUrl, $matches)) {
+            $mailtoEmail = trim(rawurldecode($matches[1]));
+
+            if ($mailtoEmail !== '' && ! in_array(strtolower($mailtoEmail), array_map('strtolower', $emails), true)) {
+                array_unshift($emails, $mailtoEmail);
+            }
+        }
+
         if ($emails) {
             $job->apply_email = $emails[0];
             $subject = rawurlencode(trim(strip_tags((string) $job->name)) . ' Application');
@@ -1763,7 +1774,6 @@ class JobCrawlerRunner
         }
 
         // No email — prefer a crawler-provided apply URL, then the job detail page, then company website.
-        $existingApplyUrl = trim((string) $job->getRawOriginal('apply_url'));
         if ($existingApplyUrl !== '') {
             $job->apply_url = $existingApplyUrl;
             return;

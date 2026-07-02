@@ -86,7 +86,13 @@ class CrawlRefreshExistingCommand extends Command
                     if ($applyChanged) {
                         $patch['apply_url'] = $newApplyUrl;
                     }
-                    $job->fill($patch)->save();
+                    $job->fill($patch);
+                }
+
+                $runner->resolveApplyContact($job);
+
+                if ($job->isDirty()) {
+                    $job->save();
                     $updated++;
                 }
             } catch (Throwable) {

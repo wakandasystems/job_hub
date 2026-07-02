@@ -77,7 +77,7 @@ class ReconcileMissedAutoApplyCommand extends Command
                 }
 
                 try {
-                    if ($service->hasAlreadyApplied($account->id, $job->id)) {
+                    if ($service->hasAlreadyAppliedForJob($account->id, $job)) {
                         $stats['skipped_existing']++;
                         continue;
                     }

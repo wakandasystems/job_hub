@@ -176,7 +176,7 @@ class AutoApplyController extends BaseController
         $service = app(AutoApplyService::class);
 
         // Checks
-        if ($service->hasAlreadyApplied($account->id, $job->id)) {
+        if ($service->hasAlreadyAppliedForJob($account->id, $job)) {
             return redirect()->back()->with('error', 'You have already applied to this job.');
         }
 

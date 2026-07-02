@@ -262,6 +262,13 @@ class AccountSettingForm extends FormAbstract
                             ->label(trans('plugins/job-board::messages.introduce_yourself'))
                     )
                     ->add(
+                        'linkedin',
+                        TextField::class,
+                        TextFieldOption::make()
+                            ->label(__('LinkedIn URL'))
+                            ->placeholder('https://linkedin.com/in/username')
+                    )
+                    ->add(
                         'bio',
                         EditorField::class,
                         EditorFieldOption::make()
@@ -384,10 +391,17 @@ HTML;
                             ->addAttribute('data-max-size', '10')
                             ->addAttribute('data-file-type', 'PDF')
                             ->when($account->resume, function (FormFieldOptions $fieldOptions) use ($account) {
+                                $resumeLink = Html::link(RvMedia::url($account->resume), basename($account->resume), ['target' => '_blank'])->toHtml();
+                                $prefillButton = sprintf(
+                                    '<div class="mt-2"><button type="button" class="btn btn-outline-primary btn-sm js-prefill-profile-from-cv" data-url="%s" data-bs-toggle="modal" data-bs-target="#prefillProfileModal">%s</button></div>',
+                                    e(route('public.account.prefill-from-resume')),
+                                    e(__('Prefill from CV / CV Builder'))
+                                );
+
                                 return $fieldOptions->helperText(
                                     trans('plugins/job-board::messages.current_resume_message', [
-                                        'resume' => Html::link(RvMedia::url($account->resume), basename($account->resume), ['target' => '_blank'])->toHtml(),
-                                    ])
+                                        'resume' => $resumeLink,
+                                    ]) . $prefillButton
                                 );
                             })
                     )

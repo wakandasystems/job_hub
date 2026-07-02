@@ -55,8 +55,8 @@
                         @endif
                         <div class="text-secondary">
                             {{ $education->school }} -
-                            {{ $education->started_at->format('Y') }} -
-                            {{ $education->ended_at ? $education->ended_at->format('Y'): __('Now') }}
+                            {{ $education->started_at?->format('Y') ?: __('N/A') }} -
+                            {{ $education->ended_at?->format('Y') ?: __('Now') }}
                         </div>
                         @if ($education->description)
                             <p class="text-muted mb-0 mt-2">{!! BaseHelper::clean($education->description) !!}</p>
@@ -81,8 +81,8 @@
                         @endif
                         <div class="text-secondary">
                             {{ $experience->company }} -
-                            {{ $experience->started_at->format('Y') }} -
-                            {{ $experience->ended_at ? $experience->ended_at->format('Y') : __('Now') }}
+                            {{ $experience->started_at?->format('Y') ?: __('N/A') }} -
+                            {{ $experience->ended_at?->format('Y') ?: __('Now') }}
                         </div>
                         @if ($experience->description)
                             <p class="text-muted mb-0 mt-2">{!! BaseHelper::clean($experience->description) !!}</p>

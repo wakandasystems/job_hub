@@ -20,6 +20,7 @@ class SettingRequest extends Request
             'phone' => 'nullable|' . BaseHelper::getPhoneValidationRule(),
             'dob' => 'nullable|date',
             'address' => 'nullable|max:250',
+            'linkedin' => 'nullable|max:250',
             'gender' => 'nullable|' . Rule::in(AccountGenderEnum::values()),
             'description' => 'nullable|max:4000',
             'bio' => 'nullable',
@@ -73,6 +74,7 @@ class SettingRequest extends Request
                 'first_name' => __('First name'),
                 'last_name' => __('Last name'),
                 'description' => __('Profile introduction'),
+                'linkedin' => __('LinkedIn URL'),
                 'bio' => __('Bio'),
             ];
 

@@ -303,6 +303,26 @@
             </div>
         </div>
 
+        <div class="modal fade" id="prefillProfileModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-sm">
+                <div class="modal-content">
+                    <div class="modal-body text-center py-4 px-4">
+                        <div class="mb-3">
+                            <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary bg-opacity-10" style="width:52px;height:52px;">
+                                <i class="ti ti-sparkles text-primary fs-3"></i>
+                            </span>
+                        </div>
+                        <h6 class="fw-semibold mb-2">{{ __('Prefill profile from CV data?') }}</h6>
+                        <p class="text-muted small mb-4">{{ __('If a linked CV Builder profile exists, we will use that first. Otherwise we will analyze your uploaded CV and fill missing profile sections, skills, languages, education, and experience.') }}</p>
+                        <div class="d-flex gap-2 justify-content-center">
+                            <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">{{ __('Cancel') }}</button>
+                            <button type="button" class="btn btn-primary px-4" id="prefillProfileConfirmBtn">{{ __('Yes, prefill my profile') }}</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="modal fade" id="addLanguageModal" tabindex="-1" aria-labelledby="addLanguageModalLabel" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content">
@@ -575,7 +595,6 @@
 
         document.addEventListener('DOMContentLoaded', function () {
             $(function () {
-
                 var existingAccountLanguages = @json($languages->pluck('language')->values());
                 var LANG_STORE_URL = @json(route('public.account.languages.store'));
                 var CSRF_TOKEN_LANG = $('meta[name="csrf-token"]').attr('content')
@@ -621,7 +640,7 @@
                 }
 
                 function showLanguageError(message, $field) {
-                    var text = message || @json(__('Failed to save. Please try again.'));
+                    var text = message || {{ \Illuminate\Support\Js::from(__('Failed to save. Please try again.')) }};
                     var $error = languageErrorElement($field);
 
                     $field.addClass('is-invalid');
@@ -631,7 +650,7 @@
                     if (typeof Swal !== 'undefined') {
                         Swal.fire({
                             icon: 'error',
-                            title: @json(__('Unable to add language.')),
+                            title: {{ \Illuminate\Support\Js::from(__('Unable to add language.')) }},
                             text: text,
                         });
                     } else if (typeof Botble !== 'undefined' && Botble.showError) {
@@ -671,7 +690,7 @@
 
                     // Reset button state
                     var $btn = $('#account-language-submit');
-                    $btn.prop('disabled', false).removeClass('btn-success').addClass('btn-primary').text(@json(__('Add')));
+                    $btn.prop('disabled', false).removeClass('btn-success').addClass('btn-primary').text({{ \Illuminate\Support\Js::from(__('Add')) }});
                     languageErrorElement($sel).text('').hide();
                     $sel.removeClass('is-invalid');
                     $sel.next('.select2').find('.select2-selection').removeClass('is-invalid');
@@ -687,19 +706,19 @@
                     var native = $native.is(':checked') ? 1 : 0;
 
                     if (! lang) {
-                        showLanguageError(@json(__('Choose a language before saving.')), $language);
+                        showLanguageError({{ \Illuminate\Support\Js::from(__('Choose a language before saving.')) }}, $language);
                         return;
                     }
 
                     // Duplicate check
                     if (existingAccountLanguages.indexOf(lang) !== -1) {
-                        showLanguageError(@json(__('This language has already been added.')), $language);
+                        showLanguageError({{ \Illuminate\Support\Js::from(__('This language has already been added.')) }}, $language);
                         return;
                     }
 
                     // Step 1: Saving…
                     $btn.prop('disabled', true).html(
-                        '<span class="spinner-border spinner-border-sm me-1" role="status"></span>@json(__('Saving…'))'
+                        '<span class="spinner-border spinner-border-sm me-1" role="status"></span>' + {{ \Illuminate\Support\Js::from(__('Saving…')) }}
                     );
                     languageErrorElement($language).text('').hide();
                     $language.removeClass('is-invalid');
@@ -723,10 +742,10 @@
                         success: function () {
                             // Step 2: Saved ✓
                             $btn.removeClass('btn-primary').addClass('btn-success').html(
-                                '<i class="ti ti-check me-1"></i>@json(__('Saved!'))'
+                                '<i class="ti ti-check me-1"></i>' + {{ \Illuminate\Support\Js::from(__('Saved!')) }}
                             );
                             if (typeof Botble !== 'undefined' && Botble.showSuccess) {
-                                Botble.showSuccess(@json(__('Language added successfully.')));
+                                Botble.showSuccess({{ \Illuminate\Support\Js::from(__('Language added successfully.')) }});
                             }
 
                             // Step 3: close + reload
@@ -739,15 +758,15 @@
                             }, 900);
                         },
                         error: function (xhr, textStatus, errorThrown) {
-                            $btn.prop('disabled', false).removeClass('btn-success').addClass('btn-primary').text(@json(__('Add')));
+                            $btn.prop('disabled', false).removeClass('btn-success').addClass('btn-primary').text({{ \Illuminate\Support\Js::from(__('Add')) }});
 
                             var json    = xhr.responseJSON || {};
                             var responseText = xhr.responseText || '';
                             var responseSnippet = responseText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
-                            var message = json.message || @json(__('Failed to save. Please try again.'));
+                            var message = json.message || {{ \Illuminate\Support\Js::from(__('Failed to save. Please try again.')) }};
 
                             if (! json.message && textStatus === 'parsererror') {
-                                message = @json(__('The server returned a redirect or non-JSON response. Please refresh the page and try again.'));
+                                message = {{ \Illuminate\Support\Js::from(__('The server returned a redirect or non-JSON response. Please refresh the page and try again.')) }};
                             } else if (! json.message && xhr.status) {
                                 message = 'HTTP ' + xhr.status + ': ' + message;
                             }
@@ -767,7 +786,7 @@
                             if (xhr.status === 422 && json.errors && json.errors.account_language) {
                                 showLanguageError(json.errors.account_language[0], $language);
                             } else if (xhr.status === 419) {
-                                showLanguageError(@json(__('Session expired. Please refresh the page.')), $language);
+                                showLanguageError({{ \Illuminate\Support\Js::from(__('Session expired. Please refresh the page.')) }}, $language);
                             } else {
                                 showLanguageError(message, $language);
                             }
@@ -977,26 +996,6 @@
                     }
 
                     function showCvConfirmation(options, onAccept, onReject) {
-                        if (typeof Swal !== 'undefined') {
-                            Swal.fire({
-                                icon: options.icon || 'question',
-                                title: options.title,
-                                text: options.text,
-                                showCancelButton: true,
-                                confirmButtonText: options.confirmText,
-                                cancelButtonText: options.cancelText || @json(__('Cancel')),
-                                confirmButtonColor: '#3c65f5',
-                            }).then(function (result) {
-                                if (result.isConfirmed) {
-                                    onAccept();
-                                } else {
-                                    onReject();
-                                }
-                            });
-
-                            return;
-                        }
-
                         var modalId = 'cvConfirmModal';
                         var $modal = $('#' + modalId);
 
@@ -1024,7 +1023,7 @@
                         $modal.find('[data-cv-confirm-title]').text(options.title);
                         $modal.find('[data-cv-confirm-text]').text(options.text);
                         $modal.find('[data-cv-confirm-ok]').text(options.confirmText);
-                        $modal.find('[data-cv-confirm-cancel]').text(options.cancelText || @json(__('Cancel')));
+                        $modal.find('[data-cv-confirm-cancel]').text(options.cancelText || {{ \Illuminate\Support\Js::from(__('Cancel')) }});
 
                         var modal = bootstrap.Modal.getOrCreateInstance($modal[0]);
                         $modal.off('click.cvConfirm', '[data-cv-confirm-ok]');
@@ -1043,13 +1042,73 @@
                         modal.show();
                     }
 
+                    function showAccountActionStatus(options) {
+                        var modalId = 'accountActionStatusModal';
+                        var $modal = $('#' + modalId);
+
+                        if (! $modal.length) {
+                            $('body').append(
+                                '<div class="modal fade" id="' + modalId + '" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">' +
+                                    '<div class="modal-dialog modal-dialog-centered modal-sm">' +
+                                        '<div class="modal-content">' +
+                                            '<div class="modal-body text-center py-4 px-4">' +
+                                                '<div class="mb-3" data-status-icon></div>' +
+                                                '<h6 class="fw-semibold mb-2" data-status-title></h6>' +
+                                                '<p class="text-muted small mb-4" data-status-text></p>' +
+                                                '<button type="button" class="btn btn-primary px-4 d-none" data-status-close>{{ __('Close') }}</button>' +
+                                            '</div>' +
+                                        '</div>' +
+                                    '</div>' +
+                                '</div>'
+                            );
+                            $modal = $('#' + modalId);
+                        }
+
+                        var iconHtml = '';
+                        if (options.state === 'loading') {
+                            iconHtml = '<span class="spinner-border text-primary" role="status" style="width:2.5rem;height:2.5rem;"></span>';
+                        } else if (options.state === 'success') {
+                            iconHtml = '<span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-success bg-opacity-10" style="width:52px;height:52px;"><i class="ti ti-check text-success fs-3"></i></span>';
+                        } else {
+                            iconHtml = '<span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger bg-opacity-10" style="width:52px;height:52px;"><i class="ti ti-alert-circle text-danger fs-3"></i></span>';
+                        }
+
+                        $modal.find('[data-status-icon]').html(iconHtml);
+                        $modal.find('[data-status-title]').text(options.title || '');
+                        $modal.find('[data-status-text]').text(options.text || '');
+                        $modal.find('[data-status-close]')
+                            .toggleClass('d-none', options.state === 'loading')
+                            .removeClass('btn-danger btn-success btn-primary')
+                            .addClass(options.state === 'error' ? 'btn-danger' : (options.state === 'success' ? 'btn-success' : 'btn-primary'));
+
+                        var modal = bootstrap.Modal.getOrCreateInstance($modal[0]);
+                        $modal.off('click.statusClose', '[data-status-close]');
+                        $modal.on('click.statusClose', '[data-status-close]', function () {
+                            modal.hide();
+                            if (typeof options.onClose === 'function') {
+                                options.onClose();
+                            }
+                        });
+
+                        modal.show();
+
+                        return {
+                            hide: function () {
+                                modal.hide();
+                            },
+                            setState: function (nextOptions) {
+                                showAccountActionStatus(nextOptions);
+                            }
+                        };
+                    }
+
                     function askCvUploadConsent(onAccept, onReject) {
                         showCvConfirmation({
                             icon: 'info',
-                            title: @json(__('Allow employers to view this CV?')),
-                            text: @json(__('Your CV may be used to show your experience to verified employers and improve your job matches. This helps employers assess you faster and can increase your chances of being contacted. Only upload a CV you are comfortable sharing under the platform terms.')),
-                            confirmText: @json(__('I Accept, Upload CV')),
-                            cancelText: @json(__('Cancel')),
+                            title: {{ \Illuminate\Support\Js::from(__('Allow employers to view this CV?')) }},
+                            text: {{ \Illuminate\Support\Js::from(__('Your CV may be used to show your experience to verified employers and improve your job matches. This helps employers assess you faster and can increase your chances of being contacted. Only upload a CV you are comfortable sharing under the platform terms.')) }},
+                            confirmText: {{ \Illuminate\Support\Js::from(__('I Accept, Upload CV')) }},
+                            cancelText: {{ \Illuminate\Support\Js::from(__('Cancel')) }},
                         }, onAccept, onReject);
                     }
 
@@ -1171,10 +1230,10 @@
 
                         showCvConfirmation({
                             icon: 'warning',
-                            title: @json(__('Remove your uploaded CV?')),
-                            text: @json(__('This cannot be undone.')),
-                            confirmText: @json(__('Remove')),
-                            cancelText: @json(__('Cancel')),
+                            title: {{ \Illuminate\Support\Js::from(__('Remove your uploaded CV?')) }},
+                            text: {{ \Illuminate\Support\Js::from(__('This cannot be undone.')) }},
+                            confirmText: {{ \Illuminate\Support\Js::from(__('Remove')) }},
+                            cancelText: {{ \Illuminate\Support\Js::from(__('Cancel')) }},
                         }, function () {
                             $.ajax({
                                 url: DELETE_URL,
@@ -1269,26 +1328,107 @@
                         });
                     };
 
-                    if (typeof Swal !== 'undefined') {
-                        Swal.fire({
-                            icon: 'warning',
-                            title: @json(__('Delete this language?')),
-                            text: @json(__('This cannot be undone.')),
-                            showCancelButton: true,
-                            confirmButtonText: @json(__('Delete')),
-                            cancelButtonText: @json(__('Cancel')),
-                            confirmButtonColor: '#d33',
-                        }).then(function (result) {
-                            if (result.isConfirmed) {
-                                deleteLanguage();
-                            }
-                        });
+                    showCvConfirmation({
+                        icon: 'warning',
+                        title: {{ \Illuminate\Support\Js::from(__('Delete this language?')) }},
+                        text: {{ \Illuminate\Support\Js::from(__('This cannot be undone.')) }},
+                        confirmText: {{ \Illuminate\Support\Js::from(__('Delete')) }},
+                        cancelText: {{ \Illuminate\Support\Js::from(__('Cancel')) }},
+                    }, deleteLanguage, function () {});
+                });
 
-                        return;
+                (function () {
+                    var storageKey = 'wakanda-account-settings-active-tab';
+                    var $tabButtons = $('#settingsTabs button[data-bs-toggle="tab"]');
+
+                    if ($tabButtons.length) {
+                        var activeTab = sessionStorage.getItem(storageKey);
+
+                        if (activeTab) {
+                            var trigger = document.querySelector('#settingsTabs button[data-bs-target="' + activeTab + '"]');
+
+                            if (trigger) {
+                                bootstrap.Tab.getOrCreateInstance(trigger).show();
+                            }
+                        }
+
+                        $tabButtons.on('shown.bs.tab', function (event) {
+                            sessionStorage.setItem(storageKey, event.target.getAttribute('data-bs-target'));
+                        });
                     }
 
-                    deleteLanguage();
-                });
+                    var prefillProfileModal = document.getElementById('prefillProfileModal');
+                    var prefillProfileConfirmBtn = document.getElementById('prefillProfileConfirmBtn');
+                    var prefillProfileTrigger = null;
+
+                    prefillProfileModal?.addEventListener('show.bs.modal', function (event) {
+                        prefillProfileTrigger = event.relatedTarget || document.querySelector('.js-prefill-profile-from-cv');
+                    });
+
+                    prefillProfileConfirmBtn?.addEventListener('click', function () {
+                        var button = prefillProfileTrigger;
+                        var url = button ? button.getAttribute('data-url') : '';
+                        var tokenMeta = document.querySelector('meta[name="csrf-token"]');
+                        var tokenInput = document.querySelector('input[name="_token"]');
+                        var token = (tokenMeta ? tokenMeta.getAttribute('content') : '')
+                            || (tokenInput ? tokenInput.value : '');
+
+                        if (! url || ! token || ! button) {
+                            return;
+                        }
+
+                        prefillProfileConfirmBtn.disabled = true;
+                        button.disabled = true;
+                        bootstrap.Modal.getOrCreateInstance(prefillProfileModal).hide();
+
+                        showAccountActionStatus({
+                            state: 'loading',
+                            title: {{ \Illuminate\Support\Js::from(__('Analyzing CV…')) }},
+                            text: {{ \Illuminate\Support\Js::from(__('Please wait while we prefill your profile.')) }},
+                        });
+
+                        fetch(url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': token,
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'Accept': 'application/json',
+                            },
+                            body: JSON.stringify({})
+                        })
+                            .then(function (response) {
+                                return response.json().then(function (data) {
+                                    if (! response.ok || data.error) {
+                                        throw new Error(data.message || {{ \Illuminate\Support\Js::from(__('We could not prefill your profile from the current CV.')) }});
+                                    }
+
+                                    return data;
+                                });
+                            })
+                            .then(function (data) {
+                                showAccountActionStatus({
+                                    state: 'success',
+                                    title: {{ \Illuminate\Support\Js::from(__('Profile prefilled')) }},
+                                    text: data.message || {{ \Illuminate\Support\Js::from(__('Your profile was prefilled from the uploaded CV.')) }},
+                                    onClose: function () {
+                                        window.location.href = (data.data && data.data.next_url) || window.location.href;
+                                    }
+                                });
+                            })
+                            .catch(function (error) {
+                                showAccountActionStatus({
+                                    state: 'error',
+                                    title: {{ \Illuminate\Support\Js::from(__('Prefill failed')) }},
+                                    text: error.message || {{ \Illuminate\Support\Js::from(__('We could not prefill your profile from the current CV.')) }},
+                                });
+                            })
+                            .finally(function () {
+                                prefillProfileConfirmBtn.disabled = false;
+                                button.disabled = false;
+                            });
+                    });
+                })();
             });
         });
     </script>

@@ -96,7 +96,7 @@ class AutoApplyOrderBackfillService
         }
 
         foreach ($jobs as $job) {
-            $alreadyProcessed = $this->autoApplyService->hasAlreadyApplied($account->id, $job->id);
+            $alreadyProcessed = $this->autoApplyService->hasAlreadyAppliedForJob($account->id, $job);
             $result = $this->autoApplyService->queueAutoApplyJob($account, $job, $threshold, $alreadyProcessed);
 
             if (($result['status'] ?? null) === 'already_processed') {
